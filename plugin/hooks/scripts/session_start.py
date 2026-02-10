@@ -2,18 +2,23 @@
 """SessionStart / PreCompact hook for Memorable.
 
 Reads deployed seed files (user.md, agent.md) and any enabled context files
-from ~/.memorable/data/seeds/. Outputs system reminder text that
-Claude will receive at session start or after context compaction.
+from ~/.memorable/data/seeds/. Also loads semantic memory files from
+~/.memorable/data/files/ at the configured anchor depth.
+
+Outputs system reminder text that Claude will receive at session start
+or after context compaction.
 
 Respects a configurable token budget (rough estimate: 4 chars ~ 1 token).
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
 BASE_DIR = Path.home() / ".memorable"
 DEPLOYED_DIR = BASE_DIR / "data" / "seeds"
+FILES_DIR = BASE_DIR / "data" / "files"
 CONFIG_PATH = BASE_DIR / "data" / "config.json"
 
 # Rough chars-per-token estimate for budget enforcement
@@ -45,11 +50,84 @@ def read_deployed_file(name: str) -> str | None:
     return None
 
 
+def _extract_at_depth(anchored_text: str, max_depth: int) -> str:
+    """Extract content from anchored text up to max_depth level.
+
+    Self-contained — no imports from processor (hooks must be standalone).
+    Parses 🌱N️⃣...🌱 format.
+    """
+    if max_depth < 0:
+        return anchored_text
+
+    seed = "🌱"
+    pattern = re.compile(seed + r"([0-3]\ufe0f\u20e3)?")
+
+    result = []
+    pos = 0
+    depth_stack = []
+
+    for match in pattern.finditer(anchored_text):
+        level_str = match.group(1)
+        start = match.start()
+        end = match.end()
+
+        if level_str:
+            level = int(level_str[0])
+            if depth_stack and depth_stack[-1] <= max_depth:
+                result.append(anchored_text[pos:start])
+            depth_stack.append(level)
+            pos = end
+        else:
+            if depth_stack:
+                if depth_stack[-1] <= max_depth:
+                    result.append(anchored_text[pos:start])
+                depth_stack.pop()
+            pos = end
+
+    if depth_stack and depth_stack[-1] <= max_depth:
+        result.append(anchored_text[pos:])
+
+    text = "".join(result).strip()
+    text = re.sub(r" {2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text
+
+
+def _format_context_block(filename: str, depth: int, content: str,
+                          tokens_by_depth: dict | None = None) -> str:
+    """Format a semantic file as a self-describing context block.
+
+    Every document becomes its own instruction manual — Claude reads the block
+    and immediately knows what the document is, how much more detail is available,
+    and exactly how to load more.
+    """
+    max_depth = 3 if tokens_by_depth else depth
+
+    depth_parts = []
+    if tokens_by_depth:
+        depth_labels = {0: "fingerprint", 1: "core", 2: "detail", 3: "complete"}
+        for d in range(4):
+            key = str(d)
+            if key in tokens_by_depth and d > depth:
+                label = depth_labels.get(d, f"depth {d}")
+                depth_parts.append(f"{d} ({label}, ~{tokens_by_depth[key]} tokens)")
+        if "full" in tokens_by_depth:
+            depth_parts.append(f"full (~{tokens_by_depth['full']} tokens)")
+
+    lines = [f"[Semantic: {filename} (depth {depth}/{max_depth})]"]
+    lines.append(content)
+    if depth_parts:
+        lines.append(f"Available depths: {', '.join(depth_parts)}")
+    lines.append(f"Full document: ~/.memorable/data/files/{filename}")
+
+    return "\n".join(lines)
+
+
 def collect_context_files(config: dict) -> list[tuple[str, str]]:
     """Collect all enabled context files in priority order.
 
     Returns list of (label, content) tuples.
-    Priority: user.md > agent.md > additional context files by config order.
+    Priority: user.md > agent.md > seed context files > semantic files.
     """
     files = []
 
@@ -62,7 +140,7 @@ def collect_context_files(config: dict) -> list[tuple[str, str]]:
     if agent_content:
         files.append(("Agent configuration", agent_content))
 
-    # Additional context files (from config)
+    # Additional context files from config
     context_files = config.get("context_files", [])
     for entry in context_files:
         if not entry.get("enabled", True):
@@ -70,6 +148,43 @@ def collect_context_files(config: dict) -> list[tuple[str, str]]:
         filename = entry.get("filename", "")
         if not filename:
             continue
+
+        depth = entry.get("depth")
+
+        # Try semantic file (from files dir) first
+        raw_path = FILES_DIR / filename
+        anchored_path = FILES_DIR / (filename + ".anchored")
+
+        if raw_path.is_file():
+            # This is a semantic memory file — format as self-describing block
+            if depth is not None and depth >= 0 and anchored_path.is_file():
+                try:
+                    anch_text = anchored_path.read_text(encoding="utf-8")
+                    content = _extract_at_depth(anch_text, depth)
+
+                    # Compute token counts at each depth for the metadata
+                    tokens_by_depth = {}
+                    for d in range(4):
+                        extracted = _extract_at_depth(anch_text, d)
+                        tokens_by_depth[str(d)] = estimate_tokens(extracted)
+                    tokens_by_depth["full"] = estimate_tokens(
+                        raw_path.read_text(encoding="utf-8")
+                    )
+
+                    # Format as self-describing context block
+                    block = _format_context_block(
+                        filename, depth, content, tokens_by_depth
+                    )
+                    files.append((None, block))  # None label = raw block, no ## header
+                except Exception:
+                    content = raw_path.read_text(encoding="utf-8").strip()
+                    files.append((f"Semantic: {filename}", content))
+            else:
+                content = raw_path.read_text(encoding="utf-8").strip()
+                files.append((f"Semantic: {filename}", content))
+            continue
+
+        # Fall back to seed file
         content = read_deployed_file(filename)
         if content:
             label = entry.get("label", filename)
@@ -97,14 +212,19 @@ def build_output(config: dict, is_compact: bool) -> str:
     used = len(header)
 
     for label, content in files:
-        section = f"## {label}\n\n{content}\n\n"
+        if label is None:
+            # Raw block (self-describing semantic file) — no ## header
+            section = f"{content}\n\n"
+        else:
+            section = f"## {label}\n\n{content}\n\n"
         section_chars = len(section)
 
         if used + section_chars > max_chars:
             # Budget exceeded — truncate this section
-            remaining = max_chars - used - len(f"## {label}\n\n") - len("\n\n[truncated — budget limit reached]\n\n")
+            hdr = f"## {label}\n\n" if label else ""
+            remaining = max_chars - used - len(hdr) - len("\n\n[truncated — budget limit reached]\n\n")
             if remaining > 100:
-                parts.append(f"## {label}\n\n{content[:remaining]}\n\n[truncated — budget limit reached]\n\n")
+                parts.append(f"{hdr}{content[:remaining]}\n\n[truncated — budget limit reached]\n\n")
             break
         else:
             parts.append(section)

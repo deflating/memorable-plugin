@@ -1,17 +1,290 @@
 """
-Core weighted anchor processor.
+Anchor processor for Semantic Memory.
 
-Takes markdown/text documents and produces layered output with weighted anchors.
-Pure mechanical extraction — no LLM calls.
+Processes documents through an LLM to create tiered anchors using 🌱 emoji format.
+Falls back to mechanical (heuristic) processing if no LLM is available.
 
-Levels:
-  1 (highest): title, H1, first paragraph after headings, bold text
-  2 (medium):  H2/H3, list items, definitions (lines with ":" or "—")
-  3 (full):    everything else
+Anchor levels (cumulative):
+  0: Fingerprint — tags + one-line summary. Always loaded.
+  1: Core ideas — the abstract.
+  2: Supporting detail — arguments, examples, mechanisms.
+  3: Everything worth keeping — near-complete minus filler.
+  full: Raw unprocessed document.
 """
 
+import json
+import os
 import re
-from dataclasses import dataclass, field
+import time
+import urllib.request
+import urllib.error
+from dataclasses import dataclass
+from pathlib import Path
+
+# -- Paths -----------------------------------------------------------------
+
+DATA_DIR = Path.home() / ".memorable" / "data"
+FILES_DIR = DATA_DIR / "files"
+# LLM config lives in the old config location (where the API key is stored)
+LLM_CONFIG_PATH = Path.home() / ".memorable" / "config.json"
+ERROR_LOG = Path.home() / ".memorable" / "hook-errors.log"
+
+CHARS_PER_TOKEN = 4
+
+# -- Anchor format constants -----------------------------------------------
+
+SEED = "🌱"
+LEVEL_TAGS = {
+    0: "0️⃣",
+    1: "1️⃣",
+    2: "2️⃣",
+    3: "3️⃣",
+}
+
+# Regex: match 🌱 optionally followed by a level indicator (digit + variation selector + keycap)
+_ANCHOR_RE = re.compile(SEED + r"([0-3]\ufe0f\u20e3)?")
+
+
+# -- LLM Prompt ------------------------------------------------------------
+
+ANCHOR_PROMPT = """You are processing a document into a tiered anchor format for a memory system.
+
+Use 🌱 emoji delimiters to mark content at different importance levels:
+- 🌱0️⃣ ... 🌱 = Fingerprint. Two lines: first line is comma-separated topic tags, second line is a one-sentence summary describing what this document is about. Always loaded, minimal tokens.
+- 🌱1️⃣ ... 🌱 = Core ideas. The abstract — what you'd tell someone in 30 seconds.
+- 🌱2️⃣ ... 🌱 = Supporting detail. Key arguments, examples, mechanisms.
+- 🌱3️⃣ ... 🌱 = Deep detail. Everything worth preserving minus filler.
+
+🌱 alone (no number) is the CLOSING tag. Every opening 🌱N️⃣ must have a matching 🌱 close.
+
+Rules:
+1. First line of output must be 🌱0️⃣ fingerprint with tags on one line, then summary on the next
+2. Levels are cumulative and nested: 🌱1️⃣ blocks may contain 🌱2️⃣ which may contain 🌱3️⃣
+3. Preserve the author's words — compress, don't paraphrase
+4. Strip boilerplate and filler
+5. Level 1 should be readable as a standalone summary
+
+Example output:
+🌱0️⃣ memory-systems, extended-mind, cognitive-extension
+External memory systems serve as genuine cognitive extensions through environmental coupling, offloading, and distributed processing. 🌱
+🌱1️⃣ External memory systems function as genuine cognitive extensions, not just storage. They change how we think, not just what we remember. 🌱2️⃣ Three mechanisms: environmental coupling, cognitive offloading, distributed processing. 🌱3️⃣ Environmental coupling: spatial arrangements serve as retrieval cues — 40% recall improvement when spatially organized vs listed. 🌱 🌱 🌱
+🌱1️⃣ Design implication: systems should support relational organization, not just search. 🌱2️⃣ Three principles: proximity, salience, decay. 🌱 🌱
+
+Filename: {filename}
+
+{document_text}
+
+Output the anchored version. Start with 🌱0️⃣. No preamble."""
+
+
+# -- Utility ---------------------------------------------------------------
+
+
+def log_error(msg: str):
+    try:
+        with open(ERROR_LOG, "a") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] anchor: {msg}\n")
+    except Exception:
+        pass
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough token estimate: chars / 4."""
+    return len(text) // CHARS_PER_TOKEN
+
+
+def _load_llm_config() -> dict:
+    """Load LLM config from ~/.memorable/config.json."""
+    try:
+        if LLM_CONFIG_PATH.exists():
+            return json.loads(LLM_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+# -- LLM callers (copied from note_generator.py) --------------------------
+
+
+def _call_deepseek(prompt: str, api_key: str, model: str = "deepseek-chat",
+                   max_tokens: int = 4096) -> str:
+    url = "https://api.deepseek.com/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    body = json.dumps({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.3,
+        "max_tokens": max_tokens,
+    }).encode()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read().decode())
+    return data["choices"][0]["message"]["content"]
+
+
+def _call_gemini(prompt: str, api_key: str, model: str = "gemini-2.5-flash",
+                 max_tokens: int = 4096) -> str:
+    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+           f"{model}:generateContent?key={api_key}")
+    headers = {"Content-Type": "application/json"}
+    body = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": max_tokens},
+    }).encode()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read().decode())
+    return data["candidates"][0]["content"]["parts"][0]["text"]
+
+
+def _call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5-20251001",
+                 max_tokens: int = 4096) -> str:
+    url = "https://api.anthropic.com/v1/messages"
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+    }
+    body = json.dumps({
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode()
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read().decode())
+    return data["content"][0]["text"]
+
+
+def call_llm(prompt: str, max_tokens: int = 4096) -> str:
+    """Call the configured LLM provider. Reads config from ~/.memorable/config.json."""
+    cfg = _load_llm_config()
+    summarizer = cfg.get("summarizer", {})
+    provider = summarizer.get("provider", "deepseek")
+    model = summarizer.get("model")
+    api_key = summarizer.get("api_key", "")
+
+    if not api_key:
+        if provider == "deepseek":
+            api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+        elif provider == "gemini":
+            api_key = (os.environ.get("GOOGLE_AI_API_KEY", "")
+                       or os.environ.get("GEMINI_API_KEY", ""))
+        elif provider == "claude":
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+
+    if not api_key:
+        raise ValueError(
+            f"No API key for '{provider}'. Set summarizer.api_key in "
+            f"~/.memorable/config.json or use an environment variable."
+        )
+
+    if provider == "deepseek":
+        return _call_deepseek(prompt, api_key, model or "deepseek-chat", max_tokens)
+    elif provider == "gemini":
+        return _call_gemini(prompt, api_key, model or "gemini-2.5-flash", max_tokens)
+    elif provider == "claude":
+        return _call_claude(prompt, api_key, model or "claude-haiku-4-5-20251001", max_tokens)
+    else:
+        raise ValueError(f"Unknown provider: {provider}")
+
+
+# -- Extraction (reading anchored content) ---------------------------------
+
+
+def extract_at_depth(anchored_text: str, max_depth: int) -> str:
+    """Extract content from an anchored document up to max_depth.
+
+    Depth semantics (cumulative):
+      -1 or "full" → return raw unprocessed text
+       0 → only 🌱0️⃣ content (fingerprint)
+       1 → 0 + 1 (core ideas)
+       2 → 0 + 1 + 2 (supporting detail)
+       3 → 0 + 1 + 2 + 3 (everything anchored)
+
+    Returns extracted text with anchor markers stripped.
+    """
+    if max_depth < 0:
+        return anchored_text
+
+    result = []
+    pos = 0
+    depth_stack = []
+
+    for match in _ANCHOR_RE.finditer(anchored_text):
+        level_str = match.group(1)
+        start = match.start()
+        end = match.end()
+
+        if level_str:
+            # Opening tag — extract the digit
+            level = int(level_str[0])
+            # Capture text before this tag if we're at an included depth
+            if depth_stack and depth_stack[-1] <= max_depth:
+                result.append(anchored_text[pos:start])
+            elif not depth_stack and pos == 0:
+                # Text before any anchor — include it
+                before = anchored_text[:start].strip()
+                if before:
+                    result.append(before + " ")
+            depth_stack.append(level)
+            pos = end
+        else:
+            # Closing tag (bare 🌱)
+            if depth_stack:
+                if depth_stack[-1] <= max_depth:
+                    result.append(anchored_text[pos:start])
+                depth_stack.pop()
+            pos = end
+
+    # Capture trailing text
+    if depth_stack and depth_stack[-1] <= max_depth:
+        result.append(anchored_text[pos:])
+    elif not depth_stack:
+        trailing = anchored_text[pos:].strip()
+        if trailing:
+            result.append(trailing)
+
+    text = "".join(result).strip()
+    # Clean up whitespace: collapse multiple spaces/newlines
+    text = re.sub(r" {2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text
+
+
+def validate_anchored(text: str) -> bool:
+    """Check that anchored text has at least one 🌱0️⃣ tag."""
+    return SEED + LEVEL_TAGS[0] in text
+
+
+# -- LLM Processing --------------------------------------------------------
+
+
+def process_document_llm(text: str, filename: str) -> str:
+    """Process a document through the configured LLM to create anchors.
+
+    Returns the anchored text in 🌱 format.
+    """
+    # Dynamic max_tokens: 1.5x input tokens, floor 4096, cap 16384
+    input_tokens = estimate_tokens(text)
+    max_tokens = min(16384, max(4096, int(input_tokens * 1.5)))
+
+    # Build prompt — truncate very long documents to stay within context window
+    prompt = ANCHOR_PROMPT.replace("{filename}", filename).replace("{document_text}", text)
+    if len(prompt) > 120_000:
+        # Truncate document, keeping first and last portions
+        max_doc = 100_000
+        half = max_doc // 2
+        truncated = text[:half] + "\n\n[...middle truncated for processing...]\n\n" + text[-half:]
+        prompt = ANCHOR_PROMPT.replace("{filename}", filename).replace("{document_text}", truncated)
+
+    return call_llm(prompt, max_tokens)
+
+
+# -- Mechanical Fallback ---------------------------------------------------
 
 
 @dataclass
@@ -21,7 +294,6 @@ class AnnotatedLine:
 
 
 def _is_heading(line: str) -> int:
-    """Return heading level (1-6) or 0 if not a heading."""
     stripped = line.strip()
     if not stripped.startswith("#"):
         return 0
@@ -34,176 +306,265 @@ def _is_list_item(line: str) -> bool:
     return bool(re.match(r"^[-*+]\s", stripped) or re.match(r"^\d+[.)]\s", stripped))
 
 
-def _is_definition(line: str) -> bool:
-    """Lines containing ':' or '—' that look like definitions."""
-    stripped = line.strip()
-    if not stripped:
-        return False
-    # Must have content on both sides of the separator
-    if re.search(r"\w\s*[:\u2014]\s+\w", stripped):
-        # Exclude lines that are just URLs or code
-        if stripped.startswith("http") or stripped.startswith("```"):
-            return False
-        return True
-    return False
-
-
 def _has_bold(line: str) -> bool:
     return bool(re.search(r"\*\*[^*]+\*\*", line))
-
-
-def _is_code_fence(line: str) -> bool:
-    return line.strip().startswith("```")
 
 
 def _is_blank(line: str) -> bool:
     return line.strip() == ""
 
 
-def _extract_bold_segments(line: str) -> str:
-    """Extract just the bold segments from a line."""
-    matches = re.findall(r"\*\*([^*]+)\*\*", line)
-    return " | ".join(matches) if matches else line
+def _is_code_fence(line: str) -> bool:
+    return line.strip().startswith("```")
 
 
-def process_document(text: str) -> list[AnnotatedLine]:
-    """Process a document into annotated lines with weight levels.
+def process_document_mechanical(text: str) -> str:
+    """Fallback: mechanical anchor processing using document structure.
 
-    Returns a list of AnnotatedLine objects, each with the original text
-    and an assigned priority level (1, 2, or 3).
+    Maps the old 3-level system (1=highest, 2=medium, 3=full) to 🌱 format:
+      Old level 1 (title, H1, first para, bold) → 🌱1️⃣
+      Old level 2 (H2+, lists, definitions)     → 🌱2️⃣
+      Old level 3 (everything else)              → 🌱3️⃣
+    Plus a generated 🌱0️⃣ fingerprint line.
     """
     lines = text.split("\n")
-    result: list[AnnotatedLine] = []
+    parts = []
+
+    # Generate fingerprint (🌱0️⃣)
+    first_heading = ""
+    tags = []
+    for line in lines:
+        h = _is_heading(line)
+        if h > 0:
+            heading_text = line.strip().lstrip("#").strip()
+            if not first_heading:
+                first_heading = heading_text
+            tags.append(heading_text.lower().replace(" ", "-"))
+
+    tags = tags[:5]
+    tag_str = ", ".join(tags) if tags else "untagged"
+    summary = first_heading or text.split("\n")[0].strip()[:80]
+    parts.append(f"{SEED}{LEVEL_TAGS[0]} {tag_str} | {summary} {SEED}\n")
+
+    # Process the rest using heuristics
     in_code_block = False
-    after_heading = False  # next non-blank paragraph is level 1
+    after_heading = False
     first_line = True
 
-    for i, line in enumerate(lines):
-        # Track code blocks
+    for line in lines:
         if _is_code_fence(line):
             in_code_block = not in_code_block
-            result.append(AnnotatedLine(line, 3))
+            parts.append(f"{SEED}{LEVEL_TAGS[3]} {line} {SEED} ")
             continue
-
         if in_code_block:
-            result.append(AnnotatedLine(line, 3))
+            parts.append(f"{SEED}{LEVEL_TAGS[3]} {line} {SEED} ")
+            continue
+        if _is_blank(line):
+            parts.append("\n")
             continue
 
         heading_level = _is_heading(line)
 
-        # Blank lines
-        if _is_blank(line):
-            result.append(AnnotatedLine(line, 3))
-            continue
-
-        # Title / H1 — level 1
-        if heading_level == 1 or (first_line and not _is_blank(line) and heading_level == 0):
-            result.append(AnnotatedLine(line, 1))
+        if heading_level == 1 or (first_line and heading_level == 0):
+            parts.append(f"{SEED}{LEVEL_TAGS[1]} {line.strip()} ")
             after_heading = True
             first_line = False
             continue
 
         first_line = False
 
-        # H2/H3 — level 2
-        if heading_level in (2, 3):
-            result.append(AnnotatedLine(line, 2))
+        if heading_level >= 2:
+            # Close previous if needed
+            parts.append(f"{SEED} {SEED}{LEVEL_TAGS[1]} {line.strip()} ")
             after_heading = True
             continue
 
-        # H4+ — level 2 (still structural)
-        if heading_level >= 4:
-            result.append(AnnotatedLine(line, 2))
-            after_heading = True
-            continue
-
-        # First paragraph after any heading — level 1 (topic sentence)
-        if after_heading and not _is_blank(line):
-            result.append(AnnotatedLine(line, 1))
+        if after_heading:
+            parts.append(f"{line.strip()} ")
             after_heading = False
             continue
 
-        # Bold text — level 1
         if _has_bold(line):
-            result.append(AnnotatedLine(line, 1))
+            parts.append(f"{SEED}{LEVEL_TAGS[2]} {line.strip()} {SEED} ")
             continue
 
-        # List items — level 2
         if _is_list_item(line):
-            result.append(AnnotatedLine(line, 2))
+            parts.append(f"{SEED}{LEVEL_TAGS[2]} {line.strip()} {SEED} ")
             continue
 
-        # Definitions — level 2
-        if _is_definition(line):
-            result.append(AnnotatedLine(line, 2))
-            continue
+        parts.append(f"{SEED}{LEVEL_TAGS[3]} {line.strip()} {SEED} ")
 
-        # Everything else — level 3
-        result.append(AnnotatedLine(line, 3))
+    # Close any open tags
+    parts.append(SEED)
 
-    return result
+    return "".join(parts)
 
 
-def annotate_document(text: str) -> str:
-    """Return the full document with <!-- anchor:N --> annotations."""
-    annotated = process_document(text)
-    output_lines = []
-    for item in annotated:
-        if not _is_blank(item.text):
-            output_lines.append(f"<!-- anchor:{item.level} -->{item.text}")
-        else:
-            output_lines.append(item.text)
-    return "\n".join(output_lines)
+# -- High-level API --------------------------------------------------------
 
 
-def extract_level(text: str, max_level: int) -> str:
-    """Extract content up to and including the given level.
+def process_file(filename: str, force: bool = False) -> dict:
+    """Process a file in FILES_DIR, creating {filename}.anchored.
 
-    max_level=1: level 1 only (highest priority)
-    max_level=2: levels 1 + 2
-    max_level=3: everything (full document)
+    Returns:
+        {
+            "status": "ok" | "error" | "skipped",
+            "method": "llm" | "mechanical" | None,
+            "tokens_by_depth": {0: N, 1: N, 2: N, 3: N, "full": N} | None,
+            "error": str | None,
+        }
     """
-    annotated = process_document(text)
-    output_lines = []
-    prev_was_blank = False
+    raw_path = FILES_DIR / filename
+    anchored_path = FILES_DIR / (filename + ".anchored")
 
-    for item in annotated:
-        if item.level <= max_level:
-            # Collapse multiple blank lines
-            if _is_blank(item.text):
-                if not prev_was_blank:
-                    output_lines.append("")
-                prev_was_blank = True
-            else:
-                output_lines.append(item.text)
-                prev_was_blank = False
+    if not raw_path.is_file():
+        return {"status": "error", "method": None,
+                "tokens_by_depth": None, "error": "File not found"}
 
-    # Strip trailing blank lines
-    while output_lines and output_lines[-1] == "":
-        output_lines.pop()
+    if anchored_path.exists() and not force:
+        return {"status": "skipped", "method": None,
+                "tokens_by_depth": None, "error": None}
 
-    return "\n".join(output_lines)
+    try:
+        text = raw_path.read_text(encoding="utf-8")
+    except Exception as e:
+        return {"status": "error", "method": None,
+                "tokens_by_depth": None, "error": f"Read error: {e}"}
 
+    method = "llm"
+    try:
+        anchored = process_document_llm(text, filename)
+        if not validate_anchored(anchored):
+            raise ValueError("LLM output missing 🌱0️⃣ fingerprint — falling back")
+    except Exception as e:
+        log_error(f"LLM failed for {filename}: {e}")
+        method = "mechanical"
+        try:
+            anchored = process_document_mechanical(text)
+        except Exception as e2:
+            log_error(f"Mechanical also failed for {filename}: {e2}")
+            return {"status": "error", "method": None,
+                    "tokens_by_depth": None, "error": str(e)}
 
-def estimate_tokens(text: str) -> int:
-    """Rough token estimate: chars / 4."""
-    return len(text) // 4
+    # Save anchored output
+    anchored_path.write_text(anchored, encoding="utf-8")
 
-
-def process_full(text: str) -> dict:
-    """Process a document and return all levels plus token counts."""
-    level1 = extract_level(text, 1)
-    level2 = extract_level(text, 2)
-    full = extract_level(text, 3)
-    annotated = annotate_document(text)
+    # Calculate token counts at each depth
+    tokens_by_depth = {}
+    for depth in range(4):
+        extracted = extract_at_depth(anchored, depth)
+        tokens_by_depth[depth] = estimate_tokens(extracted)
+    tokens_by_depth["full"] = estimate_tokens(text)
 
     return {
-        "original_tokens": estimate_tokens(text),
-        "level1_tokens": estimate_tokens(level1),
-        "level2_tokens": estimate_tokens(level2),
-        "full_tokens": estimate_tokens(full),
-        "level1_content": level1,
-        "level2_content": level2,
-        "full_content": full,
-        "annotated_content": annotated,
+        "status": "ok",
+        "method": method,
+        "tokens_by_depth": tokens_by_depth,
+        "error": None,
     }
+
+
+def get_file_info(filename: str) -> dict | None:
+    """Return metadata about a file including anchor status."""
+    raw_path = FILES_DIR / filename
+    if not raw_path.is_file():
+        return None
+
+    anchored_path = FILES_DIR / (filename + ".anchored")
+    is_anchored = anchored_path.is_file()
+
+    try:
+        stat = raw_path.stat()
+        content = raw_path.read_text(encoding="utf-8")
+        tokens_full = estimate_tokens(content)
+    except Exception:
+        return None
+
+    tokens_by_depth = None
+    if is_anchored:
+        try:
+            anchored_text = anchored_path.read_text(encoding="utf-8")
+            tokens_by_depth = {}
+            for depth in range(4):
+                extracted = extract_at_depth(anchored_text, depth)
+                tokens_by_depth[depth] = estimate_tokens(extracted)
+        except Exception:
+            pass
+
+    from datetime import datetime, timezone
+    return {
+        "name": filename,
+        "size": stat.st_size,
+        "tokens": tokens_full,
+        "tokens_by_depth": tokens_by_depth,
+        "anchored": is_anchored,
+        "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+    }
+
+
+def read_file_at_depth(filename: str, depth: int) -> str | None:
+    """Read a file at the specified depth.
+
+    If depth == -1 or no .anchored file exists, returns the raw file.
+    Otherwise extracts anchored content at the given depth.
+    """
+    raw_path = FILES_DIR / filename
+    anchored_path = FILES_DIR / (filename + ".anchored")
+
+    if depth < 0 or not anchored_path.is_file():
+        if raw_path.is_file():
+            return raw_path.read_text(encoding="utf-8")
+        return None
+
+    try:
+        anchored_text = anchored_path.read_text(encoding="utf-8")
+        return extract_at_depth(anchored_text, depth)
+    except Exception:
+        if raw_path.is_file():
+            return raw_path.read_text(encoding="utf-8")
+        return None
+
+
+def format_context_block(filename: str, depth: int, content: str,
+                         tokens_by_depth: dict | None = None) -> str:
+    """Format a semantic file for injection into Claude's context.
+
+    Wraps the extracted content with a self-describing header that tells
+    Claude what the document is, what depth it's loaded at, what other
+    depths are available, and how to load more.
+
+    Each document becomes its own instruction manual.
+    """
+    max_depth = 3 if tokens_by_depth else depth
+
+    # Build available depths line
+    depth_parts = []
+    if tokens_by_depth:
+        depth_labels = {0: "fingerprint", 1: "core", 2: "detail", 3: "complete"}
+        for d in range(4):
+            key = str(d) if str(d) in tokens_by_depth else d
+            if key in tokens_by_depth and d > depth:
+                label = depth_labels.get(d, f"depth {d}")
+                depth_parts.append(f"{d} ({label}, ~{tokens_by_depth[key]} tokens)")
+
+    # Build the raw file token count
+    raw_path = FILES_DIR / filename
+    full_tokens = None
+    if raw_path.is_file():
+        try:
+            full_tokens = estimate_tokens(raw_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    if full_tokens and (not tokens_by_depth or "full" not in tokens_by_depth):
+        depth_parts.append(f"full (~{full_tokens} tokens)")
+    elif tokens_by_depth and "full" in tokens_by_depth:
+        depth_parts.append(f"full (~{tokens_by_depth['full']} tokens)")
+
+    # Format the block
+    lines = [f"[Semantic: {filename} (depth {depth}/{max_depth})]"]
+    lines.append(content)
+    if depth_parts:
+        lines.append(f"Available depths: {', '.join(depth_parts)}")
+    lines.append(f"Full document: ~/.memorable/data/files/{filename}")
+
+    return "\n".join(lines)

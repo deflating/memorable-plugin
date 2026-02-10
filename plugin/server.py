@@ -16,7 +16,18 @@ import uuid
 from datetime import datetime, timezone
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, unquote
+
+# -- Processor import (for anchor processing) ------------------------------
+
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from processor.anchor import (
+    extract_at_depth as _extract_at_depth,
+    process_file as _process_file,
+    read_file_at_depth as _read_file_at_depth,
+    estimate_tokens as _anchor_estimate_tokens,
+)
 
 # -- Paths -----------------------------------------------------------------
 
@@ -455,24 +466,49 @@ def handle_get_status():
 
 
 def handle_get_files():
-    """GET /api/files — list uploaded context files with metadata."""
+    """GET /api/files — list uploaded context files with metadata + anchor info."""
     files = []
     if not FILES_DIR.is_dir():
         return 200, {"files": files}
 
+    config = load_config()
+    context_files = {
+        cf.get("filename"): cf
+        for cf in config.get("context_files", [])
+    }
+
     for f in sorted(FILES_DIR.iterdir()):
         if not f.is_file():
             continue
+        # Skip .anchored companion files
+        if f.name.endswith(".anchored"):
+            continue
         try:
             stat = f.stat()
-            content = ""
             tokens = 0
-            # Only estimate tokens for text files
             try:
                 content = f.read_text(encoding="utf-8")
                 tokens = estimate_tokens(content)
             except (UnicodeDecodeError, Exception):
                 pass
+
+            anchored_path = FILES_DIR / (f.name + ".anchored")
+            is_anchored = anchored_path.is_file()
+
+            # Token counts at each depth if anchored
+            tokens_by_depth = None
+            if is_anchored:
+                try:
+                    anch_text = anchored_path.read_text(encoding="utf-8")
+                    tokens_by_depth = {}
+                    for d in range(4):
+                        extracted = _extract_at_depth(anch_text, d)
+                        tokens_by_depth[str(d)] = _anchor_estimate_tokens(extracted)
+                except Exception:
+                    pass
+
+            # Config for this file
+            cf = context_files.get(f.name, {})
 
             files.append({
                 "name": f.name,
@@ -481,6 +517,10 @@ def handle_get_files():
                 "modified": datetime.fromtimestamp(
                     stat.st_mtime, tz=timezone.utc
                 ).isoformat(),
+                "anchored": is_anchored,
+                "tokens_by_depth": tokens_by_depth,
+                "depth": cf.get("depth", 1),
+                "enabled": cf.get("enabled", False),
             })
         except Exception:
             continue
@@ -562,6 +602,75 @@ def handle_post_file_upload(handler):
             "size": len(raw),
             "tokens": tokens,
         }
+
+
+# -- Anchor processing endpoints -------------------------------------------
+
+
+def handle_process_file(filename: str):
+    """POST /api/files/<filename>/process — trigger LLM anchor processing."""
+    safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
+    if not safe:
+        return 400, {"error": "Invalid filename"}
+
+    result = _process_file(safe, force=True)
+    return 200, result
+
+
+def handle_preview_file(filename: str, query_params: dict):
+    """GET /api/files/<filename>/preview — preview at a depth."""
+    safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
+    if not safe:
+        return 400, {"error": "Invalid filename"}
+
+    depth_str = query_params.get("depth", ["1"])[0]
+    try:
+        depth = int(depth_str)
+    except ValueError:
+        depth = -1 if depth_str == "full" else 1
+
+    content = _read_file_at_depth(safe, depth)
+    if content is None:
+        return 404, {"error": "File not found"}
+
+    return 200, {
+        "content": content,
+        "tokens": estimate_tokens(content),
+        "depth": depth,
+    }
+
+
+def handle_put_file_depth(filename: str, body: dict):
+    """PUT /api/files/<filename>/depth — set loading depth + enabled."""
+    safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
+    if not safe:
+        return 400, {"error": "Invalid filename"}
+
+    depth = body.get("depth", 1)
+    enabled = body.get("enabled", True)
+
+    config = load_config()
+    context_files = config.get("context_files", [])
+
+    # Update or insert
+    found = False
+    for cf in context_files:
+        if cf.get("filename") == safe:
+            cf["depth"] = depth
+            cf["enabled"] = enabled
+            found = True
+            break
+    if not found:
+        context_files.append({
+            "filename": safe,
+            "depth": depth,
+            "enabled": enabled,
+        })
+
+    config["context_files"] = context_files
+    save_config(config)
+
+    return 200, {"ok": True, "filename": safe, "depth": depth, "enabled": enabled}
 
 
 # -- Legacy endpoints ------------------------------------------------------
@@ -777,7 +886,7 @@ class MemorableHandler(SimpleHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Filename")
         self.end_headers()
 
@@ -836,6 +945,12 @@ class MemorableHandler(SimpleHTTPRequestHandler):
             status, data = handle_get_files()
             return self.send_json(status, data)
 
+        # GET /api/files/<filename>/preview?depth=N
+        if path.startswith("/api/files/") and path.endswith("/preview"):
+            filename = unquote(path[len("/api/files/"):-len("/preview")])
+            status, data = handle_preview_file(filename, query_params)
+            return self.send_json(status, data)
+
         if path == "/api/config":
             status, data = handle_get_config()
             return self.send_json(status, data)
@@ -853,6 +968,12 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/files/upload":
             status, data = handle_post_file_upload(self)
+            return self.send_json(status, data)
+
+        # POST /api/files/<filename>/process
+        if path.startswith("/api/files/") and path.endswith("/process"):
+            filename = unquote(path[len("/api/files/"):-len("/process")])
+            status, data = handle_process_file(filename)
             return self.send_json(status, data)
 
         # For all other POST endpoints, read JSON body
@@ -880,12 +1001,25 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
         self.send_json(404, {"error": "Not found"})
 
+    def do_PUT(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        body = self.read_body()
+
+        # PUT /api/files/<filename>/depth
+        if path.startswith("/api/files/") and path.endswith("/depth"):
+            filename = unquote(path[len("/api/files/"):-len("/depth")])
+            status, data = handle_put_file_depth(filename, body)
+            return self.send_json(status, data)
+
+        self.send_json(404, {"error": "Not found"})
+
     def do_DELETE(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
         if path.startswith("/api/files/"):
-            filename = path[len("/api/files/"):]
+            filename = unquote(path[len("/api/files/"):])
             if filename:
                 safe = "".join(
                     c for c in filename if c.isalnum() or c in "-_."
@@ -894,6 +1028,17 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                     file_path = FILES_DIR / safe
                     if file_path.is_file():
                         file_path.unlink()
+                        # Also delete .anchored companion
+                        anchored = FILES_DIR / (safe + ".anchored")
+                        if anchored.is_file():
+                            anchored.unlink()
+                        # Remove from context_files config
+                        config = load_config()
+                        cf = config.get("context_files", [])
+                        config["context_files"] = [
+                            f for f in cf if f.get("filename") != safe
+                        ]
+                        save_config(config)
                         return self.send_json(200, {"ok": True, "deleted": safe})
             return self.send_json(404, {"error": "File not found"})
 

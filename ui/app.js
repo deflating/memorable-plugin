@@ -1371,43 +1371,288 @@
   }
 
   async function renderSemanticMemory(container) {
-    const data = await apiFetch('/api/seeds');
-    const seedFiles = (data && data.files) ? data.files : {};
+    container.innerHTML = '<div style="padding:20px;color:var(--text-muted);">Loading files...</div>';
 
-    // Filter out now.md — show the identity/config seeds as read-only cards
+    // Fetch files and seeds in parallel
+    const [filesData, seedsData] = await Promise.all([
+      apiFetch('/api/files'),
+      apiFetch('/api/seeds'),
+    ]);
+
+    const files = (filesData && filesData.files) ? filesData.files : [];
+    const seedFiles = (seedsData && seedsData.files) ? seedsData.files : {};
     const seedNames = Object.keys(seedFiles).filter(n => n !== 'now.md').sort();
 
-    let cardsHtml = '';
+    // Identity files section (seeds)
+    let seedsHtml = '';
     if (seedNames.length > 0) {
-      cardsHtml = seedNames.map(name => {
-        const content = seedFiles[name] || '';
-        const preview = content.split('\n').slice(0, 6).join('\n');
-        const tokens = Math.ceil(content.length / 4);
-        return `
-          <div class="semantic-seed-card">
-            <div class="semantic-seed-header">
-              <span class="semantic-seed-name">${esc(name)}</span>
-              <span class="semantic-seed-tokens">${tokens} tokens</span>
-            </div>
-            <div class="semantic-seed-preview">${markdownToHtml(preview)}</div>
-            <button class="semantic-seed-configure-btn" onclick="window.memorableApp.navigateTo('configure')">Configure</button>
-          </div>
-        `;
-      }).join('');
+      seedsHtml = `
+        <div class="semantic-section-header">Identity Files</div>
+        <div class="semantic-seed-cards">
+          ${seedNames.map(name => {
+            const content = seedFiles[name] || '';
+            const preview = content.split('\n').slice(0, 6).join('\n');
+            const tokens = Math.ceil(content.length / 4);
+            return `
+              <div class="semantic-seed-card">
+                <div class="semantic-seed-header">
+                  <span class="semantic-seed-name">${esc(name)}</span>
+                  <span class="semantic-seed-tokens">${tokens} tokens</span>
+                </div>
+                <div class="semantic-seed-preview">${markdownToHtml(preview)}</div>
+                <button class="semantic-seed-configure-btn" onclick="window.memorableApp.navigateTo('configure')">Configure</button>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    // Upload zone
+    const uploadHtml = `
+      <div class="semantic-upload-zone" id="semantic-dropzone">
+        <div class="semantic-upload-icon">&#128196;</div>
+        <p>Drop a document here, or click to upload</p>
+        <p class="semantic-upload-hint">Markdown, plain text, or any text document</p>
+        <input type="file" id="semantic-file-input" accept=".md,.txt,.text,.markdown,.rst,.org" multiple style="display:none">
+      </div>
+    `;
+
+    // Files list
+    let filesHtml = '';
+    if (files.length > 0) {
+      filesHtml = `
+        <div class="semantic-section-header">Knowledge Documents</div>
+        <div class="semantic-files-list">
+          ${files.map(f => {
+            const statusClass = f.anchored ? 'status-anchored' : 'status-raw';
+            const statusText = f.anchored ? 'Anchored' : 'Raw';
+            const depthOptions = [0, 1, 2, 3].map(d =>
+              `<option value="${d}" ${f.depth === d ? 'selected' : ''}>Depth ${d}</option>`
+            ).join('') + `<option value="-1" ${f.depth === -1 ? 'selected' : ''}>Full</option>`;
+
+            let depthInfo = '';
+            if (f.tokens_by_depth) {
+              const tbd = f.tokens_by_depth;
+              depthInfo = `<div class="file-depth-info">Tokens: 0\u2192${tbd['0'] || '?'} &middot; 1\u2192${tbd['1'] || '?'} &middot; 2\u2192${tbd['2'] || '?'} &middot; 3\u2192${tbd['3'] || '?'}</div>`;
+            }
+
+            return `
+              <div class="file-card ${f.anchored ? 'file-card-anchored' : ''}" data-filename="${esc(f.name)}">
+                <div class="file-card-header">
+                  <div class="file-card-info">
+                    <span class="file-card-name">${esc(f.name)}</span>
+                    <span class="file-status ${statusClass}">${statusText}</span>
+                    <span class="file-card-meta">${f.tokens} tokens</span>
+                  </div>
+                  <div class="file-card-actions">
+                    ${!f.anchored ? `<button class="btn btn-primary btn-sm file-process-btn" data-filename="${esc(f.name)}">Process</button>` : ''}
+                    ${f.anchored ? `
+                      <select class="file-depth-select" data-filename="${esc(f.name)}">${depthOptions}</select>
+                      <label class="file-enabled-label">
+                        <input type="checkbox" class="file-enabled-toggle" data-filename="${esc(f.name)}" ${f.enabled ? 'checked' : ''}>
+                        Load
+                      </label>
+                    ` : ''}
+                    <button class="btn btn-ghost btn-sm file-delete-btn" data-filename="${esc(f.name)}">Delete</button>
+                  </div>
+                </div>
+                ${depthInfo}
+                <div class="file-card-body" id="file-body-${esc(f.name).replace(/\./g, '-')}"></div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    } else {
+      filesHtml = `
+        <div class="semantic-section-header">Knowledge Documents</div>
+        <div class="notes-empty" style="padding:24px;">
+          <div class="notes-empty-icon">&#128218;</div>
+          <h3>No documents yet</h3>
+          <p>Upload a document above to get started with Semantic Memory.</p>
+        </div>
+      `;
     }
 
     container.innerHTML = `
       <div class="semantic-memory-page">
         <div class="semantic-placeholder">
-          <p>Semantic memory stores persistent knowledge documents that are included in every session's context.</p>
+          <p>Upload knowledge documents. Process them with an LLM to create tiered anchors, then load them at the right depth during session start.</p>
         </div>
-        ${cardsHtml ? `<div class="semantic-seed-cards">${cardsHtml}</div>` : ''}
-        <div class="semantic-coming-soon">
-          <div class="notes-empty-icon">&#128218;</div>
-          <p>File uploads and knowledge management coming soon.</p>
-        </div>
+        ${uploadHtml}
+        ${seedsHtml}
+        ${filesHtml}
       </div>
     `;
+
+    // --- Event bindings ---
+
+    // Upload zone
+    const dropzone = document.getElementById('semantic-dropzone');
+    const fileInput = document.getElementById('semantic-file-input');
+
+    if (dropzone && fileInput) {
+      dropzone.addEventListener('click', () => fileInput.click());
+      dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+      dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('dragover');
+      });
+      dropzone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        await handleSemanticUpload(e.dataTransfer.files, container);
+      });
+      fileInput.addEventListener('change', async () => {
+        await handleSemanticUpload(fileInput.files, container);
+        fileInput.value = '';
+      });
+    }
+
+    // Process buttons
+    container.querySelectorAll('.file-process-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const filename = btn.dataset.filename;
+        btn.textContent = 'Processing...';
+        btn.disabled = true;
+        try {
+          const result = await apiFetch(`/api/files/${encodeURIComponent(filename)}/process`, {
+            method: 'POST',
+          });
+          if (result && result.status === 'ok') {
+            showToast(`Anchored ${filename} (${result.method})`, 'success');
+          } else {
+            showToast(`Processing issue: ${result && result.error || 'unknown'}`, 'error');
+          }
+          renderSemanticMemory(container);
+        } catch (err) {
+          showToast('Processing failed: ' + err.message, 'error');
+          btn.textContent = 'Process';
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Depth selectors
+    container.querySelectorAll('.file-depth-select').forEach(sel => {
+      sel.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const filename = sel.dataset.filename;
+        const depth = parseInt(sel.value);
+        const enabledToggle = container.querySelector(`.file-enabled-toggle[data-filename="${filename}"]`);
+        const enabled = enabledToggle ? enabledToggle.checked : false;
+        await apiFetch(`/api/files/${encodeURIComponent(filename)}/depth`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depth, enabled }),
+        });
+        showToast('Depth updated', 'success');
+      });
+    });
+
+    // Enabled toggles
+    container.querySelectorAll('.file-enabled-toggle').forEach(toggle => {
+      toggle.addEventListener('change', async (e) => {
+        e.stopPropagation();
+        const filename = toggle.dataset.filename;
+        const enabled = toggle.checked;
+        const depthSel = container.querySelector(`.file-depth-select[data-filename="${filename}"]`);
+        const depth = depthSel ? parseInt(depthSel.value) : 1;
+        await apiFetch(`/api/files/${encodeURIComponent(filename)}/depth`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depth, enabled }),
+        });
+        showToast(enabled ? 'Will load at session start' : 'Disabled', 'success');
+      });
+    });
+
+    // Delete buttons
+    container.querySelectorAll('.file-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const filename = btn.dataset.filename;
+        if (!confirm('Delete ' + filename + '?')) return;
+        try {
+          await apiFetch(`/api/files/${encodeURIComponent(filename)}`, {
+            method: 'DELETE',
+          });
+          showToast('Deleted ' + filename, 'success');
+          renderSemanticMemory(container);
+        } catch (err) {
+          showToast('Delete failed', 'error');
+        }
+      });
+    });
+
+    // Click to expand/preview
+    container.querySelectorAll('.file-card').forEach(card => {
+      card.addEventListener('click', async (e) => {
+        // Don't toggle if clicking buttons/controls
+        if (e.target.closest('.file-card-actions') || e.target.closest('.file-depth-info')) return;
+
+        const filename = card.dataset.filename;
+        const bodyId = 'file-body-' + filename.replace(/\./g, '-');
+        const bodyEl = document.getElementById(bodyId);
+        if (!bodyEl) return;
+
+        const wasExpanded = card.classList.contains('expanded');
+
+        // Collapse all others
+        container.querySelectorAll('.file-card.expanded').forEach(c => {
+          if (c !== card) {
+            c.classList.remove('expanded');
+          }
+        });
+
+        if (wasExpanded) {
+          card.classList.remove('expanded');
+          return;
+        }
+
+        card.classList.add('expanded');
+        bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Loading preview...</div>';
+
+        // Get current depth from select or default to 1
+        const depthSel = card.querySelector('.file-depth-select');
+        const depth = depthSel ? parseInt(depthSel.value) : -1;
+
+        try {
+          const data = await apiFetch(`/api/files/${encodeURIComponent(filename)}/preview?depth=${depth}`);
+          if (data && data.content) {
+            bodyEl.innerHTML = `
+              <div class="file-preview-content rendered-md">${markdownToHtml(data.content)}</div>
+              <div class="file-preview-meta">${data.tokens} tokens at depth ${data.depth === -1 ? 'full' : data.depth}</div>
+            `;
+          } else {
+            bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">No content</div>';
+          }
+        } catch (err) {
+          bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Preview failed</div>';
+        }
+      });
+    });
+  }
+
+  async function handleSemanticUpload(fileList, container) {
+    for (const file of fileList) {
+      try {
+        const text = await file.text();
+        await apiFetch('/api/files/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, content: text }),
+        });
+        showToast('Uploaded ' + file.name, 'success');
+      } catch (err) {
+        showToast('Upload failed: ' + file.name, 'error');
+      }
+    }
+    renderSemanticMemory(container);
   }
 
   // ---- Backups Page ----

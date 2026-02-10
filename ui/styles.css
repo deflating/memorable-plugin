@@ -1118,15 +1118,196 @@ p { color: var(--text-secondary); }
   border-color: var(--terracotta-light);
 }
 
-.semantic-coming-soon {
-  text-align: center;
-  padding: 30px 20px;
+/* Semantic section headers */
+.semantic-section-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--text-muted);
-  font-size: 0.88rem;
+  margin: 20px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-light);
 }
 
-.semantic-coming-soon .notes-empty-icon {
-  margin-bottom: 8px;
+/* Upload zone */
+.semantic-upload-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.semantic-upload-zone:hover,
+.semantic-upload-zone.dragover {
+  border-color: var(--terracotta);
+  background: var(--terracotta-muted);
+  color: var(--text-primary);
+}
+
+.semantic-upload-icon {
+  font-size: 1.8rem;
+  margin-bottom: 6px;
+}
+
+.semantic-upload-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Files list */
+.semantic-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* File card */
+.file-card {
+  background: white;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--sage-light);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-sm);
+}
+
+.file-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.file-card-anchored {
+  border-left-color: var(--gold);
+}
+
+.file-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.file-card-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.file-card-name {
+  font-family: 'SF Mono', monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.file-card-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.file-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-card-body {
+  display: none;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.file-card.expanded .file-card-body {
+  display: block;
+}
+
+.file-preview-content {
+  font-size: 0.84rem;
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.file-preview-meta {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: 'SF Mono', monospace;
+}
+
+/* Status badges */
+.file-status {
+  display: inline-block;
+  font-family: 'SF Mono', monospace;
+  font-size: 0.65rem;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.status-anchored {
+  background: var(--sage-muted);
+  color: var(--sage-dark);
+}
+
+.status-raw {
+  background: var(--cream-dark);
+  color: var(--text-muted);
+}
+
+/* Depth select */
+.file-depth-select {
+  font-family: 'SF Mono', monospace;
+  font-size: 0.72rem;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: white;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.file-depth-select:focus {
+  border-color: var(--terracotta);
+  outline: none;
+}
+
+/* Depth info */
+.file-depth-info {
+  font-family: 'SF Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+/* Enabled toggle */
+.file-enabled-label {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.file-enabled-toggle {
+  cursor: pointer;
+}
+
+/* Processing spinner */
+.file-process-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
 }
 
 /* ============================================
