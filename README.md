@@ -13,8 +13,8 @@ The differentiator: Memorable isn't just memory storage. Other tools solve retri
 ## Quick Start
 
 ```bash
-git clone https://github.com/mattkennelly/memorable.git
-cd memorable
+git clone https://github.com/deflating/memorable-plugin.git
+cd memorable-plugin
 bash plugin/install.sh
 python3 plugin/server.py
 # Open http://localhost:7777
