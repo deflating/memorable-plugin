@@ -1018,76 +1018,167 @@
   // ==== PART 2: Notes Page, Settings Page, Seeds Page, Files Page ====
 
   // ---- Notes Page ----
+
+  // Notes page state (persists across re-renders within the page)
+  const notesState = {
+    notes: [],
+    tags: [],
+    machines: [],
+    total: 0,
+    offset: 0,
+    pageSize: 50,
+    search: '',
+    tag: '',
+    sort: 'date',
+    machine: '',
+    expandedIdx: null,
+    loaded: false,
+  };
+
   async function loadNotes() {
-    const data = await apiFetch('/api/notes');
-    if (data && Array.isArray(data.notes)) {
-      state.notesCache = data.notes;
+    // Fetch tags and machines in parallel
+    const [tagsData, machinesData] = await Promise.all([
+      apiFetch('/api/notes/tags'),
+      apiFetch('/api/machines'),
+    ]);
+    notesState.tags = (tagsData && tagsData.tags) || [];
+    notesState.machines = (machinesData && machinesData.machines) || [];
+
+    // Fetch first page of notes
+    await fetchNotesPage(false);
+    notesState.loaded = true;
+
+    // Also update the old cache for dashboard
+    state.notesCache = notesState.notes;
+  }
+
+  async function fetchNotesPage(append) {
+    const params = new URLSearchParams({
+      limit: String(notesState.pageSize),
+      offset: String(append ? notesState.offset : 0),
+      sort: notesState.sort,
+    });
+    if (notesState.search) params.set('search', notesState.search);
+    if (notesState.tag) params.set('tag', notesState.tag);
+    if (notesState.machine) params.set('machine', notesState.machine);
+
+    const data = await apiFetch('/api/notes?' + params);
+    if (!data) return;
+
+    notesState.total = data.total;
+    if (append) {
+      notesState.notes = notesState.notes.concat(data.notes);
+    } else {
+      notesState.notes = data.notes;
     }
+    notesState.offset = notesState.notes.length;
+  }
+
+  function salienceColor(salience) {
+    const maxSalience = 2.0;
+    const warmth = Math.min(1, salience / maxSalience);
+    const r = Math.round(194 * warmth + 180 * (1 - warmth));
+    const g = Math.round(105 * warmth + 175 * (1 - warmth));
+    const b = Math.round(79 * warmth + 200 * (1 - warmth));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function truncateText(text, len) {
+    if (!text) return '';
+    // Strip markdown headings for summary display
+    const stripped = text.replace(/^#+\s*/gm, '').replace(/\*\*/g, '').replace(/\n/g, ' ').trim();
+    if (stripped.length <= len) return stripped;
+    return stripped.slice(0, len) + '\u2026';
   }
 
   function renderNotesPage(container) {
-    const notes = state.notesCache;
-    const searchTerm = container._notesSearch || '';
-    const sortBy = container._notesSort || 'date';
+    const ns = notesState;
 
-    let filtered = notes;
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = notes.filter(n =>
-        (n.summary || '').toLowerCase().includes(term) ||
-        (n.title || '').toLowerCase().includes(term) ||
-        (n.content || '').toLowerCase().includes(term) ||
-        (n.tags || []).some(t => t.toLowerCase().includes(term))
-      );
+    // Machine tabs
+    let machineTabsHtml = '';
+    if (ns.machines.length > 1) {
+      const allActive = ns.machine === '' ? ' active' : '';
+      machineTabsHtml = `<div class="notes-device-tabs">
+        <span class="notes-device-tab${allActive}" data-machine="">All</span>
+        ${ns.machines.map(m => {
+          const short = m.split('.')[0];
+          const active = ns.machine === m ? ' active' : '';
+          return `<span class="notes-device-tab${active}" data-machine="${esc(m)}">${esc(short)}</span>`;
+        }).join('')}
+      </div>`;
     }
 
-    if (sortBy === 'salience') {
-      filtered = [...filtered].sort((a, b) => (b.salience || 0) - (a.salience || 0));
+    // Tag filter dropdown
+    let tagOptions = '<option value="">All tags</option>';
+    for (const t of ns.tags) {
+      const sel = ns.tag === t.name ? ' selected' : '';
+      tagOptions += `<option value="${esc(t.name)}"${sel}>${esc(t.name)} (${t.count})</option>`;
     }
-    // Default sort is by date (already sorted from API)
 
+    // Note cards
     let notesHtml = '';
-    if (filtered.length > 0) {
-      notesHtml = filtered.map((note, idx) => {
+    if (ns.notes.length > 0) {
+      notesHtml = ns.notes.map((note, idx) => {
         const salience = note.salience || 0;
-        const maxSalience = 2.0;
-        const saliencePct = Math.min(100, (salience / maxSalience) * 100);
-        // Color: warm (high salience) to cool (low salience)
-        const warmth = Math.min(1, salience / maxSalience);
-        const r = Math.round(194 * warmth + 180 * (1 - warmth));
-        const g = Math.round(105 * warmth + 175 * (1 - warmth));
-        const b = Math.round(79 * warmth + 200 * (1 - warmth));
-        const salienceColor = `rgb(${r},${g},${b})`;
+        const color = salienceColor(salience);
+        const isExpanded = ns.expandedIdx === idx;
 
-        const tags = (note.tags || []).map(t => `<span class="note-tag">${esc(t)}</span>`).join('');
-        const date = note.date ? new Date(note.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '';
+        const visibleTags = (note.tags || []).slice(0, 4);
+        const overflowCount = (note.tags || []).length - 4;
+        const tagsHtml = visibleTags.map(t => `<span class="note-tag">${esc(t)}</span>`).join('') +
+          (overflowCount > 0 ? `<span class="note-tag">+${overflowCount}</span>` : '');
+
+        const date = note.date ? new Date(note.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+        const msgCount = note.message_count ? `${note.message_count} msgs` : '';
         const wordCount = note.content ? note.content.split(/\s+/).length : 0;
-        const expandedId = 'note-expand-' + idx;
+
+        const metaParts = [date, msgCount, `${wordCount} words`].filter(Boolean).join(' \u00b7 ');
+
+        const summaryText = truncateText(note.summary || note.content || '', 150);
+
+        // Metadata footer (visible when expanded)
+        let metaFooter = '';
+        if (note.session) {
+          metaFooter += `<span class="note-meta-item" style="font-family:'SF Mono',monospace;font-size:0.75rem">${esc(note.session.slice(0, 8))}</span>`;
+        }
+        if (note.machine) {
+          metaFooter += `<span class="note-meta-item">${esc(note.machine)}</span>`;
+        }
 
         return `
-          <div class="note-card" data-note-idx="${idx}">
-            <div class="note-card-salience-bar" style="background:${salienceColor};width:${saliencePct}%;"></div>
-            <div class="note-card-header" onclick="document.getElementById('${expandedId}').classList.toggle('expanded')">
-              <div class="note-card-meta">
-                <span class="note-card-date">${date}</span>
-                <span class="note-card-salience-badge" style="color:${salienceColor};">${salience.toFixed(2)}</span>
-                <span class="note-card-wordcount">${wordCount} words</span>
+          <div class="note-card${isExpanded ? ' expanded' : ''}" data-note-idx="${idx}">
+            <div class="note-card-header">
+              <div class="note-card-salience-bar" style="background:${color}"></div>
+              <div class="note-card-info">
+                <div class="note-card-meta">${metaParts}</div>
+                <div class="note-card-summary">${esc(summaryText)}</div>
+                <div class="note-card-tags">${tagsHtml}</div>
               </div>
-              <div class="note-card-summary">${esc(note.summary || note.title || 'Untitled session')}</div>
-              <div class="note-card-tags">${tags}</div>
+              <div class="note-card-salience" style="color:${color}">${salience.toFixed(2)}</div>
             </div>
-            <div class="note-card-body" id="${expandedId}">
+            <div class="note-card-body">
               <div class="note-card-content">${markdownToHtml(note.content || 'No content')}</div>
+              ${metaFooter ? `<div class="note-card-meta-footer">${metaFooter}</div>` : ''}
             </div>
           </div>
         `;
       }).join('');
     } else {
       notesHtml = `
-        <div class="empty-state" style="padding:40px 20px;">
-          <div class="empty-state-icon">&#128221;</div>
-          <h3>${searchTerm ? 'No notes match your search' : 'No session notes yet'}</h3>
-          <p>${searchTerm ? 'Try a different search term.' : 'Notes will appear here as sessions are recorded by the daemon.'}</p>
+        <div class="notes-empty">
+          <div class="notes-empty-icon">&#128221;</div>
+          <h3>${ns.search || ns.tag ? 'No notes match your filters' : 'No session notes yet'}</h3>
+          <p>${ns.search || ns.tag ? 'Try a different search term or tag.' : 'Notes will appear here as sessions are recorded by the daemon.'}</p>
+        </div>
+      `;
+    }
+
+    // Load more button
+    let loadMoreHtml = '';
+    if (ns.notes.length < ns.total) {
+      loadMoreHtml = `
+        <div class="notes-load-more">
+          <button class="notes-load-more-btn">${ns.notes.length} of ${ns.total} \u2014 Load more</button>
         </div>
       `;
     }
@@ -1096,40 +1187,98 @@
       <div class="notes-page">
         <div class="page-header">
           <h1>Session Notes</h1>
-          <p>${notes.length} note${notes.length !== 1 ? 's' : ''} recorded</p>
+          <p>${ns.total} note${ns.total !== 1 ? 's' : ''} recorded</p>
         </div>
+        ${machineTabsHtml}
         <div class="notes-toolbar">
           <div class="notes-search">
             <svg class="notes-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" class="notes-search-input" id="notes-search-input" placeholder="Search notes by keyword or tag..." value="${esc(searchTerm)}">
+            <input type="text" class="notes-search-input" id="notes-search-input" placeholder="Search notes\u2026" value="${esc(ns.search)}">
           </div>
+          <select class="notes-tag-filter" id="notes-tag-filter">${tagOptions}</select>
           <div class="notes-sort">
-            <button class="notes-sort-btn ${sortBy === 'date' ? 'active' : ''}" data-sort="date">By Date</button>
-            <button class="notes-sort-btn ${sortBy === 'salience' ? 'active' : ''}" data-sort="salience">By Salience</button>
+            <button class="notes-sort-btn ${ns.sort === 'date' ? 'active' : ''}" data-sort="date">Newest</button>
+            <button class="notes-sort-btn ${ns.sort === 'date_asc' ? 'active' : ''}" data-sort="date_asc">Oldest</button>
+            <button class="notes-sort-btn ${ns.sort === 'salience' ? 'active' : ''}" data-sort="salience">Salience</button>
           </div>
         </div>
         <div class="notes-list">
           ${notesHtml}
         </div>
+        ${loadMoreHtml}
       </div>
     `;
 
-    // Search binding
+    // --- Event bindings ---
+
+    // Search
     const searchInput = document.getElementById('notes-search-input');
     if (searchInput) {
       searchInput.addEventListener('input', debounce(() => {
-        container._notesSearch = searchInput.value;
-        renderNotesPage(container);
+        ns.search = searchInput.value.trim();
+        ns.expandedIdx = null;
+        fetchNotesPage(false).then(() => renderNotesPage(container));
       }, 300));
     }
 
-    // Sort binding
+    // Tag filter
+    const tagFilter = document.getElementById('notes-tag-filter');
+    if (tagFilter) {
+      tagFilter.addEventListener('change', () => {
+        ns.tag = tagFilter.value;
+        ns.expandedIdx = null;
+        fetchNotesPage(false).then(() => renderNotesPage(container));
+      });
+    }
+
+    // Sort buttons
     container.querySelectorAll('.notes-sort-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        container._notesSort = btn.dataset.sort;
-        renderNotesPage(container);
+        ns.sort = btn.dataset.sort;
+        ns.expandedIdx = null;
+        fetchNotesPage(false).then(() => renderNotesPage(container));
       });
     });
+
+    // Machine tabs
+    container.querySelectorAll('.notes-device-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        ns.machine = tab.dataset.machine;
+        ns.expandedIdx = null;
+        fetchNotesPage(false).then(() => renderNotesPage(container));
+      });
+    });
+
+    // Card accordion — only one expanded at a time
+    container.querySelectorAll('.note-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        // Don't collapse when clicking links in expanded content
+        if (e.target.closest('a')) return;
+
+        const idx = parseInt(card.dataset.noteIdx, 10);
+        if (ns.expandedIdx === idx) {
+          ns.expandedIdx = null;
+          card.classList.remove('expanded');
+        } else {
+          // Collapse previous
+          const prev = container.querySelector('.note-card.expanded');
+          if (prev) prev.classList.remove('expanded');
+          ns.expandedIdx = idx;
+          card.classList.add('expanded');
+        }
+      });
+    });
+
+    // Load more
+    const loadMoreBtn = container.querySelector('.notes-load-more-btn');
+    if (loadMoreBtn) {
+      loadMoreBtn.addEventListener('click', async () => {
+        loadMoreBtn.textContent = 'Loading\u2026';
+        loadMoreBtn.disabled = true;
+        await fetchNotesPage(true);
+        renderNotesPage(container);
+      });
+    }
   }
 
   // ---- Settings Page ----

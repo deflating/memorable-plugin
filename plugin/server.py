@@ -87,11 +87,38 @@ def estimate_tokens(text: str) -> int:
 # -- Notes -----------------------------------------------------------------
 
 
+def _normalize_note(obj: dict) -> dict:
+    """Map raw JSONL note fields to the shape the UI expects.
+
+    JSONL has: ts, session, note, topic_tags, salience, ...
+    UI wants:  date, summary, content, tags, salience, session
+    """
+    note_text = obj.get("note", "")
+    # Extract first meaningful line as summary
+    summary = ""
+    for line in note_text.splitlines():
+        stripped = line.strip().lstrip("#").strip()
+        if stripped and stripped.lower() != "summary":
+            summary = stripped
+            break
+
+    return {
+        "date": obj.get("ts", ""),
+        "summary": summary,
+        "content": note_text,
+        "tags": obj.get("topic_tags", []),
+        "salience": obj.get("salience", 0),
+        "session": obj.get("session", ""),
+        "machine": obj.get("machine", ""),
+        "message_count": obj.get("message_count", 0),
+    }
+
+
 def load_all_notes() -> list[dict]:
     """Read all .jsonl files from the notes directory.
 
     Each line in each file is a JSON object.
-    Returns a flat list of all note objects.
+    Returns a flat list of normalized note objects.
     """
     notes = []
     if not NOTES_DIR.is_dir():
@@ -108,15 +135,25 @@ def load_all_notes() -> list[dict]:
                 continue
             try:
                 obj = json.loads(line)
-                notes.append(obj)
+                notes.append(_normalize_note(obj))
             except json.JSONDecodeError:
                 continue
     return notes
 
 
 def handle_get_notes(query_params: dict):
-    """GET /api/notes — list session notes with optional search/sort/limit."""
+    """GET /api/notes — list session notes with optional search/sort/limit/tag/machine."""
     notes = load_all_notes()
+
+    # Tag filter
+    tag = query_params.get("tag", [None])[0]
+    if tag:
+        notes = [n for n in notes if tag in n.get("tags", [])]
+
+    # Machine filter
+    machine = query_params.get("machine", [None])[0]
+    if machine:
+        notes = [n for n in notes if n.get("machine", "") == machine]
 
     # Search filter
     search = query_params.get("search", [None])[0]
@@ -124,10 +161,10 @@ def handle_get_notes(query_params: dict):
         search_lower = search.lower()
         filtered = []
         for n in notes:
-            note_text = n.get("note", "")
-            tags = n.get("topic_tags", [])
+            text = n.get("content", "")
+            tags = n.get("tags", [])
             tag_str = " ".join(tags) if isinstance(tags, list) else ""
-            if search_lower in note_text.lower() or search_lower in tag_str.lower():
+            if search_lower in text.lower() or search_lower in tag_str.lower():
                 filtered.append(n)
         notes = filtered
 
@@ -135,20 +172,59 @@ def handle_get_notes(query_params: dict):
     sort_by = query_params.get("sort", ["date"])[0]
     if sort_by == "salience":
         notes.sort(key=lambda n: n.get("salience", 0), reverse=True)
+    elif sort_by == "date_asc":
+        notes.sort(key=lambda n: n.get("date", ""))
     else:
-        # Default: sort by ts descending
-        notes.sort(key=lambda n: n.get("ts", ""), reverse=True)
+        notes.sort(key=lambda n: n.get("date", ""), reverse=True)
+
+    # Total before pagination
+    total = len(notes)
+
+    # Offset
+    offset_str = query_params.get("offset", [None])[0]
+    if offset_str:
+        try:
+            notes = notes[int(offset_str):]
+        except ValueError:
+            pass
 
     # Limit
     limit_str = query_params.get("limit", [None])[0]
     if limit_str:
         try:
-            limit = int(limit_str)
-            notes = notes[:limit]
+            notes = notes[:int(limit_str)]
         except ValueError:
             pass
 
-    return 200, {"notes": notes, "total": len(notes)}
+    return 200, {"notes": notes, "total": total}
+
+
+def handle_get_notes_tags():
+    """GET /api/notes/tags — return all tags with counts."""
+    notes = load_all_notes()
+    tag_counts: dict[str, int] = {}
+    for n in notes:
+        for t in n.get("tags", []):
+            tag_counts[t] = tag_counts.get(t, 0) + 1
+    tags = sorted(
+        [{"name": k, "count": v} for k, v in tag_counts.items()],
+        key=lambda x: x["count"],
+        reverse=True,
+    )
+    return 200, {"tags": tags}
+
+
+def handle_get_machines():
+    """GET /api/machines — return distinct machine names from notes."""
+    notes = load_all_notes()
+    seen: set[str] = set()
+    machines: list[str] = []
+    for n in notes:
+        m = n.get("machine", "")
+        if m and m not in seen:
+            seen.add(m)
+            machines.append(m)
+    return 200, {"machines": machines}
 
 
 # -- Sessions --------------------------------------------------------------
@@ -362,7 +438,9 @@ def handle_get_status():
         file_count = sum(1 for f in FILES_DIR.iterdir() if f.is_file())
 
     return 200, {
+        "total_notes": note_count,
         "note_count": note_count,
+        "total_sessions": session_count,
         "session_count": session_count,
         "last_session_date": last_session_date,
         "seeds_present": seeds_present,
@@ -720,8 +798,16 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
         # --- API routes ---
 
+        if path == "/api/notes/tags":
+            status, data = handle_get_notes_tags()
+            return self.send_json(status, data)
+
         if path == "/api/notes":
             status, data = handle_get_notes(query_params)
+            return self.send_json(status, data)
+
+        if path == "/api/machines":
+            status, data = handle_get_machines()
             return self.send_json(status, data)
 
         if path == "/api/sessions":
