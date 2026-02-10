@@ -159,7 +159,8 @@
       customSections: []
     },
     // --- New app-level state ---
-    activePage: 'dashboard',  // which page is shown: dashboard, seeds, notes, files, settings
+    activePage: 'dashboard',  // which page is shown: dashboard, configure, memories, backups, settings
+    memoriesSubTab: 'episodic', // memories sub-tab: episodic, working, semantic
     notesCache: [],           // cached session notes from API
     settingsCache: null,      // cached settings from API
     statusCache: null,        // cached status from API
@@ -849,10 +850,13 @@
     const container = document.getElementById('page-container');
     switch (state.activePage) {
       case 'dashboard': renderDashboard(container); break;
-      case 'seeds': renderSeedsPage(container); break;
-      case 'notes': renderNotesPage(container); break;
-      case 'files': renderFilesPage(container); break;
+      case 'configure': renderSeedsPage(container); break;
+      case 'memories': renderMemoriesPage(container); break;
+      case 'backups': renderBackupsPage(container); break;
       case 'settings': renderSettingsPage(container); break;
+      // Legacy route names
+      case 'seeds': state.activePage = 'configure'; renderSeedsPage(container); break;
+      case 'notes': state.activePage = 'memories'; renderMemoriesPage(container); break;
       default: renderDashboard(container);
     }
   }
@@ -939,7 +943,7 @@
           <h2>Welcome to Memorable</h2>
           <p>Get started by creating your seed files. These tell Claude who you are and how to talk to you.</p>
           <div class="onboarding-actions">
-            <button class="btn btn-primary" onclick="window.memorableApp.navigateTo('seeds')">Create Seeds</button>
+            <button class="btn btn-primary" onclick="window.memorableApp.navigateTo('configure')">Create Seeds</button>
             <button class="btn" onclick="window.memorableApp.navigateTo('settings')">Configure Settings</button>
           </div>
         </div>
@@ -982,7 +986,7 @@
         <div class="dashboard-section">
           <div class="dashboard-section-header">
             <h2>Recent Notes</h2>
-            ${recentNotes.length > 0 ? `<button class="btn btn-small" onclick="window.memorableApp.navigateTo('notes')">View all</button>` : ''}
+            ${recentNotes.length > 0 ? `<button class="btn btn-small" onclick="window.memorableApp.navigateTo('memories')">View all</button>` : ''}
           </div>
           <div class="dashboard-notes-grid">
             ${notesHtml}
@@ -992,7 +996,7 @@
         <div class="dashboard-section">
           <h2>Quick Actions</h2>
           <div class="quick-actions">
-            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('seeds')">
+            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('configure')">
               <span class="quick-action-icon">&#128196;</span>
               Edit Seeds
             </button>
@@ -1000,7 +1004,7 @@
               <span class="quick-action-icon">&#128193;</span>
               Upload File
             </button>
-            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('notes')">
+            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('memories')">
               <span class="quick-action-icon">&#128269;</span>
               Search Sessions
             </button>
@@ -1185,9 +1189,8 @@
 
     container.innerHTML = `
       <div class="notes-page">
-        <div class="page-header">
-          <h1>Session Notes</h1>
-          <p>${ns.total} note${ns.total !== 1 ? 's' : ''} recorded</p>
+        <div class="notes-header-row">
+          <span class="notes-count">${ns.total} note${ns.total !== 1 ? 's' : ''}</span>
         </div>
         ${machineTabsHtml}
         <div class="notes-toolbar">
@@ -1279,6 +1282,147 @@
         renderNotesPage(container);
       });
     }
+  }
+
+  // ---- Memories Page (with sub-tabs) ----
+
+  function renderMemoriesPage(container) {
+    const subTab = state.memoriesSubTab || 'episodic';
+
+    // Sub-tab bar
+    const subTabBar = `
+      <div class="memories-sub-tabs">
+        <button class="memories-sub-tab ${subTab === 'episodic' ? 'active' : ''}" data-subtab="episodic">Episodic</button>
+        <button class="memories-sub-tab ${subTab === 'working' ? 'active' : ''}" data-subtab="working">Working</button>
+        <button class="memories-sub-tab ${subTab === 'semantic' ? 'active' : ''}" data-subtab="semantic">Semantic</button>
+      </div>
+    `;
+
+    // Render sub-tab content into a wrapper so we can insert the tab bar above
+    const wrapper = document.createElement('div');
+    wrapper.className = 'memories-page';
+
+    // Page header + sub-tabs
+    wrapper.innerHTML = `
+      <div class="page-header">
+        <h1>Memories</h1>
+      </div>
+      ${subTabBar}
+      <div class="memories-content" id="memories-content"></div>
+    `;
+
+    container.innerHTML = '';
+    container.appendChild(wrapper);
+
+    const contentEl = document.getElementById('memories-content');
+
+    // Render the active sub-tab
+    switch (subTab) {
+      case 'episodic':
+        renderNotesPage(contentEl);
+        break;
+      case 'working':
+        renderWorkingMemory(contentEl);
+        break;
+      case 'semantic':
+        renderSemanticMemory(contentEl);
+        break;
+    }
+
+    // Bind sub-tab clicks
+    wrapper.querySelectorAll('.memories-sub-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.memoriesSubTab = btn.dataset.subtab;
+        renderMemoriesPage(container);
+      });
+    });
+  }
+
+  async function renderWorkingMemory(container) {
+    container.innerHTML = '<div style="padding:20px;color:var(--text-muted);">Loading now.md...</div>';
+
+    const data = await apiFetch('/api/seeds');
+    if (!data || !data.files) {
+      container.innerHTML = '<div class="notes-empty"><h3>Could not load working memory</h3><p>Make sure the server is running.</p></div>';
+      return;
+    }
+
+    const nowContent = data.files['now.md'];
+    if (!nowContent) {
+      container.innerHTML = `
+        <div class="notes-empty">
+          <div class="notes-empty-icon">&#128203;</div>
+          <h3>No working memory yet</h3>
+          <p>The now.md file will be created automatically by the daemon as sessions are processed.</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="working-memory-card">
+        <div class="working-memory-header">
+          <span class="working-memory-label">now.md</span>
+          <span class="working-memory-hint">Auto-generated from session notes</span>
+        </div>
+        <div class="working-memory-content">${markdownToHtml(nowContent)}</div>
+      </div>
+    `;
+  }
+
+  async function renderSemanticMemory(container) {
+    const data = await apiFetch('/api/seeds');
+    const seedFiles = (data && data.files) ? data.files : {};
+
+    // Filter out now.md — show the identity/config seeds as read-only cards
+    const seedNames = Object.keys(seedFiles).filter(n => n !== 'now.md').sort();
+
+    let cardsHtml = '';
+    if (seedNames.length > 0) {
+      cardsHtml = seedNames.map(name => {
+        const content = seedFiles[name] || '';
+        const preview = content.split('\n').slice(0, 6).join('\n');
+        const tokens = Math.ceil(content.length / 4);
+        return `
+          <div class="semantic-seed-card">
+            <div class="semantic-seed-header">
+              <span class="semantic-seed-name">${esc(name)}</span>
+              <span class="semantic-seed-tokens">${tokens} tokens</span>
+            </div>
+            <div class="semantic-seed-preview">${markdownToHtml(preview)}</div>
+            <button class="semantic-seed-configure-btn" onclick="window.memorableApp.navigateTo('configure')">Configure</button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    container.innerHTML = `
+      <div class="semantic-memory-page">
+        <div class="semantic-placeholder">
+          <p>Semantic memory stores persistent knowledge documents that are included in every session's context.</p>
+        </div>
+        ${cardsHtml ? `<div class="semantic-seed-cards">${cardsHtml}</div>` : ''}
+        <div class="semantic-coming-soon">
+          <div class="notes-empty-icon">&#128218;</div>
+          <p>File uploads and knowledge management coming soon.</p>
+        </div>
+      </div>
+    `;
+  }
+
+  // ---- Backups Page ----
+
+  function renderBackupsPage(container) {
+    container.innerHTML = `
+      <div class="page-header">
+        <h1>Backups</h1>
+      </div>
+      <div class="notes-empty">
+        <div class="notes-empty-icon">&#128268;</div>
+        <h3>Backup and restore</h3>
+        <p>Coming soon. This will let you export and import your memory data.</p>
+      </div>
+    `;
   }
 
   // ---- Settings Page ----
@@ -3479,7 +3623,7 @@
     checkServerStatus();
     loadNotes().then(() => {
       // Re-render if we're on a page that uses notes
-      if (state.activePage === 'dashboard' || state.activePage === 'notes') {
+      if (state.activePage === 'dashboard' || state.activePage === 'memories') {
         renderPage();
       }
     });

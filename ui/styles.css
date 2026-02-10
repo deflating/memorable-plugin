@@ -937,6 +937,199 @@ p { color: var(--text-secondary); }
 }
 
 /* ============================================
+   Memories Page — Sub-tabs
+   ============================================ */
+
+.memories-sub-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--cream-dark);
+  border-radius: var(--radius-lg);
+  margin-bottom: 20px;
+  width: fit-content;
+}
+
+.memories-sub-tab {
+  padding: 7px 18px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.memories-sub-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.5);
+}
+
+.memories-sub-tab.active {
+  background: white;
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Notes header row (inside Memories > Episodic) */
+.notes-header-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+/* Working Memory */
+.working-memory-card {
+  background: white;
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--sage);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.working-memory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.working-memory-label {
+  font-family: 'SF Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.working-memory-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.working-memory-content {
+  padding: 20px;
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.working-memory-content h1 { font-size: 1.1rem; margin-top: 0; margin-bottom: 0.5em; color: var(--text-primary); }
+.working-memory-content h2 { font-size: 0.95rem; margin-top: 1.2em; margin-bottom: 0.3em; color: var(--terracotta-dark); }
+.working-memory-content h3 { font-size: 0.88rem; margin-top: 1em; margin-bottom: 0.3em; color: var(--ochre-dark); }
+.working-memory-content p { margin-bottom: 0.5em; }
+.working-memory-content ul, .working-memory-content ol { padding-left: 1.5em; margin-bottom: 0.5em; }
+.working-memory-content li { margin-bottom: 0.2em; }
+.working-memory-content strong { color: var(--text-primary); }
+.working-memory-content em { color: var(--text-muted); }
+
+/* Semantic Memory */
+.semantic-memory-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.semantic-placeholder {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.semantic-seed-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.semantic-seed-card {
+  background: white;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 20px;
+}
+
+.semantic-seed-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.semantic-seed-name {
+  font-family: 'SF Mono', monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.semantic-seed-tokens {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.semantic-seed-preview {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-height: 120px;
+  overflow: hidden;
+  position: relative;
+}
+
+.semantic-seed-preview::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(transparent, white);
+}
+
+.semantic-seed-preview h1, .semantic-seed-preview h2, .semantic-seed-preview h3 {
+  font-size: 0.88rem;
+  margin: 0.3em 0;
+}
+
+.semantic-seed-preview p { margin-bottom: 0.3em; }
+
+.semantic-seed-configure-btn {
+  margin-top: 10px;
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--terracotta-dark);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.semantic-seed-configure-btn:hover {
+  background: var(--terracotta-muted);
+  border-color: var(--terracotta-light);
+}
+
+.semantic-coming-soon {
+  text-align: center;
+  padding: 30px 20px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+.semantic-coming-soon .notes-empty-icon {
+  margin-bottom: 8px;
+}
+
+/* ============================================
    Seeds Page
    ============================================ */
 .seeds-sub-nav {
