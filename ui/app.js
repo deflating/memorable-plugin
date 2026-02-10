@@ -1,0 +1,3349 @@
+/* ============================================
+   Memorable — Application Logic
+   ============================================ */
+
+(function () {
+  'use strict';
+
+  // ---- Default options for toggle/switch sections ----
+  // These are the built-in options. Users can add custom ones.
+  const DEFAULT_COGNITIVE_OPTIONS = [
+    { key: 'adhd', label: 'ADHD' },
+    { key: 'autism', label: 'Autism' },
+    { key: 'anxiety', label: 'Anxiety' },
+    { key: 'depression', label: 'Depression' },
+    { key: 'dyslexia', label: 'Dyslexia' },
+    { key: 'ocd', label: 'OCD' },
+    { key: 'ptsd', label: 'PTSD' },
+    { key: 'bipolar', label: 'Bipolar' }
+  ];
+
+  const DEFAULT_COMMUNICATION_OPTIONS = [
+    { key: 'beDirect', label: 'Be direct', desc: 'Don\'t soften or hedge unnecessarily' },
+    { key: 'noSycophancy', label: 'No sycophancy', desc: 'Skip the "great question!" and "absolutely!"' },
+    { key: 'matchEnergy', label: 'Match my energy', desc: 'Mirror tone and intensity' },
+    { key: 'skipPreamble', label: 'Skip preamble', desc: 'Get to the point, skip disclaimers' },
+    { key: 'challengeMe', label: 'Challenge me when I\'m wrong', desc: 'Push back on incorrect assumptions' },
+    { key: 'admitUncertainty', label: 'Admit uncertainty', desc: 'Say "I\'m not sure" when appropriate' },
+    { key: 'noEmojis', label: 'No emojis', desc: 'Keep responses text-only' },
+    { key: 'shortWhenLow', label: 'Short replies when I\'m low', desc: 'Reduce verbosity when energy is low' }
+  ];
+
+  const DEFAULT_BEHAVIOR_OPTIONS = [
+    { key: 'holdOwnViews', label: 'Hold your own views' },
+    { key: 'uncertainWhenAppropriate', label: 'Be uncertain when appropriate' },
+    { key: 'rememberContext', label: 'Remember context across conversation' },
+    { key: 'askClarifyingQuestions', label: 'Ask clarifying questions' },
+    { key: 'adaptToMood', label: 'Adapt to user\'s mood' },
+    { key: 'useSharedVocabulary', label: 'Use shared vocabulary' },
+    { key: 'showWorkingProcess', label: 'Show working/thinking process' },
+    { key: 'provideSources', label: 'Provide sources when possible' }
+  ];
+
+  const DEFAULT_WHEN_LOW_OPTIONS = [
+    { key: 'shorterReplies', label: 'Keep replies shorter', desc: 'Reduce output length' },
+    { key: 'noReframing', label: 'Don\'t reframe or silver-lining', desc: 'Avoid turning negatives into positives' },
+    { key: 'noForcedPositivity', label: 'No forced positivity', desc: 'Skip cheerfulness that isn\'t warranted' },
+    { key: 'justAcknowledge', label: 'Just acknowledge, don\'t fix', desc: 'Sometimes people need to be heard' },
+    { key: 'nameConstraints', label: 'Name constraints honestly', desc: 'Say what you can\'t do instead of deflecting' },
+    { key: 'offerSpace', label: 'Offer space when needed', desc: 'Recognize when to step back' }
+  ];
+
+  const DEFAULT_TECH_STYLE_OPTIONS = [
+    { key: 'avoidOverEngineering', label: 'Avoid over-engineering', desc: 'Keep solutions proportional to the problem' },
+    { key: 'preferSimpleSolutions', label: 'Prefer simple solutions', desc: 'Simplicity over cleverness' },
+    { key: 'explainTradeoffs', label: 'Explain tradeoffs', desc: 'Show what you\'re giving up with each choice' },
+    { key: 'codeCommentsMinimal', label: 'Minimal code comments', desc: 'Code should be self-documenting' },
+    { key: 'suggestTests', label: 'Suggest tests', desc: 'Recommend testing strategies' },
+    { key: 'functionalStyle', label: 'Prefer functional style', desc: 'Favor immutability and pure functions' },
+    { key: 'typeAnnotations', label: 'Include type annotations', desc: 'Add types to code examples' }
+  ];
+
+  const DEFAULT_TRAIT_OPTIONS = [
+    { key: 'warmth', label: 'Warmth', endpoints: ['Clinical', 'Very warm'] },
+    { key: 'directness', label: 'Directness', endpoints: ['Gentle', 'Blunt'] },
+    { key: 'humor', label: 'Humor', endpoints: ['Serious', 'Playful'] },
+    { key: 'formality', label: 'Formality', endpoints: ['Casual', 'Formal'] },
+    { key: 'verbosity', label: 'Verbosity', endpoints: ['Terse', 'Detailed'] }
+  ];
+
+  // ---- Presets ----
+  const PRESETS = {
+    technical: {
+      label: 'Technical / Coding',
+      userSections: ['identity', 'about', 'communication', 'projects', 'user-custom'],
+      agentSections: ['agent-name', 'traits', 'behaviors', 'avoid', 'tech-style', 'agent-custom']
+    },
+    research: {
+      label: 'Research / Academic',
+      userSections: ['identity', 'about', 'values', 'communication', 'projects', 'user-custom'],
+      agentSections: ['agent-name', 'traits', 'behaviors', 'avoid', 'agent-custom']
+    },
+    personal: {
+      label: 'Personal / Companion',
+      userSections: ['identity', 'about', 'cognitive', 'values', 'communication', 'people', 'user-custom'],
+      agentSections: ['agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'agent-custom']
+    },
+    custom: {
+      label: 'Custom',
+      userSections: ['identity', 'about', 'cognitive', 'values', 'communication', 'people', 'projects', 'user-custom'],
+      agentSections: ['agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom']
+    }
+  };
+
+  // ---- Anchor Depth Levels ----
+  const ANCHOR_DEPTHS = [
+    { key: 'full', label: 'Full', desc: 'All content' },
+    { key: 'detailed', label: 'Detailed', desc: 'Level 1 + 2 headings' },
+    { key: 'summary', label: 'Summary', desc: 'Level 1 headings only' },
+    { key: 'none', label: 'None', desc: 'Excluded from context' }
+  ];
+
+  // ---- State ----
+  const state = {
+    activeFile: 'user',
+    activeView: 'form',
+    markdownSubMode: 'plain',
+    preset: 'custom',
+    // Context files
+    files: [],          // [{id, name, content, anchorDepth, projectTag}]
+    activeFileId: null,  // which file is selected in Files tab
+    tokenBudgetExpanded: false,
+    // Which sections are enabled (toggle on/off)
+    enabledSections: {
+      'identity': true, 'about': true, 'cognitive': true, 'values': true,
+      'communication': true, 'people': true, 'projects': true, 'user-custom': true,
+      'agent-name': true, 'traits': true, 'behaviors': true, 'avoid': true,
+      'when-low': true, 'tech-style': true, 'agent-custom': true
+    },
+    user: {
+      identity: { name: '', age: '', location: '', pronouns: '' },
+      about: '',
+      // Now stores arrays: cognitiveOptions (all available) and cognitiveActive (which are on)
+      cognitiveOptions: DEFAULT_COGNITIVE_OPTIONS.map(o => o.key),
+      cognitiveLabels: {},  // custom key -> label mapping for non-default items
+      cognitiveActive: {},
+      values: [
+        { higher: 'Accuracy', lower: 'Comfort' },
+        { higher: 'Depth', lower: 'Breadth' },
+        { higher: 'Clarity', lower: 'Reassurance' }
+      ],
+      communicationOptions: DEFAULT_COMMUNICATION_OPTIONS.map(o => o.key),
+      communicationLabels: {},
+      communicationDescs: {},
+      communicationActive: {},
+      people: [],
+      projects: [],
+      customSections: []
+    },
+    agent: {
+      name: '',
+      traitOptions: DEFAULT_TRAIT_OPTIONS.map(o => o.key),
+      traitLabels: {},
+      traitEndpoints: {},
+      traits: {
+        warmth: 60, directness: 75, humor: 40, formality: 30, verbosity: 40
+      },
+      behaviorOptions: DEFAULT_BEHAVIOR_OPTIONS.map(o => o.key),
+      behaviorLabels: {},
+      behaviorsActive: {},
+      avoid: [],
+      whenLowOptions: DEFAULT_WHEN_LOW_OPTIONS.map(o => o.key),
+      whenLowLabels: {},
+      whenLowDescs: {},
+      whenLowActive: {},
+      techStyleOptions: DEFAULT_TECH_STYLE_OPTIONS.map(o => o.key),
+      techStyleLabels: {},
+      techStyleDescs: {},
+      techStyleActive: {},
+      customSections: []
+    },
+    // --- New app-level state ---
+    activePage: 'dashboard',  // which page is shown: dashboard, seeds, notes, files, settings
+    notesCache: [],           // cached session notes from API
+    settingsCache: null,      // cached settings from API
+    statusCache: null,        // cached status from API
+    serverConnected: false,   // whether server is reachable
+  };
+
+  // Keep a markdown cache to track manual edits
+  let markdownCache = { user: '', agent: '' };
+
+  // ---- Helper: get label for any option key ----
+  function getCognitiveLabel(key) {
+    const def = DEFAULT_COGNITIVE_OPTIONS.find(o => o.key === key);
+    if (def) return def.label;
+    return state.user.cognitiveLabels[key] || key;
+  }
+
+  function getCommLabel(key) {
+    const def = DEFAULT_COMMUNICATION_OPTIONS.find(o => o.key === key);
+    if (def) return def.label;
+    return state.user.communicationLabels[key] || key;
+  }
+
+  function getCommDesc(key) {
+    const def = DEFAULT_COMMUNICATION_OPTIONS.find(o => o.key === key);
+    if (def) return def.desc;
+    return state.user.communicationDescs[key] || '';
+  }
+
+  function getBehaviorLabel(key) {
+    const def = DEFAULT_BEHAVIOR_OPTIONS.find(o => o.key === key);
+    if (def) return def.label;
+    return state.agent.behaviorLabels[key] || key;
+  }
+
+  function getWhenLowLabel(key) {
+    const def = DEFAULT_WHEN_LOW_OPTIONS.find(o => o.key === key);
+    if (def) return def.label;
+    return state.agent.whenLowLabels[key] || key;
+  }
+
+  function getWhenLowDesc(key) {
+    const def = DEFAULT_WHEN_LOW_OPTIONS.find(o => o.key === key);
+    if (def) return def.desc;
+    return state.agent.whenLowDescs[key] || '';
+  }
+
+  function getTechLabel(key) {
+    const def = DEFAULT_TECH_STYLE_OPTIONS.find(o => o.key === key);
+    if (def) return def.label;
+    return state.agent.techStyleLabels[key] || key;
+  }
+
+  function getTechDesc(key) {
+    const def = DEFAULT_TECH_STYLE_OPTIONS.find(o => o.key === key);
+    if (def) return def.desc;
+    return state.agent.techStyleDescs[key] || '';
+  }
+
+  function getTraitLabel(key) {
+    const def = DEFAULT_TRAIT_OPTIONS.find(o => o.key === key);
+    if (def) return def.label;
+    return state.agent.traitLabels[key] || key;
+  }
+
+  function getTraitEndpoints(key) {
+    const def = DEFAULT_TRAIT_OPTIONS.find(o => o.key === key);
+    if (def) return def.endpoints;
+    return state.agent.traitEndpoints[key] || ['Low', 'High'];
+  }
+
+  function isDefaultCognitive(key) { return DEFAULT_COGNITIVE_OPTIONS.some(o => o.key === key); }
+  function isDefaultComm(key) { return DEFAULT_COMMUNICATION_OPTIONS.some(o => o.key === key); }
+  function isDefaultBehavior(key) { return DEFAULT_BEHAVIOR_OPTIONS.some(o => o.key === key); }
+  function isDefaultWhenLow(key) { return DEFAULT_WHEN_LOW_OPTIONS.some(o => o.key === key); }
+  function isDefaultTech(key) { return DEFAULT_TECH_STYLE_OPTIONS.some(o => o.key === key); }
+  function isDefaultTrait(key) { return DEFAULT_TRAIT_OPTIONS.some(o => o.key === key); }
+
+  // ---- Debounce ----
+  function debounce(fn, ms) {
+    let timer;
+    return function (...args) {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), ms);
+    };
+  }
+
+  // ---- Token Estimation ----
+  function estimateTokens(text) {
+    if (!text) return 0;
+    return Math.ceil(text.length / 4);
+  }
+
+  function getFileTokens(file) {
+    if (!file || !file.content) return 0;
+    if (file.anchorDepth === 'none') return 0;
+    if (file.anchorDepth === 'summary') {
+      // Only level 1 headings
+      const lines = file.content.split('\n');
+      const kept = lines.filter(l => /^#(?!#)\s+/.test(l));
+      return estimateTokens(kept.join('\n'));
+    }
+    if (file.anchorDepth === 'detailed') {
+      // Level 1 + 2 headings and their immediate content
+      const lines = file.content.split('\n');
+      const kept = [];
+      let include = false;
+      let depth = 0;
+      for (const line of lines) {
+        if (/^#(?!#)\s+/.test(line)) { include = true; depth = 1; kept.push(line); }
+        else if (/^##(?!#)\s+/.test(line)) { include = true; depth = 2; kept.push(line); }
+        else if (/^###/.test(line)) { include = false; }
+        else if (include) { kept.push(line); }
+      }
+      return estimateTokens(kept.join('\n'));
+    }
+    // full
+    return estimateTokens(file.content);
+  }
+
+  function getTotalFileTokens() {
+    return state.files.reduce((sum, f) => sum + getFileTokens(f), 0);
+  }
+
+  function generateFileId() {
+    return 'f_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function formatTokens(n) {
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return n.toString();
+  }
+
+  // ---- Toast ----
+  function showToast(message, type = '') {
+    const el = document.getElementById('toast');
+    el.textContent = message;
+    el.className = 'toast' + (type ? ' ' + type : '');
+    el.offsetHeight;
+    el.classList.add('visible');
+    setTimeout(() => el.classList.remove('visible'), 2200);
+  }
+
+  // ---- Make a safe key from a label ----
+  function labelToKey(label) {
+    return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '') || ('custom_' + Date.now());
+  }
+
+  // ---- Markdown Generation ----
+  function generateUserMarkdown() {
+    const u = state.user;
+    const sec = state.enabledSections;
+    let md = '';
+
+    // Identity
+    if (sec['identity']) {
+      const hasIdentity = u.identity.name || u.identity.age || u.identity.location || u.identity.pronouns;
+      if (hasIdentity) {
+        md += `# ${u.identity.name || 'User Profile'}\n\n`;
+        const details = [];
+        if (u.identity.age) details.push(`**Age:** ${u.identity.age}`);
+        if (u.identity.location) details.push(`**Location:** ${u.identity.location}`);
+        if (u.identity.pronouns) details.push(`**Pronouns:** ${u.identity.pronouns}`);
+        if (details.length) md += details.join(' | ') + '\n\n';
+      } else {
+        md += '# User Profile\n\n';
+      }
+    } else {
+      md += '# User Profile\n\n';
+    }
+
+    // About
+    if (sec['about'] && u.about.trim()) {
+      md += `## About\n\n${u.about.trim()}\n\n`;
+    }
+
+    // Cognitive style
+    if (sec['cognitive']) {
+      const activeCog = u.cognitiveOptions.filter(k => u.cognitiveActive[k]).map(k => getCognitiveLabel(k));
+      if (activeCog.length) {
+        md += `## Cognitive Style\n\n${activeCog.join(', ')}\n\n`;
+      }
+    }
+
+    // Values
+    if (sec['values']) {
+      const activeValues = u.values.filter(v => v.higher.trim() || v.lower.trim());
+      if (activeValues.length) {
+        md += '## Values\n\n';
+        activeValues.forEach(v => {
+          md += `- ${v.higher.trim() || '...'} > ${v.lower.trim() || '...'}\n`;
+        });
+        md += '\n';
+      }
+    }
+
+    // Communication
+    if (sec['communication']) {
+      const commPrefs = u.communicationOptions.filter(k => u.communicationActive[k]).map(k => getCommLabel(k));
+      if (commPrefs.length) {
+        md += '## Communication Preferences\n\n';
+        commPrefs.forEach(p => { md += `- ${p}\n`; });
+        md += '\n';
+      }
+    }
+
+    // People
+    if (sec['people'] && u.people.length) {
+      md += '## People\n\n';
+      u.people.forEach(p => {
+        md += `### ${p.name || 'Unnamed'}`;
+        if (p.relationship) md += ` (${p.relationship})`;
+        md += '\n';
+        if (p.notes) md += `${p.notes}\n`;
+        md += '\n';
+      });
+    }
+
+    // Projects
+    if (sec['projects'] && u.projects.length) {
+      md += '## Projects\n\n';
+      u.projects.forEach(p => {
+        md += `### ${p.name || 'Unnamed'}`;
+        if (p.status) md += ` [${p.status}]`;
+        md += '\n';
+        if (p.description) md += `${p.description}\n`;
+        md += '\n';
+      });
+    }
+
+    // Custom sections
+    if (sec['user-custom']) {
+      u.customSections.forEach(s => {
+        if (s.title || s.content) {
+          md += `## ${s.title || 'Untitled Section'}\n\n`;
+          if (s.content) md += `${s.content}\n\n`;
+        }
+      });
+    }
+
+    return md.trimEnd() + '\n';
+  }
+
+  function generateAgentMarkdown() {
+    const a = state.agent;
+    const sec = state.enabledSections;
+    let md = '';
+
+    if (sec['agent-name']) {
+      md += `# ${a.name || 'Agent Profile'}\n\n`;
+    } else {
+      md += '# Agent Profile\n\n';
+    }
+
+    // Character traits
+    if (sec['traits']) {
+      const traitEntries = a.traitOptions.filter(k => a.traits[k] !== undefined);
+      if (traitEntries.length) {
+        md += '## Character Traits\n\n';
+        traitEntries.forEach(key => {
+          const val = a.traits[key] || 50;
+          const label = getTraitLabel(key);
+          const desc = getTraitDescription(key, val);
+          md += `- **${label}:** ${desc} (${val}/100)\n`;
+        });
+        md += '\n';
+      }
+    }
+
+    // Behaviors
+    if (sec['behaviors']) {
+      const activeBehaviors = a.behaviorOptions.filter(k => a.behaviorsActive[k]).map(k => getBehaviorLabel(k));
+      if (activeBehaviors.length) {
+        md += '## Behaviors\n\n';
+        activeBehaviors.forEach(b => { md += `- ${b}\n`; });
+        md += '\n';
+      }
+    }
+
+    // Avoid
+    if (sec['avoid'] && a.avoid.length) {
+      md += '## Avoid\n\n';
+      a.avoid.forEach(item => { md += `- ${item}\n`; });
+      md += '\n';
+    }
+
+    // When user is low
+    if (sec['when-low']) {
+      const lowPrefs = a.whenLowOptions.filter(k => a.whenLowActive[k]).map(k => getWhenLowLabel(k));
+      if (lowPrefs.length) {
+        md += '## When User Is Low\n\n';
+        lowPrefs.forEach(p => { md += `- ${p}\n`; });
+        md += '\n';
+      }
+    }
+
+    // Technical style
+    if (sec['tech-style']) {
+      const techPrefs = a.techStyleOptions.filter(k => a.techStyleActive[k]).map(k => getTechLabel(k));
+      if (techPrefs.length) {
+        md += '## Technical Style\n\n';
+        techPrefs.forEach(p => { md += `- ${p}\n`; });
+        md += '\n';
+      }
+    }
+
+    // Custom sections
+    if (sec['agent-custom']) {
+      a.customSections.forEach(s => {
+        if (s.title || s.content) {
+          md += `## ${s.title || 'Untitled Section'}\n\n`;
+          if (s.content) md += `${s.content}\n\n`;
+        }
+      });
+    }
+
+    return md.trimEnd() + '\n';
+  }
+
+  // ---- Markdown Parsing (markdown -> state) ----
+  function parseUserMarkdown(md) {
+    const u = state.user;
+    u.identity = { name: '', age: '', location: '', pronouns: '' };
+    u.about = '';
+    u.cognitiveActive = {};
+    u.values = [];
+    u.communicationActive = {};
+    u.people = [];
+    u.projects = [];
+    u.customSections = [];
+
+    const sections = splitMarkdownSections(md);
+
+    if (sections._title && sections._title !== 'User Profile') {
+      u.identity.name = sections._title;
+    }
+
+    if (sections._intro) {
+      const intro = sections._intro;
+      const ageMatch = intro.match(/\*\*Age:\*\*\s*(\d+)/);
+      if (ageMatch) u.identity.age = ageMatch[1];
+      const locMatch = intro.match(/\*\*Location:\*\*\s*([^|*\n]+)/);
+      if (locMatch) u.identity.location = locMatch[1].trim();
+      const proMatch = intro.match(/\*\*Pronouns:\*\*\s*([^|*\n]+)/);
+      if (proMatch) u.identity.pronouns = proMatch[1].trim();
+    }
+
+    if (sections['About']) {
+      u.about = sections['About'].trim();
+      state.enabledSections['about'] = true;
+    }
+
+    if (sections['Cognitive Style']) {
+      state.enabledSections['cognitive'] = true;
+      const cogText = sections['Cognitive Style'];
+      const items = cogText.split(',').map(s => s.trim()).filter(Boolean);
+      items.forEach(item => {
+        // Try to match to an existing option
+        const existing = u.cognitiveOptions.find(k => getCognitiveLabel(k).toLowerCase() === item.toLowerCase());
+        if (existing) {
+          u.cognitiveActive[existing] = true;
+        } else {
+          // Add as custom
+          const key = labelToKey(item);
+          if (!u.cognitiveOptions.includes(key)) {
+            u.cognitiveOptions.push(key);
+            u.cognitiveLabels[key] = item;
+          }
+          u.cognitiveActive[key] = true;
+        }
+      });
+    }
+
+    if (sections['Values']) {
+      state.enabledSections['values'] = true;
+      const lines = sections['Values'].split('\n').filter(l => l.trim().startsWith('-'));
+      lines.forEach(line => {
+        const match = line.match(/-\s*(.+?)\s*>\s*(.+)/);
+        if (match) {
+          u.values.push({ higher: match[1].trim(), lower: match[2].trim() });
+        }
+      });
+    }
+    if (u.values.length === 0) {
+      u.values = [{ higher: '', lower: '' }];
+    }
+
+    if (sections['Communication Preferences']) {
+      state.enabledSections['communication'] = true;
+      const lines = sections['Communication Preferences'].split('\n').filter(l => l.trim().startsWith('-'));
+      lines.forEach(line => {
+        const text = line.replace(/^-\s*/, '').trim();
+        if (!text) return;
+        const existing = u.communicationOptions.find(k => getCommLabel(k).toLowerCase() === text.toLowerCase());
+        if (existing) {
+          u.communicationActive[existing] = true;
+        } else {
+          const key = labelToKey(text);
+          if (!u.communicationOptions.includes(key)) {
+            u.communicationOptions.push(key);
+            u.communicationLabels[key] = text;
+            u.communicationDescs[key] = '';
+          }
+          u.communicationActive[key] = true;
+        }
+      });
+    }
+
+    if (sections['People']) {
+      state.enabledSections['people'] = true;
+      const peopleText = sections['People'];
+      const peopleParts = peopleText.split(/^###\s+/m).filter(Boolean);
+      peopleParts.forEach(part => {
+        const lines = part.split('\n');
+        const firstLine = lines[0].trim();
+        const relMatch = firstLine.match(/^(.+?)\s*\(([^)]+)\)/);
+        const person = {
+          name: relMatch ? relMatch[1].trim() : firstLine,
+          relationship: relMatch ? relMatch[2].trim() : '',
+          notes: lines.slice(1).join('\n').trim()
+        };
+        if (person.name) u.people.push(person);
+      });
+    }
+
+    if (sections['Projects']) {
+      state.enabledSections['projects'] = true;
+      const projText = sections['Projects'];
+      const projParts = projText.split(/^###\s+/m).filter(Boolean);
+      projParts.forEach(part => {
+        const lines = part.split('\n');
+        const firstLine = lines[0].trim();
+        const statusMatch = firstLine.match(/^(.+?)\s*\[([^\]]+)\]/);
+        const project = {
+          name: statusMatch ? statusMatch[1].trim() : firstLine,
+          status: statusMatch ? statusMatch[2].trim() : 'active',
+          description: lines.slice(1).join('\n').trim()
+        };
+        if (project.name) u.projects.push(project);
+      });
+    }
+
+    const knownSections = ['About', 'Cognitive Style', 'Values', 'Communication Preferences', 'People', 'Projects'];
+    Object.entries(sections).forEach(([title, content]) => {
+      if (title.startsWith('_')) return;
+      if (knownSections.includes(title)) return;
+      u.customSections.push({ title, content: content.trim() });
+    });
+  }
+
+  function parseAgentMarkdown(md) {
+    const a = state.agent;
+    a.name = '';
+    a.behaviorsActive = {};
+    a.avoid = [];
+    a.whenLowActive = {};
+    a.techStyleActive = {};
+    a.customSections = [];
+
+    const sections = splitMarkdownSections(md);
+
+    if (sections._title && sections._title !== 'Agent Profile') {
+      a.name = sections._title;
+    }
+
+    if (sections['Character Traits']) {
+      state.enabledSections['traits'] = true;
+      // Reset all traits to 50, then override
+      a.traitOptions.forEach(k => { a.traits[k] = 50; });
+      const lines = sections['Character Traits'].split('\n').filter(l => l.trim().startsWith('-'));
+      lines.forEach(line => {
+        const match = line.match(/\*\*(.+?):\*\*.*?\((\d+)\/100\)/);
+        if (match) {
+          const label = match[1].trim();
+          const val = parseInt(match[2], 10);
+          const existing = a.traitOptions.find(k => getTraitLabel(k).toLowerCase() === label.toLowerCase());
+          if (existing) {
+            a.traits[existing] = val;
+          } else {
+            const key = labelToKey(label);
+            if (!a.traitOptions.includes(key)) {
+              a.traitOptions.push(key);
+              a.traitLabels[key] = label;
+              a.traitEndpoints[key] = ['Low', 'High'];
+            }
+            a.traits[key] = val;
+          }
+        }
+      });
+    }
+
+    if (sections['Behaviors']) {
+      state.enabledSections['behaviors'] = true;
+      const lines = sections['Behaviors'].split('\n').filter(l => l.trim().startsWith('-'));
+      lines.forEach(line => {
+        const text = line.replace(/^-\s*/, '').trim();
+        if (!text) return;
+        const existing = a.behaviorOptions.find(k => getBehaviorLabel(k).toLowerCase() === text.toLowerCase());
+        if (existing) {
+          a.behaviorsActive[existing] = true;
+        } else {
+          const key = labelToKey(text);
+          if (!a.behaviorOptions.includes(key)) {
+            a.behaviorOptions.push(key);
+            a.behaviorLabels[key] = text;
+          }
+          a.behaviorsActive[key] = true;
+        }
+      });
+    }
+
+    if (sections['Avoid']) {
+      state.enabledSections['avoid'] = true;
+      a.avoid = sections['Avoid'].split('\n')
+        .filter(l => l.trim().startsWith('-'))
+        .map(l => l.replace(/^-\s*/, '').trim())
+        .filter(Boolean);
+    }
+
+    if (sections['When User Is Low']) {
+      state.enabledSections['when-low'] = true;
+      const lines = sections['When User Is Low'].split('\n').filter(l => l.trim().startsWith('-'));
+      lines.forEach(line => {
+        const text = line.replace(/^-\s*/, '').trim();
+        if (!text) return;
+        const existing = a.whenLowOptions.find(k => getWhenLowLabel(k).toLowerCase() === text.toLowerCase());
+        if (existing) {
+          a.whenLowActive[existing] = true;
+        } else {
+          const key = labelToKey(text);
+          if (!a.whenLowOptions.includes(key)) {
+            a.whenLowOptions.push(key);
+            a.whenLowLabels[key] = text;
+            a.whenLowDescs[key] = '';
+          }
+          a.whenLowActive[key] = true;
+        }
+      });
+    }
+
+    if (sections['Technical Style']) {
+      state.enabledSections['tech-style'] = true;
+      const lines = sections['Technical Style'].split('\n').filter(l => l.trim().startsWith('-'));
+      lines.forEach(line => {
+        const text = line.replace(/^-\s*/, '').trim();
+        if (!text) return;
+        const existing = a.techStyleOptions.find(k => getTechLabel(k).toLowerCase() === text.toLowerCase());
+        if (existing) {
+          a.techStyleActive[existing] = true;
+        } else {
+          const key = labelToKey(text);
+          if (!a.techStyleOptions.includes(key)) {
+            a.techStyleOptions.push(key);
+            a.techStyleLabels[key] = text;
+            a.techStyleDescs[key] = '';
+          }
+          a.techStyleActive[key] = true;
+        }
+      });
+    }
+
+    const knownSections = ['Character Traits', 'Behaviors', 'Avoid', 'When User Is Low', 'Technical Style'];
+    Object.entries(sections).forEach(([title, content]) => {
+      if (title.startsWith('_')) return;
+      if (knownSections.includes(title)) return;
+      a.customSections.push({ title, content: content.trim() });
+    });
+  }
+
+  function splitMarkdownSections(md) {
+    const result = { _title: '', _intro: '' };
+    const lines = md.split('\n');
+    let currentSection = null;
+    let buffer = [];
+    let foundTitle = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const h1Match = line.match(/^#(?!#)\s+(.+)/);
+      const h2Match = line.match(/^##(?!#)\s+(.+)/);
+
+      if (h1Match && !foundTitle) {
+        foundTitle = true;
+        result._title = h1Match[1].trim();
+        continue;
+      }
+
+      if (h2Match) {
+        if (currentSection !== null) {
+          result[currentSection] = buffer.join('\n');
+        } else if (buffer.join('\n').trim()) {
+          result._intro = buffer.join('\n').trim();
+        }
+        currentSection = h2Match[1].trim();
+        buffer = [];
+        continue;
+      }
+
+      buffer.push(line);
+    }
+
+    if (currentSection !== null) {
+      result[currentSection] = buffer.join('\n');
+    } else if (buffer.join('\n').trim() && !result._intro) {
+      result._intro = buffer.join('\n').trim();
+    }
+
+    return result;
+  }
+
+  // ---- Label Formatters ----
+  function getTraitDescription(key, val) {
+    const descs = {
+      warmth: val < 30 ? 'Clinical' : val < 50 ? 'Reserved' : val < 70 ? 'Warm' : 'Very warm',
+      directness: val < 30 ? 'Gentle' : val < 50 ? 'Balanced' : val < 70 ? 'Direct' : 'Blunt',
+      humor: val < 30 ? 'Serious' : val < 50 ? 'Dry' : val < 70 ? 'Witty' : 'Playful',
+      formality: val < 30 ? 'Casual' : val < 50 ? 'Relaxed' : val < 70 ? 'Professional' : 'Formal',
+      verbosity: val < 30 ? 'Terse' : val < 50 ? 'Concise' : val < 70 ? 'Moderate' : 'Detailed'
+    };
+    if (descs[key]) return descs[key];
+    // Generic for custom traits
+    return val < 25 ? 'Very low' : val < 50 ? 'Low' : val < 75 ? 'Moderate' : 'High';
+  }
+
+  // ---- Utility ----
+  function esc(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // ---- API Helper ----
+  async function apiFetch(path, options = {}) {
+    try {
+      const resp = await fetch(path, options);
+      if (!resp.ok) throw new Error(`API ${resp.status}`);
+      return await resp.json();
+    } catch (e) {
+      console.warn('API fetch failed:', path, e);
+      return null;
+    }
+  }
+
+  // ---- Server Status ----
+  async function checkServerStatus() {
+    try {
+      const resp = await fetch('/api/status');
+      if (resp.ok) {
+        state.serverConnected = true;
+        state.statusCache = await resp.json();
+      } else {
+        state.serverConnected = false;
+      }
+    } catch (e) {
+      state.serverConnected = false;
+    }
+    updateSidebarStatus();
+  }
+
+  function updateSidebarStatus() {
+    const dot = document.querySelector('.sidebar-status-dot');
+    const text = document.querySelector('.sidebar-status-text');
+    if (!dot || !text) return;
+    if (state.serverConnected) {
+      dot.classList.add('connected');
+      dot.classList.remove('disconnected');
+      text.textContent = 'Connected';
+    } else {
+      dot.classList.remove('connected');
+      dot.classList.add('disconnected');
+      text.textContent = 'Offline \u2014 using local storage';
+    }
+  }
+
+  // ---- Main Render (page router) ----
+  function render() {
+    renderTokenBudget();
+    renderPage();
+    saveToLocalStorage();
+  }
+
+  function renderPage() {
+    const container = document.getElementById('page-container');
+    switch (state.activePage) {
+      case 'dashboard': renderDashboard(container); break;
+      case 'seeds': renderSeedsPage(container); break;
+      case 'notes': renderNotesPage(container); break;
+      case 'files': renderFilesPage(container); break;
+      case 'settings': renderSettingsPage(container); break;
+      default: renderDashboard(container);
+    }
+  }
+
+  // ---- Sidebar Navigation ----
+  function bindSidebarNav() {
+    document.querySelectorAll('#sidebar-nav .sidebar-link').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const page = link.dataset.page;
+        if (page === state.activePage) return;
+        state.activePage = page;
+        document.querySelectorAll('#sidebar-nav .sidebar-link').forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+        render();
+      });
+    });
+  }
+
+  // ---- Dashboard Page ----
+  function renderDashboard(container) {
+    const status = state.statusCache;
+    const totalNotes = status ? (status.total_notes || 0) : '\u2014';
+    const totalSessions = status ? (status.total_sessions || 0) : '\u2014';
+    const daemonRunning = status ? status.daemon_running : false;
+    const seedsExist = status ? status.seeds_exist : true;
+
+    // Get recent notes (up to 5)
+    const recentNotes = state.notesCache.slice(0, 5);
+
+    // Last session summary
+    const lastNote = recentNotes.length > 0 ? recentNotes[0] : null;
+
+    let notesHtml = '';
+    if (recentNotes.length > 0) {
+      notesHtml = recentNotes.map(note => {
+        const salience = note.salience || 0;
+        const salienceColor = salience >= 1.5 ? 'var(--terracotta)' : salience >= 1.0 ? 'var(--ochre)' : salience >= 0.5 ? 'var(--sage)' : 'var(--warm-gray-light)';
+        const tags = (note.tags || []).map(t => `<span class="note-tag">${esc(t)}</span>`).join('');
+        const date = note.date ? new Date(note.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        return `
+          <div class="dashboard-note-card">
+            <div class="dashboard-note-header">
+              <span class="dashboard-note-date">${date}</span>
+              <span class="dashboard-note-salience" style="background:${salienceColor};"></span>
+            </div>
+            <div class="dashboard-note-summary">${esc(note.summary || note.title || 'Untitled')}</div>
+            <div class="dashboard-note-tags">${tags}</div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      notesHtml = `
+        <div class="empty-state" style="padding:24px;">
+          <div class="empty-state-icon">&#128221;</div>
+          <h3>No session notes yet</h3>
+          <p>Notes will appear here as sessions are recorded by the daemon.</p>
+        </div>
+      `;
+    }
+
+    let lastSessionHtml = '';
+    if (lastNote) {
+      lastSessionHtml = `
+        <div class="dashboard-session-card">
+          <div class="dashboard-session-header">
+            <h3>Last Session</h3>
+            <span class="dashboard-session-date">${lastNote.date ? new Date(lastNote.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</span>
+          </div>
+          <div class="dashboard-session-body">
+            <p>${esc(lastNote.summary || lastNote.content || 'No summary available')}</p>
+          </div>
+          ${(lastNote.tags || []).length ? `<div class="dashboard-session-tags">${(lastNote.tags || []).map(t => `<span class="note-tag">${esc(t)}</span>`).join('')}</div>` : ''}
+        </div>
+      `;
+    }
+
+    // Onboarding card (shown if no seeds exist)
+    let onboardingHtml = '';
+    if (!seedsExist) {
+      onboardingHtml = `
+        <div class="onboarding-card">
+          <div class="onboarding-icon">&#127793;</div>
+          <h2>Welcome to Memorable</h2>
+          <p>Get started by creating your seed files. These tell Claude who you are and how to talk to you.</p>
+          <div class="onboarding-actions">
+            <button class="btn btn-primary" onclick="window.memorableApp.navigateTo('seeds')">Create Seeds</button>
+            <button class="btn" onclick="window.memorableApp.navigateTo('settings')">Configure Settings</button>
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="dashboard-page">
+        <div class="page-header">
+          <h1>Dashboard</h1>
+          <p>Overview of your Memorable instance</p>
+        </div>
+
+        ${onboardingHtml}
+
+        <div class="dashboard-stats">
+          <div class="stat-card">
+            <div class="stat-value">${totalNotes}</div>
+            <div class="stat-label">Session Notes</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${totalSessions}</div>
+            <div class="stat-label">Sessions Tracked</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${state.files.length}</div>
+            <div class="stat-label">Context Files</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">
+              <span class="stat-dot ${daemonRunning ? 'stat-dot-active' : 'stat-dot-inactive'}"></span>
+              ${daemonRunning ? 'Active' : 'Inactive'}
+            </div>
+            <div class="stat-label">Daemon</div>
+          </div>
+        </div>
+
+        ${lastSessionHtml}
+
+        <div class="dashboard-section">
+          <div class="dashboard-section-header">
+            <h2>Recent Notes</h2>
+            ${recentNotes.length > 0 ? `<button class="btn btn-small" onclick="window.memorableApp.navigateTo('notes')">View all</button>` : ''}
+          </div>
+          <div class="dashboard-notes-grid">
+            ${notesHtml}
+          </div>
+        </div>
+
+        <div class="dashboard-section">
+          <h2>Quick Actions</h2>
+          <div class="quick-actions">
+            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('seeds')">
+              <span class="quick-action-icon">&#128196;</span>
+              Edit Seeds
+            </button>
+            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('files')">
+              <span class="quick-action-icon">&#128193;</span>
+              Upload File
+            </button>
+            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('notes')">
+              <span class="quick-action-icon">&#128269;</span>
+              Search Sessions
+            </button>
+            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('settings')">
+              <span class="quick-action-icon">&#9881;</span>
+              Settings
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+
+  // ==== PART 2: Notes Page, Settings Page, Seeds Page, Files Page ====
+
+  // ---- Notes Page ----
+  async function loadNotes() {
+    const data = await apiFetch('/api/notes');
+    if (data && Array.isArray(data.notes)) {
+      state.notesCache = data.notes;
+    }
+  }
+
+  function renderNotesPage(container) {
+    const notes = state.notesCache;
+    const searchTerm = container._notesSearch || '';
+    const sortBy = container._notesSort || 'date';
+
+    let filtered = notes;
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = notes.filter(n =>
+        (n.summary || '').toLowerCase().includes(term) ||
+        (n.title || '').toLowerCase().includes(term) ||
+        (n.content || '').toLowerCase().includes(term) ||
+        (n.tags || []).some(t => t.toLowerCase().includes(term))
+      );
+    }
+
+    if (sortBy === 'salience') {
+      filtered = [...filtered].sort((a, b) => (b.salience || 0) - (a.salience || 0));
+    }
+    // Default sort is by date (already sorted from API)
+
+    let notesHtml = '';
+    if (filtered.length > 0) {
+      notesHtml = filtered.map((note, idx) => {
+        const salience = note.salience || 0;
+        const maxSalience = 2.0;
+        const saliencePct = Math.min(100, (salience / maxSalience) * 100);
+        // Color: warm (high salience) to cool (low salience)
+        const warmth = Math.min(1, salience / maxSalience);
+        const r = Math.round(194 * warmth + 180 * (1 - warmth));
+        const g = Math.round(105 * warmth + 175 * (1 - warmth));
+        const b = Math.round(79 * warmth + 200 * (1 - warmth));
+        const salienceColor = `rgb(${r},${g},${b})`;
+
+        const tags = (note.tags || []).map(t => `<span class="note-tag">${esc(t)}</span>`).join('');
+        const date = note.date ? new Date(note.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '';
+        const wordCount = note.content ? note.content.split(/\s+/).length : 0;
+        const expandedId = 'note-expand-' + idx;
+
+        return `
+          <div class="note-card" data-note-idx="${idx}">
+            <div class="note-card-salience-bar" style="background:${salienceColor};width:${saliencePct}%;"></div>
+            <div class="note-card-header" onclick="document.getElementById('${expandedId}').classList.toggle('expanded')">
+              <div class="note-card-meta">
+                <span class="note-card-date">${date}</span>
+                <span class="note-card-salience-badge" style="color:${salienceColor};">${salience.toFixed(2)}</span>
+                <span class="note-card-wordcount">${wordCount} words</span>
+              </div>
+              <div class="note-card-summary">${esc(note.summary || note.title || 'Untitled session')}</div>
+              <div class="note-card-tags">${tags}</div>
+            </div>
+            <div class="note-card-body" id="${expandedId}">
+              <div class="note-card-content">${markdownToHtml(note.content || 'No content')}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      notesHtml = `
+        <div class="empty-state" style="padding:40px 20px;">
+          <div class="empty-state-icon">&#128221;</div>
+          <h3>${searchTerm ? 'No notes match your search' : 'No session notes yet'}</h3>
+          <p>${searchTerm ? 'Try a different search term.' : 'Notes will appear here as sessions are recorded by the daemon.'}</p>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="notes-page">
+        <div class="page-header">
+          <h1>Session Notes</h1>
+          <p>${notes.length} note${notes.length !== 1 ? 's' : ''} recorded</p>
+        </div>
+        <div class="notes-toolbar">
+          <div class="notes-search">
+            <svg class="notes-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" class="notes-search-input" id="notes-search-input" placeholder="Search notes by keyword or tag..." value="${esc(searchTerm)}">
+          </div>
+          <div class="notes-sort">
+            <button class="notes-sort-btn ${sortBy === 'date' ? 'active' : ''}" data-sort="date">By Date</button>
+            <button class="notes-sort-btn ${sortBy === 'salience' ? 'active' : ''}" data-sort="salience">By Salience</button>
+          </div>
+        </div>
+        <div class="notes-list">
+          ${notesHtml}
+        </div>
+      </div>
+    `;
+
+    // Search binding
+    const searchInput = document.getElementById('notes-search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', debounce(() => {
+        container._notesSearch = searchInput.value;
+        renderNotesPage(container);
+      }, 300));
+    }
+
+    // Sort binding
+    container.querySelectorAll('.notes-sort-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        container._notesSort = btn.dataset.sort;
+        renderNotesPage(container);
+      });
+    });
+  }
+
+  // ---- Settings Page ----
+  async function loadSettings() {
+    const data = await apiFetch('/api/settings');
+    if (data) {
+      state.settingsCache = data;
+    }
+  }
+
+  function renderSettingsPage(container) {
+    const s = state.settingsCache || {};
+    const llm = s.llm || {};
+
+    container.innerHTML = `
+      <div class="settings-page">
+        <div class="page-header">
+          <h1>Settings</h1>
+          <p>Configure your Memorable instance</p>
+        </div>
+
+        <div class="settings-grid">
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div class="settings-section-icon terracotta">&#9881;</div>
+              <h3>LLM Provider</h3>
+            </div>
+            <div class="settings-section-body">
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">API Endpoint</div>
+                  <div class="settings-row-desc">e.g. https://api.deepseek.com/v1</div>
+                </div>
+                <div class="settings-row-control">
+                  <input type="text" id="settings-llm-endpoint" value="${esc(llm.endpoint || '')}" placeholder="https://api.deepseek.com/v1">
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">API Key</div>
+                  <div class="settings-row-desc">Stored locally, never sent anywhere</div>
+                </div>
+                <div class="settings-row-control">
+                  <input type="password" id="settings-llm-apikey" value="${esc(llm.api_key || '')}" placeholder="sk-...">
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Model</div>
+                  <div class="settings-row-desc">e.g. deepseek-chat, gpt-4o-mini</div>
+                </div>
+                <div class="settings-row-control">
+                  <input type="text" id="settings-llm-model" value="${esc(llm.model || '')}" placeholder="deepseek-chat">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div class="settings-section-icon sage">&#9783;</div>
+              <h3>Token Budget</h3>
+            </div>
+            <div class="settings-section-body">
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Budget Limit</div>
+                  <div class="settings-row-desc" id="token-budget-display">${formatTokens(s.token_budget || 200000)} tokens</div>
+                </div>
+                <div class="settings-row-control" style="flex:1;max-width:400px;">
+                  <input type="range" id="settings-token-budget" min="50000" max="500000" step="10000" value="${s.token_budget || 200000}" style="width:100%;">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div class="settings-section-icon sand">&#9672;</div>
+              <h3>Daemon</h3>
+            </div>
+            <div class="settings-section-body">
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Daemon Enabled</div>
+                  <div class="settings-row-desc">Watch sessions and auto-generate notes</div>
+                </div>
+                <div class="settings-row-control">
+                  <label class="switch">
+                    <input type="checkbox" id="settings-daemon-enabled" ${(s.daemon || {}).enabled !== false ? 'checked' : ''}>
+                    <span class="switch-track"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Idle Threshold</div>
+                  <div class="settings-row-desc">Seconds of inactivity before processing a session</div>
+                </div>
+                <div class="settings-row-control">
+                  <input type="number" id="settings-idle-threshold" value="${(s.daemon || {}).idle_threshold || 300}" min="60" max="3600">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <div class="settings-section-icon ochre">&#128193;</div>
+              <h3>Data</h3>
+            </div>
+            <div class="settings-section-body">
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Data Directory</div>
+                  <div class="settings-row-desc">Where Memorable stores all local data</div>
+                </div>
+                <div class="settings-row-control">
+                  <span class="settings-path-display">${esc(s.data_dir || '~/.memorable/data')}</span>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Server Port</div>
+                  <div class="settings-row-desc">Port for the web UI server</div>
+                </div>
+                <div class="settings-row-control">
+                  <input type="number" id="settings-port" value="${s.port || 7777}" min="1024" max="65535">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button class="btn btn-primary" id="settings-save-btn">Save Settings</button>
+        </div>
+
+        <div class="settings-grid" style="margin-top:20px;">
+          <div class="settings-section settings-danger-zone">
+            <div class="settings-section-header">
+              <h3>Danger Zone</h3>
+            </div>
+            <div class="settings-section-body">
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Export All Data</div>
+                  <div class="settings-row-desc">Download all seeds, notes, and settings as JSON</div>
+                </div>
+                <div class="settings-row-control">
+                  <button class="btn btn-small" id="settings-export-btn">Export</button>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Reset All Data</div>
+                  <div class="settings-row-desc">Delete all local data and start fresh</div>
+                </div>
+                <div class="settings-row-control">
+                  <button class="btn btn-small btn-danger-ghost" id="settings-reset-btn">Reset Everything</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Token budget slider
+    const budgetSlider = document.getElementById('settings-token-budget');
+    if (budgetSlider) {
+      budgetSlider.addEventListener('input', () => {
+        document.getElementById('token-budget-display').textContent = formatTokens(parseInt(budgetSlider.value)) + ' tokens';
+      });
+    }
+
+    // Save
+    const saveBtn = document.getElementById('settings-save-btn');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async () => {
+        const settings = {
+          llm: {
+            endpoint: document.getElementById('settings-llm-endpoint').value,
+            api_key: document.getElementById('settings-llm-apikey').value,
+            model: document.getElementById('settings-llm-model').value
+          },
+          token_budget: parseInt(document.getElementById('settings-token-budget').value),
+          daemon: {
+            enabled: document.getElementById('settings-daemon-enabled').checked,
+            idle_threshold: parseInt(document.getElementById('settings-idle-threshold').value)
+          },
+          port: parseInt(document.getElementById('settings-port').value)
+        };
+        const result = await apiFetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings)
+        });
+        if (result) {
+          state.settingsCache = { ...state.settingsCache, ...settings };
+          showToast('Settings saved', 'success');
+        } else {
+          showToast('Failed to save settings (server offline?)', '');
+        }
+      });
+    }
+
+    // Export
+    const exportBtn = document.getElementById('settings-export-btn');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', async () => {
+        const data = await apiFetch('/api/export');
+        if (data) {
+          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'memorable-export.json';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showToast('Data exported', 'success');
+        } else {
+          // Fallback: export local state
+          const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'memorable-export.json';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          showToast('Exported local data (server offline)', '');
+        }
+      });
+    }
+
+    // Reset
+    const resetBtn = document.getElementById('settings-reset-btn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        if (confirm('Reset ALL data? This cannot be undone.')) {
+          localStorage.removeItem('seedConfigurator');
+          apiFetch('/api/reset', { method: 'POST' });
+          location.reload();
+        }
+      });
+    }
+  }
+
+  // ---- Seeds Page ----
+  function renderSeedsPage(container) {
+    const fileCount = state.files.length;
+
+    container.innerHTML = `
+      <div class="seeds-page">
+        <div class="seeds-header">
+          <div class="seeds-sub-nav">
+            <button class="seeds-tab ${state.activeFile === 'user' ? 'active' : ''}" data-seed-file="user">
+              <span class="tab-icon">&#9786;</span>user.md
+            </button>
+            <button class="seeds-tab ${state.activeFile === 'agent' ? 'active' : ''}" data-seed-file="agent">
+              <span class="tab-icon">&#9881;</span>agent.md
+            </button>
+          </div>
+          <div class="seeds-view-controls" id="seeds-view-controls"></div>
+        </div>
+        <div class="seeds-layout" id="seeds-layout">
+          <div class="seeds-editor-panel" id="seeds-editor-panel"></div>
+          <div class="seeds-preview-panel card" id="seeds-preview-panel">
+            <div class="card-header">
+              <h3>Preview</h3>
+              <span style="font-size:0.78rem;color:var(--text-muted);">${state.activeFile}.md</span>
+            </div>
+            <div class="preview-content" id="preview-content"></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Bind seed file tabs
+    container.querySelectorAll('.seeds-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.activeFile = btn.dataset.seedFile;
+        renderSeedsPage(container);
+      });
+    });
+
+    // Render view controls
+    renderSeedsViewControls();
+    // Render editor content
+    renderSeedsContent();
+    // Render preview
+    renderPreview();
+  }
+
+  function renderSeedsViewControls() {
+    const controls = document.getElementById('seeds-view-controls');
+    if (!controls) return;
+    const file = state.activeFile;
+
+    controls.innerHTML = `
+      <div class="view-toggle">
+        <button class="view-toggle-btn ${state.activeView === 'form' ? 'active' : ''}" data-view="form">Form Editor</button>
+        <button class="view-toggle-btn ${state.activeView === 'markdown' ? 'active' : ''}" data-view="markdown">Markdown</button>
+      </div>
+      <div class="action-buttons">
+        <span class="save-indicator"><span class="dot"></span> Auto-saved</span>
+        <button class="btn" onclick="window.memorableApp.showImportModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Import
+        </button>
+        <button class="btn" onclick="window.memorableApp.copyToClipboard('${file}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          Copy
+        </button>
+        <button class="btn" onclick="window.memorableApp.download('${file}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download
+        </button>
+      </div>
+    `;
+
+    controls.querySelectorAll('.view-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.activeView = btn.dataset.view;
+        renderSeedsContent();
+        renderPreview();
+        saveToLocalStorage();
+      });
+    });
+  }
+
+  function renderSeedsContent() {
+    const editorPanel = document.getElementById('seeds-editor-panel');
+    const previewPanel = document.getElementById('seeds-preview-panel');
+    const layout = document.getElementById('seeds-layout');
+    if (!editorPanel) return;
+
+    if (state.activeView === 'form') {
+      if (layout) layout.classList.remove('full-width');
+      if (previewPanel) previewPanel.style.display = '';
+      if (state.activeFile === 'user') {
+        renderUserForm(editorPanel);
+      } else {
+        renderAgentForm(editorPanel);
+      }
+    } else {
+      if (layout) layout.classList.remove('full-width');
+      if (previewPanel) previewPanel.style.display = '';
+      renderMarkdownEditor(editorPanel);
+    }
+  }
+
+  // ---- Files Page ----
+  function renderFilesPage(container) {
+    container.innerHTML = `
+      <div class="files-page">
+        <div class="page-header">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <h1>Files</h1>
+            <span style="font-size:0.88rem;color:var(--text-muted);">${state.files.length} file${state.files.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="action-buttons">
+            <span class="save-indicator"><span class="dot"></span> Auto-saved</span>
+          </div>
+        </div>
+        <div class="files-content" id="files-content"></div>
+      </div>
+    `;
+    renderFilesTab(document.getElementById('files-content'));
+  }
+
+  // ---- Files Tab ----
+  function renderFilesTab(container) {
+    const files = state.files;
+    const activeFile = files.find(f => f.id === state.activeFileId);
+
+    let sidebarItems = '';
+    if (files.length > 0) {
+      sidebarItems = files.map(f => {
+        const tokens = getFileTokens(f);
+        const depthLabel = ANCHOR_DEPTHS.find(d => d.key === (f.anchorDepth || 'full'))?.label || 'Full';
+        return `
+          <div class="file-list-item ${f.id === state.activeFileId ? 'active' : ''}" data-file-id="${f.id}">
+            <span class="file-list-item-icon">&#128196;</span>
+            <div class="file-list-item-info">
+              <div class="file-list-item-name">${esc(f.name)}</div>
+              <div class="file-list-item-meta">${formatTokens(tokens)} tokens &middot; ${depthLabel}</div>
+            </div>
+            ${f.projectTag ? `<span class="file-list-item-tag">${esc(f.projectTag)}</span>` : ''}
+          </div>
+        `;
+      }).join('');
+    } else {
+      sidebarItems = `<div style="padding:20px 16px;text-align:center;color:var(--text-muted);font-size:0.82rem;">No files yet</div>`;
+    }
+
+    let mainContent = '';
+    if (activeFile) {
+      const tokens = getFileTokens(activeFile);
+      const sizeBytes = new Blob([activeFile.content || '']).size;
+      const projects = state.user.projects.filter(p => p.name);
+      const projectOptions = projects.map(p => `<option value="${esc(p.name)}" ${activeFile.projectTag === p.name ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+
+      mainContent = `
+        <div class="file-detail-card">
+          <div class="file-detail-header">
+            <div class="file-detail-title">
+              <span>&#128196;</span>
+              <span>${esc(activeFile.name)}</span>
+            </div>
+            <div class="file-detail-actions">
+              <button class="btn btn-small" onclick="window.seedApp.copyFileContent('${activeFile.id}')">Copy</button>
+              <button class="btn btn-small btn-danger-ghost" onclick="window.seedApp.removeFile('${activeFile.id}')">Remove</button>
+            </div>
+          </div>
+          <div class="file-detail-meta">
+            <div class="file-meta-item">
+              <span class="file-meta-label">Size</span>
+              <span class="file-meta-value">${formatBytes(sizeBytes)}</span>
+            </div>
+            <div class="file-meta-item">
+              <span class="file-meta-label">Tokens</span>
+              <span class="file-meta-value">${formatTokens(tokens)}</span>
+            </div>
+            <div class="file-meta-item">
+              <span class="file-meta-label">Anchor Depth</span>
+              <select data-file-depth="${activeFile.id}" class="file-meta-value">
+                ${ANCHOR_DEPTHS.map(d => `<option value="${d.key}" ${(activeFile.anchorDepth || 'full') === d.key ? 'selected' : ''}>${d.label} &mdash; ${d.desc}</option>`).join('')}
+              </select>
+            </div>
+            <div class="file-meta-item">
+              <span class="file-meta-label">Project</span>
+              <select data-file-project="${activeFile.id}" class="file-meta-value">
+                <option value="">None</option>
+                ${projectOptions}
+              </select>
+            </div>
+          </div>
+          <div class="file-detail-body">
+            <textarea id="file-content-editor" placeholder="File content...">${esc(activeFile.content || '')}</textarea>
+          </div>
+        </div>
+      `;
+    } else {
+      mainContent = `
+        <div class="file-upload-zone" id="files-upload-zone">
+          <div class="file-upload-zone-icon">&#128196;</div>
+          <h3>Add context files</h3>
+          <p>Upload documents, paste text, or drag files here.<br>
+          These provide additional context for your AI agent.</p>
+          <input type="file" id="files-upload-input" multiple accept=".md,.txt,.markdown,.json,.yaml,.yml,.csv,.xml,.html,.py,.js,.ts,.toml,.cfg,.ini,.log">
+          <div class="file-upload-actions">
+            <button class="btn" id="files-browse-btn">Browse Files</button>
+            <button class="btn" id="files-paste-btn">Paste Text</button>
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="files-layout">
+        <div class="files-sidebar">
+          <div class="files-sidebar-header">
+            <h3>Files</h3>
+            <button class="btn btn-small" id="files-add-btn" title="Add file">&#43; Add</button>
+          </div>
+          <div class="files-sidebar-list">
+            ${sidebarItems}
+          </div>
+        </div>
+        <div class="files-main">
+          ${mainContent}
+        </div>
+      </div>
+    `;
+
+    bindFilesTabEvents(container);
+  }
+
+  function bindFilesTabEvents(container) {
+    // Sidebar file selection
+    container.querySelectorAll('.file-list-item[data-file-id]').forEach(el => {
+      el.addEventListener('click', () => {
+        state.activeFileId = el.dataset.fileId;
+        render();
+      });
+    });
+
+    // File content editing
+    const contentEditor = document.getElementById('file-content-editor');
+    if (contentEditor) {
+      contentEditor.addEventListener('input', debounce(() => {
+        const file = state.files.find(f => f.id === state.activeFileId);
+        if (file) {
+          file.content = contentEditor.value;
+          renderTokenBudget();
+          debouncedSave();
+        }
+      }, 300));
+    }
+
+    // Anchor depth change
+    container.querySelectorAll('[data-file-depth]').forEach(el => {
+      el.addEventListener('change', () => {
+        const file = state.files.find(f => f.id === el.dataset.fileDepth);
+        if (file) {
+          file.anchorDepth = el.value;
+          render();
+        }
+      });
+    });
+
+    // Project tag change
+    container.querySelectorAll('[data-file-project]').forEach(el => {
+      el.addEventListener('change', () => {
+        const file = state.files.find(f => f.id === el.dataset.fileProject);
+        if (file) {
+          file.projectTag = el.value || '';
+          render();
+        }
+      });
+    });
+
+    // Add button
+    const addBtn = document.getElementById('files-add-btn');
+    if (addBtn) {
+      addBtn.addEventListener('click', () => {
+        state.activeFileId = null;
+        render();
+      });
+    }
+
+    // Upload zone
+    const uploadZone = document.getElementById('files-upload-zone');
+    const uploadInput = document.getElementById('files-upload-input');
+    const browseBtn = document.getElementById('files-browse-btn');
+    const pasteBtn = document.getElementById('files-paste-btn');
+
+    if (uploadZone) {
+      uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+      uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+      uploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        handleFileUploads(e.dataTransfer.files);
+      });
+    }
+
+    if (uploadInput) {
+      uploadInput.addEventListener('change', () => {
+        handleFileUploads(uploadInput.files);
+      });
+    }
+
+    if (browseBtn) {
+      browseBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (uploadInput) uploadInput.click();
+      });
+    }
+
+    if (pasteBtn) {
+      pasteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addPastedFile();
+      });
+    }
+  }
+
+  function handleFileUploads(fileList) {
+    Array.from(fileList).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const newFile = {
+          id: generateFileId(),
+          name: file.name,
+          content: e.target.result,
+          anchorDepth: 'full',
+          projectTag: ''
+        };
+        state.files.push(newFile);
+        state.activeFileId = newFile.id;
+        render();
+        showToast(`Added ${file.name}`, 'success');
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  function addPastedFile() {
+    const name = prompt('File name:', 'untitled.md');
+    if (!name) return;
+    const newFile = {
+      id: generateFileId(),
+      name: name,
+      content: '',
+      anchorDepth: 'full',
+      projectTag: ''
+    };
+    state.files.push(newFile);
+    state.activeFileId = newFile.id;
+    render();
+  }
+
+  // ---- Preview ----
+  function renderPreview() {
+    const container = document.getElementById('preview-content');
+    if (!container) return;
+    const md = state.activeFile === 'user' ? generateUserMarkdown() : generateAgentMarkdown();
+    container.innerHTML = markdownToHtml(md);
+    markdownCache[state.activeFile] = md;
+  }
+
+  // ---- Token Budget ----
+  function renderTokenBudget() {
+    const container = document.getElementById('token-budget');
+    const userTokens = estimateTokens(generateUserMarkdown());
+    const agentTokens = estimateTokens(generateAgentMarkdown());
+    const fileTokens = getTotalFileTokens();
+    const total = userTokens + agentTokens + fileTokens;
+    const maxTokens = 200000;
+    const pct = (n) => Math.max(0, Math.min(100, (n / maxTokens) * 100));
+    const expanded = state.tokenBudgetExpanded;
+
+    let fileDetailRows = '';
+    if (state.files.length > 0) {
+      fileDetailRows = state.files.map(f => {
+        const ft = getFileTokens(f);
+        const depthLabel = ANCHOR_DEPTHS.find(d => d.key === (f.anchorDepth || 'full'))?.label || 'Full';
+        const projLabel = f.projectTag ? `<span class="file-list-item-tag">${esc(f.projectTag)}</span>` : '';
+        return `
+          <div class="token-detail-row">
+            <span class="token-detail-name">
+              &#128196; ${esc(f.name)}
+              <span class="depth-badge">${depthLabel}</span>
+              ${projLabel}
+            </span>
+            <span class="token-detail-count">${formatTokens(ft)} tokens</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    container.innerHTML = `
+      <div class="token-budget-bar ${expanded ? 'expanded' : ''}" id="token-budget-bar">
+        <div class="token-budget-header">
+          <span class="token-budget-label">
+            Context Budget
+            <span class="token-budget-chevron">&#9660;</span>
+          </span>
+          <span class="token-budget-total">${formatTokens(total)} / ${formatTokens(maxTokens)} tokens</span>
+        </div>
+        <div class="token-budget-track">
+          <div class="token-budget-segment user-seg" style="width:${pct(userTokens)}%"></div>
+          <div class="token-budget-segment agent-seg" style="width:${pct(agentTokens)}%"></div>
+          <div class="token-budget-segment files-seg" style="width:${pct(fileTokens)}%"></div>
+        </div>
+        <div class="token-budget-legend">
+          <span class="token-legend-item"><span class="token-legend-dot user-dot"></span>user.md: ${formatTokens(userTokens)}</span>
+          <span class="token-legend-item"><span class="token-legend-dot agent-dot"></span>agent.md: ${formatTokens(agentTokens)}</span>
+          <span class="token-legend-item"><span class="token-legend-dot files-dot"></span>Files: ${formatTokens(fileTokens)}</span>
+        </div>
+        <div class="token-budget-detail">
+          <div class="token-detail-row">
+            <span class="token-detail-name">&#9786; user.md</span>
+            <span class="token-detail-count">${formatTokens(userTokens)} tokens</span>
+          </div>
+          <div class="token-detail-row">
+            <span class="token-detail-name">&#9881; agent.md</span>
+            <span class="token-detail-count">${formatTokens(agentTokens)} tokens</span>
+          </div>
+          ${fileDetailRows}
+          <div class="token-detail-row" style="font-weight:600;margin-top:4px;padding-top:8px;border-top:1px solid var(--border);">
+            <span class="token-detail-name">Total</span>
+            <span class="token-detail-count">${formatTokens(total)} tokens</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('token-budget-bar').addEventListener('click', () => {
+      state.tokenBudgetExpanded = !state.tokenBudgetExpanded;
+      document.getElementById('token-budget-bar').classList.toggle('expanded');
+    });
+  }
+
+  function renderPresetBar() {
+    const isUser = state.activeFile === 'user';
+    return `
+      <div class="preset-bar">
+        <div class="preset-bar-label">Use Case Preset</div>
+        <div class="preset-group">
+          ${Object.entries(PRESETS).map(([key, preset]) => `
+            <button class="preset-btn ${state.preset === key ? 'active' : ''}" data-preset="${key}">${preset.label}</button>
+          `).join('')}
+        </div>
+        <div class="preset-bar-hint">Presets suggest which sections to enable. You can always toggle any section on or off individually.</div>
+      </div>
+    `;
+  }
+
+  // ---- Section Toggle Rendering ----
+  function renderSection(id, title, subtitle, colorClass, icon, body, emptyHint) {
+    const enabled = state.enabledSections[id] !== false;
+    const disabledClass = enabled ? '' : 'section-disabled';
+    return `
+      <div class="section ${disabledClass}" id="section-${id}">
+        <div class="section-header">
+          <div class="section-header-left" onclick="window.seedApp.toggleSection('section-${id}')">
+            <div class="section-icon ${colorClass}">${icon}</div>
+            <div>
+              <div class="section-title">${title}</div>
+              <div class="section-subtitle">${subtitle}</div>
+            </div>
+          </div>
+          <div class="section-header-right">
+            <label class="section-toggle" onclick="event.stopPropagation()">
+              <input type="checkbox" ${enabled ? 'checked' : ''} data-section-toggle="${id}">
+              <span class="section-toggle-track"></span>
+            </label>
+            <span class="section-chevron" onclick="window.seedApp.toggleSection('section-${id}')">&#9660;</span>
+          </div>
+        </div>
+        <div class="section-body">
+          ${body}
+        </div>
+      </div>
+    `;
+  }
+
+  // ---- User Form ----
+  function renderUserForm(container) {
+    const u = state.user;
+    container.innerHTML = `
+      ${renderPresetBar()}
+
+      ${renderSection('identity', 'Identity', 'Who you are', 'terracotta', '&#9733;', `
+        <div class="form-row">
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" data-bind="user.identity.name" value="${esc(u.identity.name)}" placeholder="Your name">
+          </div>
+          <div class="form-group">
+            <label>Age</label>
+            <input type="text" data-bind="user.identity.age" value="${esc(u.identity.age)}" placeholder="e.g. 34">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Location</label>
+            <input type="text" data-bind="user.identity.location" value="${esc(u.identity.location)}" placeholder="City, country">
+          </div>
+          <div class="form-group">
+            <label>Pronouns</label>
+            <input type="text" data-bind="user.identity.pronouns" value="${esc(u.identity.pronouns)}" placeholder="e.g. he/him, she/her, they/them">
+          </div>
+        </div>
+      `)}
+
+      ${renderSection('about', 'About', 'A brief bio or description', 'sage', '&#9998;', `
+        <div class="form-group">
+          <textarea data-bind="user.about" rows="4" placeholder="Tell the agent about yourself. What matters to you? What should it know?">${esc(u.about)}</textarea>
+        </div>
+      `)}
+
+      ${renderSection('cognitive', 'Cognitive Style', 'Neurodivergence and cognitive differences', 'sand', '&#10024;', `
+        <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;">Select any that apply. This helps the agent adapt its communication style.</p>
+        <div class="toggle-group" id="cognitive-toggles">
+          ${u.cognitiveOptions.map(k => {
+            const active = u.cognitiveActive[k];
+            const isCustom = !isDefaultCognitive(k);
+            return `
+              <div class="toggle-item ${active ? 'active' : ''}" data-cognitive="${k}">
+                <span class="toggle-check">${active ? '&#10003;' : ''}</span>
+                ${getCognitiveLabel(k)}
+                ${isCustom ? `<button class="toggle-remove" data-remove-cognitive="${k}" title="Remove">&#10005;</button>` : ''}
+              </div>
+            `;
+          }).join('')}
+          <div class="toggle-item custom-toggle" id="add-cognitive-btn">
+            <span style="font-size:0.9em;">&#43;</span> Add custom...
+          </div>
+        </div>
+      `)}
+
+      ${renderSection('values', 'Values', 'Ranked preferences that guide responses', 'terracotta', '&#9878;', `
+        <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;">What matters more? Left side is preferred over right side.</p>
+        <div class="value-pairs" id="value-pairs">
+          ${u.values.map((v, i) => `
+            <div class="value-pair" data-index="${i}">
+              <input type="text" value="${esc(v.higher)}" data-pair="higher" placeholder="More important">
+              <span class="separator">&gt;</span>
+              <input type="text" value="${esc(v.lower)}" data-pair="lower" placeholder="Less important">
+              <button class="btn btn-icon btn-danger-ghost" data-remove-value="${i}" title="Remove">&#10005;</button>
+            </div>
+          `).join('')}
+        </div>
+        <button class="add-item-btn" id="add-value-btn">&#43; Add value pair</button>
+      `)}
+
+      ${renderSection('communication', 'Communication Preferences', 'How the agent should talk to you', 'sage', '&#128172;', `
+        <div id="communication-switches">
+          ${u.communicationOptions.map(k => {
+            const isCustom = !isDefaultComm(k);
+            return renderSwitchRowWithRemove('user.communicationActive.' + k, getCommLabel(k), getCommDesc(k), !!u.communicationActive[k], isCustom ? k : null, 'comm');
+          }).join('')}
+        </div>
+        <button class="add-item-btn" id="add-comm-btn" style="margin-top:12px;">&#43; Add custom preference...</button>
+      `)}
+
+      ${renderSection('people', 'People', 'People the agent should know about', 'clay', '&#9824;', `
+        <div class="repeatable-list" id="people-list">
+          ${u.people.length ? u.people.map((p, i) => renderPersonItem(p, i)).join('') : `
+            <div class="empty-state">
+              <div class="empty-state-icon">&#128101;</div>
+              <h3>No people added yet</h3>
+              <p>Add people the agent should know about &mdash; family, friends, colleagues, or anyone relevant to your conversations.</p>
+            </div>
+          `}
+        </div>
+        <button class="add-item-btn" id="add-person-btn">&#43; Add person</button>
+      `)}
+
+      ${renderSection('projects', 'Projects', 'Active projects and their context', 'sand', '&#128193;', `
+        <div class="repeatable-list" id="projects-list">
+          ${u.projects.length ? u.projects.map((p, i) => renderProjectItem(p, i)).join('') : `
+            <div class="empty-state">
+              <div class="empty-state-icon">&#128194;</div>
+              <h3>No projects added yet</h3>
+              <p>Add projects you're working on so the agent has context about your work.</p>
+            </div>
+          `}
+        </div>
+        <button class="add-item-btn" id="add-project-btn">&#43; Add project</button>
+      `)}
+
+      ${renderSection('user-custom', 'Custom Sections', 'Add your own sections', 'terracotta', '&#43;', `
+        <div class="custom-sections" id="user-custom-sections">
+          ${u.customSections.length ? u.customSections.map((s, i) => renderCustomSectionItem(s, i, 'user')).join('') : `
+            <div class="empty-state">
+              <div class="empty-state-icon">&#9997;</div>
+              <h3>No custom sections</h3>
+              <p>Add anything else the agent should know &mdash; health context, work environment, preferences, routines, or any other relevant information.</p>
+            </div>
+          `}
+        </div>
+        <button class="add-item-btn" id="add-user-custom-btn">&#43; Add custom section</button>
+      `)}
+    `;
+
+    bindFormEvents(container);
+    bindUserSpecificEvents(container);
+    bindPresetEvents(container);
+    bindSectionToggleEvents(container);
+  }
+
+  // ---- Agent Form ----
+  function renderAgentForm(container) {
+    const a = state.agent;
+    container.innerHTML = `
+      ${renderPresetBar()}
+
+      ${renderSection('agent-name', 'Name', 'What the agent calls itself', 'sage', '&#9881;', `
+        <div class="form-group">
+          <label>Agent Name</label>
+          <input type="text" data-bind="agent.name" value="${esc(a.name)}" placeholder="e.g. Claude, Aria, Helper">
+        </div>
+      `)}
+
+      ${renderSection('traits', 'Character Traits', 'Personality sliders', 'terracotta', '&#9734;', `
+        <div id="trait-sliders">
+          ${a.traitOptions.map(key => renderSlider(key, getTraitLabel(key), a.traits[key] || 50, getTraitEndpoints(key), !isDefaultTrait(key))).join('')}
+        </div>
+        <button class="add-item-btn" id="add-trait-btn" style="margin-top:12px;">&#43; Add custom trait...</button>
+      `)}
+
+      ${renderSection('behaviors', 'Behaviors', 'What the agent should do', 'sage', '&#10003;', `
+        <div class="toggle-group" id="behavior-toggles">
+          ${a.behaviorOptions.map(k => {
+            const active = a.behaviorsActive[k];
+            const isCustom = !isDefaultBehavior(k);
+            return `
+              <div class="toggle-item ${active ? 'active' : ''}" data-behavior="${k}">
+                <span class="toggle-check">${active ? '&#10003;' : ''}</span>
+                ${getBehaviorLabel(k)}
+                ${isCustom ? `<button class="toggle-remove" data-remove-behavior="${k}" title="Remove">&#10005;</button>` : ''}
+              </div>
+            `;
+          }).join('')}
+          <div class="toggle-item custom-toggle" id="add-behavior-btn">
+            <span style="font-size:0.9em;">&#43;</span> Add custom...
+          </div>
+        </div>
+      `)}
+
+      ${renderSection('avoid', 'Avoid', 'Things the agent should not do', 'sand', '&#10007;', `
+        <div class="tag-list" id="avoid-tags">
+          ${a.avoid.length ? a.avoid.map((item, i) => `
+            <span class="tag">${esc(item)}<button class="tag-remove" data-remove-avoid="${i}">&#10005;</button></span>
+          `).join('') : ''}
+        </div>
+        ${a.avoid.length === 0 ? `
+          <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px;">Add things the agent should avoid in its responses &mdash; tones, phrases, or behaviors you dislike.</p>
+        ` : ''}
+        <div class="tag-input-row">
+          <input type="text" id="avoid-input" placeholder="Add something to avoid, e.g. 'patronizing tone'" onkeydown="if(event.key==='Enter'){window.seedApp.addAvoid();event.preventDefault();}">
+          <button class="btn btn-small" onclick="window.seedApp.addAvoid()">Add</button>
+        </div>
+      `)}
+
+      ${renderSection('when-low', 'When User Is Low', 'How to behave when the user seems down', 'clay', '&#9829;', `
+        <div id="when-low-switches">
+          ${a.whenLowOptions.map(k => {
+            const isCustom = !isDefaultWhenLow(k);
+            return renderSwitchRowWithRemove('agent.whenLowActive.' + k, getWhenLowLabel(k), getWhenLowDesc(k), !!a.whenLowActive[k], isCustom ? k : null, 'whenlow');
+          }).join('')}
+        </div>
+        <button class="add-item-btn" id="add-whenlow-btn" style="margin-top:12px;">&#43; Add custom behavior...</button>
+      `)}
+
+      ${renderSection('tech-style', 'Technical Style', 'Code and technical preferences', 'terracotta', '&#128187;', `
+        <div id="tech-style-switches">
+          ${a.techStyleOptions.map(k => {
+            const isCustom = !isDefaultTech(k);
+            return renderSwitchRowWithRemove('agent.techStyleActive.' + k, getTechLabel(k), getTechDesc(k), !!a.techStyleActive[k], isCustom ? k : null, 'techstyle');
+          }).join('')}
+        </div>
+        <button class="add-item-btn" id="add-techstyle-btn" style="margin-top:12px;">&#43; Add custom preference...</button>
+      `)}
+
+      ${renderSection('agent-custom', 'Custom Sections', 'Add your own sections', 'sage', '&#43;', `
+        <div class="custom-sections" id="agent-custom-sections">
+          ${a.customSections.length ? a.customSections.map((s, i) => renderCustomSectionItem(s, i, 'agent')).join('') : `
+            <div class="empty-state">
+              <div class="empty-state-icon">&#9997;</div>
+              <h3>No custom sections</h3>
+              <p>Add anything else you want the agent to know about itself &mdash; role context, special instructions, domain expertise, etc.</p>
+            </div>
+          `}
+        </div>
+        <button class="add-item-btn" id="add-agent-custom-btn">&#43; Add custom section</button>
+      `)}
+    `;
+
+    bindFormEvents(container);
+    bindAgentSpecificEvents(container);
+    bindPresetEvents(container);
+    bindSectionToggleEvents(container);
+  }
+
+  // ---- Partial Renderers ----
+  function renderSwitchRow(bind, label, desc, checked) {
+    return `
+      <div class="switch-row">
+        <div>
+          <div class="switch-label">${label}</div>
+          ${desc ? `<div class="switch-label-desc">${desc}</div>` : ''}
+        </div>
+        <label class="switch">
+          <input type="checkbox" data-bind="${bind}" ${checked ? 'checked' : ''}>
+          <span class="switch-track"></span>
+        </label>
+      </div>
+    `;
+  }
+
+  function renderSwitchRowWithRemove(bind, label, desc, checked, removeKey, removeType) {
+    return `
+      <div class="switch-row">
+        <div>
+          <div class="switch-label">${label}</div>
+          ${desc ? `<div class="switch-label-desc">${desc}</div>` : ''}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <label class="switch">
+            <input type="checkbox" data-bind="${bind}" ${checked ? 'checked' : ''}>
+            <span class="switch-track"></span>
+          </label>
+          ${removeKey ? `<button class="switch-remove-btn" data-remove-switchrow="${removeKey}" data-remove-type="${removeType}" title="Remove">&#10005;</button>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderSlider(key, label, value, endpoints, removable) {
+    const desc = getTraitDescription(key, value);
+    return `
+      <div class="slider-group">
+        <div class="slider-header">
+          <span class="slider-label">${label}</span>
+          <span style="display:flex;align-items:center;gap:4px;">
+            <span class="slider-value" id="slider-val-${key}">${desc}</span>
+            ${removable ? `<button class="slider-remove-btn" data-remove-trait="${key}" title="Remove">&#10005;</button>` : ''}
+          </span>
+        </div>
+        <input type="range" min="0" max="100" value="${value}" data-trait="${key}">
+        <div class="slider-labels">
+          <span>${endpoints[0]}</span>
+          <span>${endpoints[1]}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderPersonItem(p, i) {
+    return `
+      <div class="repeatable-item" data-person-index="${i}">
+        <div class="repeatable-item-header">
+          <strong style="font-size:0.88rem;">${p.name || 'New person'}</strong>
+          <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-person="${i}" title="Remove">&#10005;</button>
+        </div>
+        <div class="repeatable-item-fields">
+          <div class="repeatable-item-row">
+            <div class="form-group">
+              <label>Name</label>
+              <input type="text" data-person="${i}" data-field="name" value="${esc(p.name)}" placeholder="Name">
+            </div>
+            <div class="form-group">
+              <label>Relationship</label>
+              <input type="text" data-person="${i}" data-field="relationship" value="${esc(p.relationship)}" placeholder="e.g. partner, coworker, friend">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Notes</label>
+            <textarea data-person="${i}" data-field="notes" rows="2" placeholder="Anything the agent should know about this person">${esc(p.notes)}</textarea>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderProjectItem(p, i) {
+    // Find files associated with this project
+    const associatedFiles = state.files.filter(f => f.projectTag === p.name && p.name);
+    const unassociatedFiles = state.files.filter(f => !f.projectTag);
+    const fileTags = associatedFiles.map(f => `
+      <span class="project-file-tag">
+        &#128196; ${esc(f.name)}
+        <button class="tag-remove" data-detach-file="${f.id}" data-from-project="${i}">&#10005;</button>
+      </span>
+    `).join('');
+
+    return `
+      <div class="repeatable-item" data-project-index="${i}">
+        <div class="repeatable-item-header">
+          <strong style="font-size:0.88rem;">${p.name || 'New project'}</strong>
+          <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-project="${i}" title="Remove">&#10005;</button>
+        </div>
+        <div class="repeatable-item-fields">
+          <div class="repeatable-item-row">
+            <div class="form-group">
+              <label>Name</label>
+              <input type="text" data-project="${i}" data-field="name" value="${esc(p.name)}" placeholder="Project name">
+            </div>
+            <div class="form-group">
+              <label>Status</label>
+              <select data-project="${i}" data-field="status" class="status-select">
+                <option value="active" ${p.status === 'active' ? 'selected' : ''}>Active</option>
+                <option value="paused" ${p.status === 'paused' ? 'selected' : ''}>Paused</option>
+                <option value="planning" ${p.status === 'planning' ? 'selected' : ''}>Planning</option>
+                <option value="completed" ${p.status === 'completed' ? 'selected' : ''}>Completed</option>
+                <option value="archived" ${p.status === 'archived' ? 'selected' : ''}>Archived</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea data-project="${i}" data-field="description" rows="2" placeholder="What this project is about">${esc(p.description)}</textarea>
+          </div>
+          ${p.name ? `
+          <div class="project-files-area">
+            <div class="project-files-label">Attached Files</div>
+            <div class="project-files-tags">
+              ${fileTags}
+              ${unassociatedFiles.length > 0 ? `
+                <button class="project-attach-btn" data-attach-project="${i}">&#43; Attach file</button>
+              ` : ''}
+            </div>
+            ${associatedFiles.length === 0 && unassociatedFiles.length === 0 ? `<span style="font-size:0.76rem;color:var(--text-muted);">No files available. Add files in the Files tab.</span>` : ''}
+          </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderCustomSectionItem(s, i, type) {
+    return `
+      <div class="custom-section-item" data-custom-index="${i}" data-custom-type="${type}">
+        <div class="repeatable-item-header">
+          <strong style="font-size:0.88rem;">${s.title || 'New section'}</strong>
+          <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-custom="${i}" data-custom-type="${type}" title="Remove">&#10005;</button>
+        </div>
+        <div class="form-group">
+          <label>Section Title</label>
+          <input type="text" data-custom="${i}" data-custom-type="${type}" data-field="title" value="${esc(s.title)}" placeholder="e.g. Health Notes, Work Context">
+        </div>
+        <div class="form-group">
+          <label>Content (Markdown)</label>
+          <textarea data-custom="${i}" data-custom-type="${type}" data-field="content" rows="4" placeholder="Free-form content for this section...">${esc(s.content)}</textarea>
+        </div>
+      </div>
+    `;
+  }
+
+  // ---- Event Binding ----
+  function bindFormEvents(container) {
+    container.querySelectorAll('[data-bind]').forEach(el => {
+      const handler = () => {
+        const path = el.dataset.bind.split('.');
+        let obj = state;
+        for (let i = 0; i < path.length - 1; i++) obj = obj[path[i]];
+        const key = path[path.length - 1];
+        obj[key] = el.type === 'checkbox' ? el.checked : el.value;
+        renderPreview();
+        debouncedSave();
+      };
+      if (el.type === 'checkbox') {
+        el.addEventListener('change', handler);
+      } else {
+        el.addEventListener('input', handler);
+      }
+    });
+  }
+
+  function bindSectionToggleEvents(container) {
+    container.querySelectorAll('[data-section-toggle]').forEach(el => {
+      el.addEventListener('change', () => {
+        const sectionId = el.dataset.sectionToggle;
+        state.enabledSections[sectionId] = el.checked;
+        const sectionEl = document.getElementById('section-' + sectionId);
+        if (sectionEl) {
+          if (el.checked) {
+            sectionEl.classList.remove('section-disabled');
+          } else {
+            sectionEl.classList.add('section-disabled');
+          }
+        }
+        // Update preset to custom if user manually toggles
+        state.preset = 'custom';
+        renderPreview();
+        debouncedSave();
+      });
+    });
+  }
+
+  function bindPresetEvents(container) {
+    container.querySelectorAll('[data-preset]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const presetKey = btn.dataset.preset;
+        applyPreset(presetKey);
+        render();
+      });
+    });
+  }
+
+  function applyPreset(presetKey) {
+    state.preset = presetKey;
+    const preset = PRESETS[presetKey];
+    if (!preset) return;
+
+    // For user sections
+    const userSectionIds = ['identity', 'about', 'cognitive', 'values', 'communication', 'people', 'projects', 'user-custom'];
+    userSectionIds.forEach(id => {
+      state.enabledSections[id] = preset.userSections.includes(id);
+    });
+
+    // For agent sections
+    const agentSectionIds = ['agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'];
+    agentSectionIds.forEach(id => {
+      state.enabledSections[id] = preset.agentSections.includes(id);
+    });
+  }
+
+  function bindUserSpecificEvents(container) {
+    // Cognitive toggles
+    container.querySelectorAll('[data-cognitive]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.toggle-remove')) return;
+        const key = el.dataset.cognitive;
+        state.user.cognitiveActive[key] = !state.user.cognitiveActive[key];
+        el.classList.toggle('active');
+        el.querySelector('.toggle-check').innerHTML = state.user.cognitiveActive[key] ? '&#10003;' : '';
+        renderPreview();
+        debouncedSave();
+      });
+    });
+
+    // Remove cognitive custom items
+    container.querySelectorAll('[data-remove-cognitive]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const key = btn.dataset.removeCognitive;
+        state.user.cognitiveOptions = state.user.cognitiveOptions.filter(k => k !== key);
+        delete state.user.cognitiveActive[key];
+        delete state.user.cognitiveLabels[key];
+        render();
+      });
+    });
+
+    // Add custom cognitive
+    const addCogBtn = document.getElementById('add-cognitive-btn');
+    if (addCogBtn) {
+      addCogBtn.addEventListener('click', () => {
+        showInlineAdd(addCogBtn, (label) => {
+          const key = labelToKey(label);
+          if (!state.user.cognitiveOptions.includes(key)) {
+            state.user.cognitiveOptions.push(key);
+            state.user.cognitiveLabels[key] = label;
+            state.user.cognitiveActive[key] = true;
+          }
+          render();
+        });
+      });
+    }
+
+    // Value pairs
+    container.querySelectorAll('.value-pair input').forEach(el => {
+      el.addEventListener('input', () => {
+        const idx = parseInt(el.closest('.value-pair').dataset.index, 10);
+        const field = el.dataset.pair;
+        state.user.values[idx][field] = el.value;
+        renderPreview();
+        debouncedSave();
+      });
+    });
+
+    container.querySelectorAll('[data-remove-value]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.removeValue, 10);
+        state.user.values.splice(idx, 1);
+        if (state.user.values.length === 0) state.user.values.push({ higher: '', lower: '' });
+        render();
+      });
+    });
+
+    const addValueBtn = document.getElementById('add-value-btn');
+    if (addValueBtn) {
+      addValueBtn.addEventListener('click', () => {
+        state.user.values.push({ higher: '', lower: '' });
+        render();
+      });
+    }
+
+    // Add custom communication preference
+    const addCommBtn = document.getElementById('add-comm-btn');
+    if (addCommBtn) {
+      addCommBtn.addEventListener('click', () => {
+        showInlineAdd(addCommBtn, (label) => {
+          const key = labelToKey(label);
+          if (!state.user.communicationOptions.includes(key)) {
+            state.user.communicationOptions.push(key);
+            state.user.communicationLabels[key] = label;
+            state.user.communicationDescs[key] = '';
+            state.user.communicationActive[key] = true;
+          }
+          render();
+        });
+      });
+    }
+
+    // Remove custom communication options
+    container.querySelectorAll('[data-remove-switchrow][data-remove-type="comm"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.removeSwitchrow;
+        state.user.communicationOptions = state.user.communicationOptions.filter(k => k !== key);
+        delete state.user.communicationActive[key];
+        delete state.user.communicationLabels[key];
+        delete state.user.communicationDescs[key];
+        render();
+      });
+    });
+
+    // People
+    container.querySelectorAll('[data-person]').forEach(el => {
+      const handler = () => {
+        const idx = parseInt(el.dataset.person, 10);
+        const field = el.dataset.field;
+        state.user.people[idx][field] = el.value;
+        renderPreview();
+        debouncedSave();
+      };
+      el.addEventListener('input', handler);
+    });
+
+    container.querySelectorAll('[data-remove-person]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.removePerson, 10);
+        state.user.people.splice(idx, 1);
+        render();
+      });
+    });
+
+    const addPersonBtn = document.getElementById('add-person-btn');
+    if (addPersonBtn) {
+      addPersonBtn.addEventListener('click', () => {
+        state.user.people.push({ name: '', relationship: '', notes: '' });
+        render();
+      });
+    }
+
+    // Projects
+    container.querySelectorAll('[data-project]').forEach(el => {
+      const handler = () => {
+        const idx = parseInt(el.dataset.project, 10);
+        const field = el.dataset.field;
+        state.user.projects[idx][field] = el.value;
+        renderPreview();
+        debouncedSave();
+      };
+      el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', handler);
+    });
+
+    container.querySelectorAll('[data-remove-project]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.removeProject, 10);
+        state.user.projects.splice(idx, 1);
+        render();
+      });
+    });
+
+    const addProjectBtn = document.getElementById('add-project-btn');
+    if (addProjectBtn) {
+      addProjectBtn.addEventListener('click', () => {
+        state.user.projects.push({ name: '', status: 'active', description: '' });
+        render();
+      });
+    }
+
+    // Detach file from project
+    container.querySelectorAll('[data-detach-file]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fileId = btn.dataset.detachFile;
+        const file = state.files.find(f => f.id === fileId);
+        if (file) {
+          file.projectTag = '';
+          render();
+        }
+      });
+    });
+
+    // Attach file to project
+    container.querySelectorAll('[data-attach-project]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const projIdx = parseInt(btn.dataset.attachProject, 10);
+        const proj = state.user.projects[projIdx];
+        if (!proj || !proj.name) return;
+        const unassociated = state.files.filter(f => !f.projectTag);
+        if (unassociated.length === 0) return;
+
+        // Show a small dropdown to pick a file
+        const existing = btn.parentNode.querySelector('.attach-dropdown');
+        if (existing) { existing.remove(); return; }
+
+        const dropdown = document.createElement('div');
+        dropdown.className = 'attach-dropdown';
+        dropdown.style.cssText = 'position:absolute;background:white;border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);z-index:10;min-width:160px;padding:4px 0;';
+        unassociated.forEach(f => {
+          const item = document.createElement('div');
+          item.style.cssText = 'padding:6px 12px;font-size:0.82rem;cursor:pointer;color:var(--text-secondary);';
+          item.textContent = f.name;
+          item.addEventListener('mouseenter', () => { item.style.background = 'var(--cream)'; });
+          item.addEventListener('mouseleave', () => { item.style.background = ''; });
+          item.addEventListener('click', () => {
+            f.projectTag = proj.name;
+            render();
+          });
+          dropdown.appendChild(item);
+        });
+
+        btn.style.position = 'relative';
+        btn.appendChild(dropdown);
+
+        // Close on outside click
+        setTimeout(() => {
+          document.addEventListener('click', function closeDropdown(e) {
+            if (!dropdown.contains(e.target)) {
+              dropdown.remove();
+              document.removeEventListener('click', closeDropdown);
+            }
+          });
+        }, 0);
+      });
+    });
+
+    // Custom sections (user)
+    bindCustomSectionEvents(container, 'user');
+  }
+
+  function bindAgentSpecificEvents(container) {
+    // Behavior toggles
+    container.querySelectorAll('[data-behavior]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.toggle-remove')) return;
+        const key = el.dataset.behavior;
+        state.agent.behaviorsActive[key] = !state.agent.behaviorsActive[key];
+        el.classList.toggle('active');
+        el.querySelector('.toggle-check').innerHTML = state.agent.behaviorsActive[key] ? '&#10003;' : '';
+        renderPreview();
+        debouncedSave();
+      });
+    });
+
+    // Remove behavior custom items
+    container.querySelectorAll('[data-remove-behavior]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const key = btn.dataset.removeBehavior;
+        state.agent.behaviorOptions = state.agent.behaviorOptions.filter(k => k !== key);
+        delete state.agent.behaviorsActive[key];
+        delete state.agent.behaviorLabels[key];
+        render();
+      });
+    });
+
+    // Add custom behavior
+    const addBehaviorBtn = document.getElementById('add-behavior-btn');
+    if (addBehaviorBtn) {
+      addBehaviorBtn.addEventListener('click', () => {
+        showInlineAdd(addBehaviorBtn, (label) => {
+          const key = labelToKey(label);
+          if (!state.agent.behaviorOptions.includes(key)) {
+            state.agent.behaviorOptions.push(key);
+            state.agent.behaviorLabels[key] = label;
+            state.agent.behaviorsActive[key] = true;
+          }
+          render();
+        });
+      });
+    }
+
+    // Trait sliders
+    container.querySelectorAll('[data-trait]').forEach(el => {
+      el.addEventListener('input', () => {
+        const key = el.dataset.trait;
+        const val = parseInt(el.value, 10);
+        state.agent.traits[key] = val;
+        const valLabel = document.getElementById('slider-val-' + key);
+        if (valLabel) valLabel.textContent = getTraitDescription(key, val);
+        renderPreview();
+        debouncedSave();
+      });
+    });
+
+    // Remove custom trait sliders
+    container.querySelectorAll('[data-remove-trait]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.removeTrait;
+        state.agent.traitOptions = state.agent.traitOptions.filter(k => k !== key);
+        delete state.agent.traits[key];
+        delete state.agent.traitLabels[key];
+        delete state.agent.traitEndpoints[key];
+        render();
+      });
+    });
+
+    // Add custom trait
+    const addTraitBtn = document.getElementById('add-trait-btn');
+    if (addTraitBtn) {
+      addTraitBtn.addEventListener('click', () => {
+        showInlineAdd(addTraitBtn, (label) => {
+          const key = labelToKey(label);
+          if (!state.agent.traitOptions.includes(key)) {
+            state.agent.traitOptions.push(key);
+            state.agent.traitLabels[key] = label;
+            state.agent.traitEndpoints[key] = ['Low', 'High'];
+            state.agent.traits[key] = 50;
+          }
+          render();
+        });
+      });
+    }
+
+    // Avoid tags
+    container.querySelectorAll('[data-remove-avoid]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.removeAvoid, 10);
+        state.agent.avoid.splice(idx, 1);
+        render();
+      });
+    });
+
+    // When low: remove custom
+    container.querySelectorAll('[data-remove-switchrow][data-remove-type="whenlow"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.removeSwitchrow;
+        state.agent.whenLowOptions = state.agent.whenLowOptions.filter(k => k !== key);
+        delete state.agent.whenLowActive[key];
+        delete state.agent.whenLowLabels[key];
+        delete state.agent.whenLowDescs[key];
+        render();
+      });
+    });
+
+    // Add custom when-low option
+    const addWhenLowBtn = document.getElementById('add-whenlow-btn');
+    if (addWhenLowBtn) {
+      addWhenLowBtn.addEventListener('click', () => {
+        showInlineAdd(addWhenLowBtn, (label) => {
+          const key = labelToKey(label);
+          if (!state.agent.whenLowOptions.includes(key)) {
+            state.agent.whenLowOptions.push(key);
+            state.agent.whenLowLabels[key] = label;
+            state.agent.whenLowDescs[key] = '';
+            state.agent.whenLowActive[key] = true;
+          }
+          render();
+        });
+      });
+    }
+
+    // Tech style: remove custom
+    container.querySelectorAll('[data-remove-switchrow][data-remove-type="techstyle"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.removeSwitchrow;
+        state.agent.techStyleOptions = state.agent.techStyleOptions.filter(k => k !== key);
+        delete state.agent.techStyleActive[key];
+        delete state.agent.techStyleLabels[key];
+        delete state.agent.techStyleDescs[key];
+        render();
+      });
+    });
+
+    // Add custom tech style option
+    const addTechBtn = document.getElementById('add-techstyle-btn');
+    if (addTechBtn) {
+      addTechBtn.addEventListener('click', () => {
+        showInlineAdd(addTechBtn, (label) => {
+          const key = labelToKey(label);
+          if (!state.agent.techStyleOptions.includes(key)) {
+            state.agent.techStyleOptions.push(key);
+            state.agent.techStyleLabels[key] = label;
+            state.agent.techStyleDescs[key] = '';
+            state.agent.techStyleActive[key] = true;
+          }
+          render();
+        });
+      });
+    }
+
+    // Custom sections (agent)
+    bindCustomSectionEvents(container, 'agent');
+  }
+
+  function bindCustomSectionEvents(container, type) {
+    const prefix = type === 'user' ? 'user' : 'agent';
+    container.querySelectorAll(`[data-custom][data-custom-type="${type}"]`).forEach(el => {
+      if (el.tagName === 'BUTTON') return;
+      const handler = () => {
+        const idx = parseInt(el.dataset.custom, 10);
+        const field = el.dataset.field;
+        state[prefix].customSections[idx][field] = el.value;
+        renderPreview();
+        debouncedSave();
+      };
+      el.addEventListener('input', handler);
+    });
+
+    container.querySelectorAll(`[data-remove-custom][data-custom-type="${type}"]`).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.removeCustom, 10);
+        state[prefix].customSections.splice(idx, 1);
+        render();
+      });
+    });
+
+    const addBtn = document.getElementById(`add-${prefix}-custom-btn`);
+    if (addBtn) {
+      addBtn.addEventListener('click', () => {
+        state[prefix].customSections.push({ title: '', content: '' });
+        render();
+      });
+    }
+  }
+
+  // ---- Inline Add (for toggle groups) ----
+  function showInlineAdd(targetEl, onConfirm) {
+    // Check if form already showing
+    const existing = targetEl.parentNode.querySelector('.inline-add-form');
+    if (existing) {
+      existing.querySelector('input').focus();
+      return;
+    }
+
+    const form = document.createElement('div');
+    form.className = 'inline-add-form';
+    form.innerHTML = `
+      <input type="text" placeholder="Type a name..." autofocus>
+      <button class="inline-add-confirm" title="Add">&#10003;</button>
+      <button class="inline-add-cancel" title="Cancel">&#10005;</button>
+    `;
+
+    targetEl.parentNode.insertBefore(form, targetEl);
+
+    const input = form.querySelector('input');
+    input.focus();
+
+    function confirm() {
+      const val = input.value.trim();
+      if (val) {
+        onConfirm(val);
+      } else {
+        cancel();
+      }
+    }
+
+    function cancel() {
+      form.remove();
+    }
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+      if (e.key === 'Escape') { cancel(); }
+    });
+
+    form.querySelector('.inline-add-confirm').addEventListener('click', confirm);
+    form.querySelector('.inline-add-cancel').addEventListener('click', cancel);
+  }
+
+  // ---- Import Modal ----
+  function showImportModal() {
+    const modalContainer = document.getElementById('modal-container');
+    const fileType = state.activeFile;
+    modalContainer.innerHTML = `
+      <div class="modal-overlay" id="import-overlay">
+        <div class="modal">
+          <div class="modal-header">
+            <h3>Import ${fileType}.md</h3>
+            <button class="btn btn-icon btn-ghost" id="import-close-btn" title="Close">&#10005;</button>
+          </div>
+          <div class="modal-body">
+            <div class="import-tabs">
+              <button class="import-tab active" data-import-tab="paste">Paste Markdown</button>
+              <button class="import-tab" data-import-tab="upload">Upload File</button>
+            </div>
+            <div id="import-tab-paste">
+              <textarea id="import-paste-area" placeholder="Paste your existing ${fileType}.md content here..." rows="12"></textarea>
+            </div>
+            <div id="import-tab-upload" style="display:none;">
+              <div class="file-drop-zone" id="file-drop-zone">
+                <div class="file-drop-zone-icon">&#128196;</div>
+                <p>Drop a .md file here, or click to browse</p>
+                <input type="file" id="import-file-input" accept=".md,.txt,.markdown">
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" id="import-cancel-btn">Cancel</button>
+            <button class="btn btn-primary" id="import-confirm-btn">Import</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    let activeTab = 'paste';
+
+    // Tab switching
+    modalContainer.querySelectorAll('.import-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        activeTab = tab.dataset.importTab;
+        modalContainer.querySelectorAll('.import-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('import-tab-paste').style.display = activeTab === 'paste' ? '' : 'none';
+        document.getElementById('import-tab-upload').style.display = activeTab === 'upload' ? '' : 'none';
+      });
+    });
+
+    // File drop zone
+    const dropZone = document.getElementById('file-drop-zone');
+    const fileInput = document.getElementById('import-file-input');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) readImportFile(file);
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) readImportFile(fileInput.files[0]);
+    });
+
+    function readImportFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        document.getElementById('import-paste-area').value = e.target.result;
+        // Switch to paste tab to show content
+        modalContainer.querySelectorAll('.import-tab').forEach(t => t.classList.remove('active'));
+        modalContainer.querySelector('[data-import-tab="paste"]').classList.add('active');
+        document.getElementById('import-tab-paste').style.display = '';
+        document.getElementById('import-tab-upload').style.display = 'none';
+        showToast('File loaded. Review and click Import.', '');
+      };
+      reader.readAsText(file);
+    }
+
+    // Close
+    const closeModal = () => { modalContainer.innerHTML = ''; };
+    document.getElementById('import-close-btn').addEventListener('click', closeModal);
+    document.getElementById('import-cancel-btn').addEventListener('click', closeModal);
+    document.getElementById('import-overlay').addEventListener('click', (e) => {
+      if (e.target.id === 'import-overlay') closeModal();
+    });
+
+    // Confirm import
+    document.getElementById('import-confirm-btn').addEventListener('click', () => {
+      const md = document.getElementById('import-paste-area').value.trim();
+      if (!md) {
+        showToast('Nothing to import. Paste or upload a markdown file first.', '');
+        return;
+      }
+      if (state.activeFile === 'user') {
+        parseUserMarkdown(md);
+      } else {
+        parseAgentMarkdown(md);
+      }
+      closeModal();
+      render();
+      showToast(`Imported ${fileType}.md successfully`, 'success');
+    });
+  }
+
+  // ---- Markdown Editor View ----
+  function renderMarkdownEditor(container) {
+    const md = state.activeFile === 'user' ? generateUserMarkdown() : generateAgentMarkdown();
+
+    container.innerHTML = `
+      <div class="markdown-editor-container">
+        <div class="editor-toolbar">
+          ${state.markdownSubMode === 'rich' ? `
+            <button class="toolbar-btn" title="Bold" data-format="bold"><strong>B</strong></button>
+            <button class="toolbar-btn" title="Italic" data-format="italic"><em>I</em></button>
+            <div class="divider"></div>
+            <button class="toolbar-btn" title="Heading 1" data-format="h1">H1</button>
+            <button class="toolbar-btn" title="Heading 2" data-format="h2">H2</button>
+            <button class="toolbar-btn" title="Heading 3" data-format="h3">H3</button>
+            <div class="divider"></div>
+            <button class="toolbar-btn" title="Bullet list" data-format="ul">&bull;</button>
+            <button class="toolbar-btn" title="Horizontal rule" data-format="hr">&mdash;</button>
+          ` : `
+            <button class="toolbar-btn" title="Bold" data-md-insert="bold"><strong>B</strong></button>
+            <button class="toolbar-btn" title="Italic" data-md-insert="italic"><em>I</em></button>
+            <div class="divider"></div>
+            <button class="toolbar-btn" title="Heading 2" data-md-insert="h2">H2</button>
+            <button class="toolbar-btn" title="Heading 3" data-md-insert="h3">H3</button>
+            <div class="divider"></div>
+            <button class="toolbar-btn" title="List item" data-md-insert="li">&bull;</button>
+          `}
+          <div class="raw-mode-toggle">
+            <button class="raw-mode-btn ${state.markdownSubMode === 'rich' ? 'active' : ''}" data-submode="rich">Rich Text</button>
+            <button class="raw-mode-btn ${state.markdownSubMode === 'plain' ? 'active' : ''}" data-submode="plain">Plain Text</button>
+          </div>
+        </div>
+        ${state.markdownSubMode === 'plain' ? `
+          <textarea class="raw-editor" id="raw-markdown-editor" spellcheck="false">${esc(md)}</textarea>
+        ` : `
+          <div class="rich-editor" id="rich-markdown-editor" contenteditable="true">${markdownToHtml(md)}</div>
+        `}
+      </div>
+    `;
+
+    // Sub-mode toggle
+    container.querySelectorAll('[data-submode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        syncMarkdownToState();
+        state.markdownSubMode = btn.dataset.submode;
+        render();
+      });
+    });
+
+    // Plain text editor events
+    const rawEditor = document.getElementById('raw-markdown-editor');
+    if (rawEditor) {
+      rawEditor.addEventListener('input', debounce(() => {
+        const md = rawEditor.value;
+        if (state.activeFile === 'user') {
+          parseUserMarkdown(md);
+        } else {
+          parseAgentMarkdown(md);
+        }
+        renderPreview();
+        debouncedSave();
+      }, 300));
+
+      container.querySelectorAll('[data-md-insert]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const format = btn.dataset.mdInsert;
+          insertMarkdownFormat(rawEditor, format);
+        });
+      });
+    }
+
+    // Rich text editor events
+    const richEditor = document.getElementById('rich-markdown-editor');
+    if (richEditor) {
+      richEditor.addEventListener('input', debounce(() => {
+        const md = htmlToMarkdown(richEditor.innerHTML);
+        if (state.activeFile === 'user') {
+          parseUserMarkdown(md);
+        } else {
+          parseAgentMarkdown(md);
+        }
+        renderPreview();
+        debouncedSave();
+      }, 300));
+
+      container.querySelectorAll('[data-format]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const fmt = btn.dataset.format;
+          applyRichFormat(fmt);
+        });
+      });
+    }
+  }
+
+  function syncMarkdownToState() {
+    const rawEditor = document.getElementById('raw-markdown-editor');
+    const richEditor = document.getElementById('rich-markdown-editor');
+    let md;
+    if (rawEditor) {
+      md = rawEditor.value;
+    } else if (richEditor) {
+      md = htmlToMarkdown(richEditor.innerHTML);
+    } else {
+      return;
+    }
+    if (state.activeFile === 'user') {
+      parseUserMarkdown(md);
+    } else {
+      parseAgentMarkdown(md);
+    }
+  }
+
+  function insertMarkdownFormat(textarea, format) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = textarea.value.substring(start, end);
+    let insert = '';
+
+    switch (format) {
+      case 'bold': insert = `**${selected || 'bold text'}**`; break;
+      case 'italic': insert = `*${selected || 'italic text'}*`; break;
+      case 'h2': insert = `\n## ${selected || 'Heading'}\n`; break;
+      case 'h3': insert = `\n### ${selected || 'Heading'}\n`; break;
+      case 'li': insert = `\n- ${selected || 'List item'}`; break;
+    }
+
+    textarea.value = textarea.value.substring(0, start) + insert + textarea.value.substring(end);
+    textarea.focus();
+    const newPos = start + insert.length;
+    textarea.setSelectionRange(newPos, newPos);
+    textarea.dispatchEvent(new Event('input'));
+  }
+
+  function applyRichFormat(format) {
+    switch (format) {
+      case 'bold': document.execCommand('bold'); break;
+      case 'italic': document.execCommand('italic'); break;
+      case 'h1': document.execCommand('formatBlock', false, 'h1'); break;
+      case 'h2': document.execCommand('formatBlock', false, 'h2'); break;
+      case 'h3': document.execCommand('formatBlock', false, 'h3'); break;
+      case 'ul': document.execCommand('insertUnorderedList'); break;
+      case 'hr': document.execCommand('insertHorizontalRule'); break;
+    }
+  }
+
+  // ---- Markdown <-> HTML conversion ----
+  function markdownToHtml(md) {
+    const lines = md.split('\n');
+    const htmlLines = [];
+    let inList = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+      line = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+      const h3 = line.match(/^###\s+(.+)/);
+      const h2 = line.match(/^##\s+(.+)/);
+      const h1 = line.match(/^#\s+(.+)/);
+      const hr = line.match(/^---$/);
+      const bq = line.match(/^&gt;\s+(.+)/);
+      const li = line.match(/^-\s+(.+)/);
+
+      if (li) {
+        if (!inList) { htmlLines.push('<ul>'); inList = true; }
+        htmlLines.push(`<li>${inlineFmt(li[1])}</li>`);
+        continue;
+      } else if (inList) {
+        htmlLines.push('</ul>');
+        inList = false;
+      }
+
+      if (h3) { htmlLines.push(`<h3>${inlineFmt(h3[1])}</h3>`); }
+      else if (h2) { htmlLines.push(`<h2>${inlineFmt(h2[1])}</h2>`); }
+      else if (h1) { htmlLines.push(`<h1>${inlineFmt(h1[1])}</h1>`); }
+      else if (hr) { htmlLines.push('<hr>'); }
+      else if (bq) { htmlLines.push(`<blockquote>${inlineFmt(bq[1])}</blockquote>`); }
+      else if (line.trim() === '') { htmlLines.push(''); }
+      else { htmlLines.push(`<p>${inlineFmt(line)}</p>`); }
+    }
+    if (inList) htmlLines.push('</ul>');
+
+    let html = htmlLines.join('\n');
+    html = html.replace(/<\/ul>\n*<ul>/g, '');
+    return html;
+  }
+
+  function inlineFmt(text) {
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+    return text;
+  }
+
+  function htmlToMarkdown(html) {
+    let md = html;
+    md = md.replace(/<h1[^>]*>(.*?)<\/h1>/gi, '\n# $1\n');
+    md = md.replace(/<h2[^>]*>(.*?)<\/h2>/gi, '\n## $1\n');
+    md = md.replace(/<h3[^>]*>(.*?)<\/h3>/gi, '\n### $1\n');
+    md = md.replace(/<hr\s*\/?>/gi, '\n---\n');
+    md = md.replace(/<strong>(.*?)<\/strong>/gi, '**$1**');
+    md = md.replace(/<b>(.*?)<\/b>/gi, '**$1**');
+    md = md.replace(/<em>(.*?)<\/em>/gi, '*$1*');
+    md = md.replace(/<i>(.*?)<\/i>/gi, '*$1*');
+    md = md.replace(/<code>(.*?)<\/code>/gi, '`$1`');
+    md = md.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gi, '> $1');
+    md = md.replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1');
+    md = md.replace(/<\/?ul[^>]*>/gi, '');
+    md = md.replace(/<\/?ol[^>]*>/gi, '');
+    md = md.replace(/<br\s*\/?>/gi, '\n');
+    md = md.replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n');
+    md = md.replace(/<div[^>]*>(.*?)<\/div>/gi, '$1\n');
+    md = md.replace(/<[^>]+>/g, '');
+    md = md.replace(/&amp;/g, '&');
+    md = md.replace(/&lt;/g, '<');
+    md = md.replace(/&gt;/g, '>');
+    md = md.replace(/&nbsp;/g, ' ');
+    md = md.replace(/&quot;/g, '"');
+    md = md.replace(/\n{3,}/g, '\n\n');
+    md = md.trim() + '\n';
+    return md;
+  }
+
+  const debouncedSave = debounce(() => saveToLocalStorage(), 500);
+
+  // ---- localStorage ----
+  function saveToLocalStorage() {
+    try {
+      localStorage.setItem('seedConfigurator', JSON.stringify(state));
+    } catch (e) {
+      // Silently fail
+    }
+  }
+
+  function loadFromLocalStorage() {
+    try {
+      const saved = localStorage.getItem('seedConfigurator');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        deepMerge(state, parsed);
+        return true;
+      }
+    } catch (e) {
+      // Silently fail
+    }
+    return false;
+  }
+
+  function deepMerge(target, source) {
+    for (const key of Object.keys(source)) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key]) && target[key] && typeof target[key] === 'object') {
+        deepMerge(target[key], source[key]);
+      } else {
+        target[key] = source[key];
+      }
+    }
+  }
+
+  // ---- Migrate old state format ----
+  // If someone loads with old format (cognitive as flat booleans, communication as flat booleans, etc.),
+  // we migrate to the new arrays+active format.
+  function migrateState() {
+    const u = state.user;
+    const a = state.agent;
+
+    // Migrate old cognitive: { adhd: true, ... } -> cognitiveActive
+    if (u.cognitive && typeof u.cognitive === 'object' && !u.cognitiveOptions) {
+      // Old format
+      u.cognitiveOptions = DEFAULT_COGNITIVE_OPTIONS.map(o => o.key);
+      u.cognitiveLabels = {};
+      u.cognitiveActive = {};
+      Object.entries(u.cognitive).forEach(([k, v]) => {
+        if (v) u.cognitiveActive[k] = true;
+        if (!u.cognitiveOptions.includes(k)) u.cognitiveOptions.push(k);
+      });
+      delete u.cognitive;
+    }
+
+    // Migrate old communication
+    if (u.communication && typeof u.communication === 'object' && !u.communicationOptions) {
+      u.communicationOptions = DEFAULT_COMMUNICATION_OPTIONS.map(o => o.key);
+      u.communicationLabels = {};
+      u.communicationDescs = {};
+      u.communicationActive = {};
+      Object.entries(u.communication).forEach(([k, v]) => {
+        if (v) u.communicationActive[k] = true;
+        if (!u.communicationOptions.includes(k)) u.communicationOptions.push(k);
+      });
+      delete u.communication;
+    }
+
+    // Migrate old agent behaviors
+    if (a.behaviors && typeof a.behaviors === 'object' && !a.behaviorOptions) {
+      a.behaviorOptions = DEFAULT_BEHAVIOR_OPTIONS.map(o => o.key);
+      a.behaviorLabels = {};
+      a.behaviorsActive = {};
+      Object.entries(a.behaviors).forEach(([k, v]) => {
+        if (v) a.behaviorsActive[k] = true;
+        if (!a.behaviorOptions.includes(k)) a.behaviorOptions.push(k);
+      });
+      delete a.behaviors;
+    }
+
+    // Migrate old whenLow
+    if (a.whenLow && typeof a.whenLow === 'object' && !a.whenLowOptions) {
+      a.whenLowOptions = DEFAULT_WHEN_LOW_OPTIONS.map(o => o.key);
+      a.whenLowLabels = {};
+      a.whenLowDescs = {};
+      a.whenLowActive = {};
+      Object.entries(a.whenLow).forEach(([k, v]) => {
+        if (v) a.whenLowActive[k] = true;
+        if (!a.whenLowOptions.includes(k)) a.whenLowOptions.push(k);
+      });
+      delete a.whenLow;
+    }
+
+    // Migrate old technicalStyle
+    if (a.technicalStyle && typeof a.technicalStyle === 'object' && !a.techStyleOptions) {
+      a.techStyleOptions = DEFAULT_TECH_STYLE_OPTIONS.map(o => o.key);
+      a.techStyleLabels = {};
+      a.techStyleDescs = {};
+      a.techStyleActive = {};
+      Object.entries(a.technicalStyle).forEach(([k, v]) => {
+        if (v) a.techStyleActive[k] = true;
+        if (!a.techStyleOptions.includes(k)) a.techStyleOptions.push(k);
+      });
+      delete a.technicalStyle;
+    }
+
+    // Migrate old traits (flat object) -> new format with traitOptions
+    if (a.traits && !a.traitOptions) {
+      a.traitOptions = DEFAULT_TRAIT_OPTIONS.map(o => o.key);
+      a.traitLabels = {};
+      a.traitEndpoints = {};
+      // Keep traits values as they are, just ensure custom ones are tracked
+      Object.keys(a.traits).forEach(k => {
+        if (!a.traitOptions.includes(k)) a.traitOptions.push(k);
+      });
+    }
+
+    // Ensure enabledSections exists
+    if (!state.enabledSections) {
+      state.enabledSections = {};
+    }
+    const allSections = ['identity', 'about', 'cognitive', 'values', 'communication', 'people', 'projects', 'user-custom', 'agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'];
+    allSections.forEach(id => {
+      if (state.enabledSections[id] === undefined) state.enabledSections[id] = true;
+    });
+
+    // Ensure preset exists
+    if (!state.preset) state.preset = 'custom';
+
+    // Ensure files array exists
+    if (!Array.isArray(state.files)) state.files = [];
+    // Ensure each file has anchorDepth
+    state.files.forEach(f => {
+      if (!f.anchorDepth) f.anchorDepth = 'full';
+      if (!f.projectTag) f.projectTag = '';
+      if (!f.id) f.id = generateFileId();
+    });
+
+    // Ensure new state properties
+    if (!state.activePage) state.activePage = 'dashboard';
+    if (!Array.isArray(state.notesCache)) state.notesCache = [];
+    if (state.settingsCache === undefined) state.settingsCache = null;
+    if (state.statusCache === undefined) state.statusCache = null;
+    if (state.serverConnected === undefined) state.serverConnected = false;
+  }
+
+  // ---- Public API ----
+  window.memorableApp = {
+    toggleSection(id) {
+      const el = document.getElementById(id);
+      if (el && !el.classList.contains('section-disabled')) {
+        el.classList.toggle('collapsed');
+      }
+    },
+
+    addAvoid() {
+      const input = document.getElementById('avoid-input');
+      if (input && input.value.trim()) {
+        state.agent.avoid.push(input.value.trim());
+        input.value = '';
+        const container = document.getElementById('page-container');
+        renderSeedsPage(container);
+      }
+    },
+
+    showImportModal() {
+      showImportModal();
+    },
+
+    copyToClipboard(file) {
+      const md = file === 'user' ? generateUserMarkdown() : generateAgentMarkdown();
+      navigator.clipboard.writeText(md).then(() => {
+        showToast(`${file}.md copied to clipboard`, 'success');
+      }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = md;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast(`${file}.md copied to clipboard`, 'success');
+      });
+    },
+
+    download(file) {
+      const md = file === 'user' ? generateUserMarkdown() : generateAgentMarkdown();
+      const blob = new Blob([md], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${file}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast(`${file}.md downloaded`, 'success');
+    },
+
+    removeFile(fileId) {
+      if (confirm('Remove this file?')) {
+        state.files = state.files.filter(f => f.id !== fileId);
+        if (state.activeFileId === fileId) {
+          state.activeFileId = state.files.length > 0 ? state.files[0].id : null;
+        }
+        render();
+        showToast('File removed', '');
+      }
+    },
+
+    copyFileContent(fileId) {
+      const file = state.files.find(f => f.id === fileId);
+      if (!file) return;
+      navigator.clipboard.writeText(file.content || '').then(() => {
+        showToast(`${file.name} copied to clipboard`, 'success');
+      }).catch(() => {
+        showToast('Failed to copy', '');
+      });
+    },
+
+    navigateTo(page) {
+      state.activePage = page;
+      document.querySelectorAll('#sidebar-nav .sidebar-link').forEach(l => {
+        l.classList.toggle('active', l.dataset.page === page);
+      });
+      render();
+    },
+
+    resetAll() {
+      if (confirm('Reset all data? This cannot be undone.')) {
+        localStorage.removeItem('seedConfigurator');
+        location.reload();
+      }
+    }
+  };
+
+  // Keep backward compat
+  window.seedApp = window.memorableApp;
+
+  // ---- Init ----
+  async function init() {
+    loadFromLocalStorage();
+    migrateState();
+    bindSidebarNav();
+    render();
+
+    // Load data from server (non-blocking)
+    checkServerStatus();
+    loadNotes().then(() => {
+      // Re-render if we're on a page that uses notes
+      if (state.activePage === 'dashboard' || state.activePage === 'notes') {
+        renderPage();
+      }
+    });
+    loadSettings();
+
+    // Periodic status check
+    setInterval(checkServerStatus, 30000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+})();
