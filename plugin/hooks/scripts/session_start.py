@@ -54,13 +54,13 @@ def _extract_at_depth(anchored_text: str, max_depth: int) -> str:
     """Extract content from anchored text up to max_depth level.
 
     Self-contained — no imports from processor (hooks must be standalone).
-    Parses 🌱N️⃣...🌱 format.
+    Parses ⚓N️⃣...⚓ format.
     """
     if max_depth < 0:
         return anchored_text
 
-    seed = "🌱"
-    pattern = re.compile(seed + r"([0-3]\ufe0f\u20e3)?")
+    anchor = "⚓"
+    pattern = re.compile(anchor + r"([0-3]\ufe0f\u20e3)?")
 
     result = []
     pos = 0

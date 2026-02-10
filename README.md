@@ -1,4 +1,4 @@
-# 🌱 Memorable
+# ✦ Memorable
 
 **Persistent memory and personal context for Claude Code.**
 

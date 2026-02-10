@@ -618,10 +618,27 @@ def handle_process_file(filename: str):
 
 
 def handle_preview_file(filename: str, query_params: dict):
-    """GET /api/files/<filename>/preview — preview at a depth."""
+    """GET /api/files/<filename>/preview — preview at a depth.
+
+    Query params:
+      depth=N  — extract at this depth (0-3, or -1/full for raw)
+      raw=true — return the .anchored file as-is with ⚓ tags visible
+    """
     safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
     if not safe:
         return 400, {"error": "Invalid filename"}
+
+    # raw=true returns the anchored file with tags intact
+    if query_params.get("raw", [""])[0] == "true":
+        anchored_path = FILES_DIR / (safe + ".anchored")
+        if anchored_path.is_file():
+            content = anchored_path.read_text(encoding="utf-8")
+            return 200, {
+                "content": content,
+                "tokens": estimate_tokens(content),
+                "depth": "raw",
+            }
+        # Fall through to raw file if no .anchored exists
 
     depth_str = query_params.get("depth", ["1"])[0]
     try:
@@ -816,26 +833,78 @@ def handle_post_process(body: dict):
 
 
 def handle_get_budget():
-    """GET /api/budget — return current token budget breakdown."""
+    """GET /api/budget — return current token budget breakdown.
+
+    Mirrors what session_start.py actually loads: seed files + semantic files
+    at their configured depths.
+    """
     config = load_config()
     budget = config.get("token_budget", 200000)
 
     breakdown = []
     total_used = 0
 
-    if SEEDS_DIR.is_dir():
-        for f in sorted(SEEDS_DIR.glob("*.md")):
+    # Core seed files — mirrors session_start.py which loads user.md and agent.md
+    for seed_name in ("user.md", "agent.md"):
+        seed_path = SEEDS_DIR / seed_name
+        if seed_path.is_file():
             try:
-                content = f.read_text(encoding="utf-8")
+                content = seed_path.read_text(encoding="utf-8")
                 tokens = estimate_tokens(content)
                 breakdown.append({
-                    "file": f.name,
+                    "file": seed_name,
+                    "type": "seed",
                     "tokens": tokens,
                     "chars": len(content),
                 })
                 total_used += tokens
             except Exception:
                 pass
+
+    # Context files from config — mirrors session_start.py collect_context_files()
+    context_files = config.get("context_files", [])
+    for entry in context_files:
+        if not entry.get("enabled", True):
+            continue
+        filename = entry.get("filename", "")
+        if not filename:
+            continue
+        depth = entry.get("depth", -1)
+
+        # Check FILES_DIR first (semantic file), then fall back to seeds
+        raw_path = FILES_DIR / filename
+        anchored_path = FILES_DIR / (filename + ".anchored")
+        seed_path = SEEDS_DIR / filename
+
+        try:
+            if raw_path.is_file():
+                if depth is not None and depth >= 0 and anchored_path.is_file():
+                    anchored_text = anchored_path.read_text(encoding="utf-8")
+                    extracted = extract_at_depth(anchored_text, depth)
+                    tokens = estimate_tokens(extracted)
+                else:
+                    content = raw_path.read_text(encoding="utf-8")
+                    tokens = estimate_tokens(content)
+                breakdown.append({
+                    "file": filename,
+                    "type": "semantic",
+                    "depth": depth,
+                    "tokens": tokens,
+                    "chars": tokens * CHARS_PER_TOKEN,
+                })
+                total_used += tokens
+            elif seed_path.is_file():
+                content = seed_path.read_text(encoding="utf-8")
+                tokens = estimate_tokens(content)
+                breakdown.append({
+                    "file": filename,
+                    "type": "seed",
+                    "tokens": tokens,
+                    "chars": len(content),
+                })
+                total_used += tokens
+        except Exception:
+            pass
 
     return 200, {
         "budget": budget,

@@ -148,7 +148,7 @@ fi
 # ---------------------------------------------------------------------------
 cat << EOF
 
-🌱 Memorable — Setup Complete
+✦ Memorable — Setup Complete
 ==============================
 
 Data directory: ~/.memorable/data/

@@ -825,17 +825,17 @@
   }
 
   function updateSidebarStatus() {
-    const dot = document.querySelector('.sidebar-status-dot');
-    const text = document.querySelector('.sidebar-status-text');
+    const dot = document.querySelector('.top-nav-status-dot');
+    const text = document.querySelector('.top-nav-status-text');
     if (!dot || !text) return;
     if (state.serverConnected) {
-      dot.classList.add('connected');
-      dot.classList.remove('disconnected');
+      dot.classList.add('online');
+      dot.classList.remove('error');
       text.textContent = 'Connected';
     } else {
-      dot.classList.remove('connected');
-      dot.classList.add('disconnected');
-      text.textContent = 'Offline \u2014 using local storage';
+      dot.classList.remove('online');
+      dot.classList.add('error');
+      text.textContent = 'Offline';
     }
   }
 
@@ -861,15 +861,15 @@
     }
   }
 
-  // ---- Sidebar Navigation ----
+  // ---- Top Navigation ----
   function bindSidebarNav() {
-    document.querySelectorAll('#sidebar-nav .sidebar-link').forEach(link => {
+    document.querySelectorAll('#top-nav-links .top-nav-link').forEach(link => {
       link.addEventListener('click', (e) => {
         e.preventDefault();
         const page = link.dataset.page;
         if (page === state.activePage) return;
         state.activePage = page;
-        document.querySelectorAll('#sidebar-nav .sidebar-link').forEach(l => l.classList.remove('active'));
+        document.querySelectorAll('#top-nav-links .top-nav-link').forEach(l => l.classList.remove('active'));
         link.classList.add('active');
         render();
       });
@@ -939,7 +939,7 @@
     if (!seedsExist) {
       onboardingHtml = `
         <div class="onboarding-card">
-          <div class="onboarding-icon">&#127793;</div>
+          <div class="onboarding-icon"><img src="logo.png" alt="Memorable" style="width:64px;height:64px;"></div>
           <h2>Welcome to Memorable</h2>
           <p>Get started by creating your seed files. These tell Claude who you are and how to talk to you.</p>
           <div class="onboarding-actions">
@@ -1000,9 +1000,9 @@
               <span class="quick-action-icon">&#128196;</span>
               Edit Seeds
             </button>
-            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('files')">
+            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('memories'); window.memorableApp.setMemoriesSubTab('semantic')">
               <span class="quick-action-icon">&#128193;</span>
-              Upload File
+              Semantic Memory
             </button>
             <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('memories')">
               <span class="quick-action-icon">&#128269;</span>
@@ -1617,16 +1617,19 @@
         card.classList.add('expanded');
         bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Loading preview...</div>';
 
-        // Get current depth from select or default to 1
-        const depthSel = card.querySelector('.file-depth-select');
-        const depth = depthSel ? parseInt(depthSel.value) : -1;
+        // Show raw anchored content (with ⚓ tags) if anchored, otherwise raw file
+        const isAnchored = card.classList.contains('file-card-anchored');
+        const previewUrl = isAnchored
+          ? `/api/files/${encodeURIComponent(filename)}/preview?raw=true`
+          : `/api/files/${encodeURIComponent(filename)}/preview?depth=-1`;
 
         try {
-          const data = await apiFetch(`/api/files/${encodeURIComponent(filename)}/preview?depth=${depth}`);
+          const data = await apiFetch(previewUrl);
           if (data && data.content) {
+            const isRaw = isAnchored && data.depth === 'raw';
             bodyEl.innerHTML = `
-              <div class="file-preview-content rendered-md">${markdownToHtml(data.content)}</div>
-              <div class="file-preview-meta">${data.tokens} tokens at depth ${data.depth === -1 ? 'full' : data.depth}</div>
+              <div class="file-preview-content ${isRaw ? 'file-preview-raw' : 'rendered-md'}">${isRaw ? esc(data.content) : markdownToHtml(data.content)}</div>
+              <div class="file-preview-meta">${data.tokens} tokens${isRaw ? ' (anchored)' : ''}</div>
             `;
           } else {
             bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">No content</div>';
@@ -2288,74 +2291,68 @@
   // ---- Token Budget ----
   function renderTokenBudget() {
     const container = document.getElementById('token-budget');
-    const userTokens = estimateTokens(generateUserMarkdown());
-    const agentTokens = estimateTokens(generateAgentMarkdown());
-    const fileTokens = getTotalFileTokens();
-    const total = userTokens + agentTokens + fileTokens;
-    const maxTokens = 200000;
-    const pct = (n) => Math.max(0, Math.min(100, (n / maxTokens) * 100));
-    const expanded = state.tokenBudgetExpanded;
+    if (!container) return;
 
-    let fileDetailRows = '';
-    if (state.files.length > 0) {
-      fileDetailRows = state.files.map(f => {
-        const ft = getFileTokens(f);
-        const depthLabel = ANCHOR_DEPTHS.find(d => d.key === (f.anchorDepth || 'full'))?.label || 'Full';
-        const projLabel = f.projectTag ? `<span class="file-list-item-tag">${esc(f.projectTag)}</span>` : '';
-        return `
-          <div class="token-detail-row">
-            <span class="token-detail-name">
-              &#128196; ${esc(f.name)}
-              <span class="depth-badge">${depthLabel}</span>
-              ${projLabel}
-            </span>
-            <span class="token-detail-count">${formatTokens(ft)} tokens</span>
+    fetch('/api/budget')
+      .then(r => r.json())
+      .then(data => {
+        const total = data.used;
+        const maxTokens = data.budget;
+        const pct = (n) => Math.max(0, Math.min(100, (n / maxTokens) * 100));
+        const expanded = state.tokenBudgetExpanded;
+
+        const seeds = data.breakdown.filter(b => b.type === 'seed');
+        const semantics = data.breakdown.filter(b => b.type === 'semantic');
+        const seedTokens = seeds.reduce((s, b) => s + b.tokens, 0);
+        const semanticTokens = semantics.reduce((s, b) => s + b.tokens, 0);
+
+        const detailRows = data.breakdown.map(b => {
+          const icon = b.type === 'seed' ? '&#128203;' : '&#9875;';
+          const depthLabel = b.type === 'semantic' && b.depth !== undefined
+            ? `<span class="depth-badge">depth ${b.depth}</span>` : '';
+          return `
+            <div class="token-detail-row">
+              <span class="token-detail-name">${icon} ${esc(b.file)} ${depthLabel}</span>
+              <span class="token-detail-count">${formatTokens(b.tokens)} tokens</span>
+            </div>
+          `;
+        }).join('');
+
+        container.innerHTML = `
+          <div class="token-budget-bar ${expanded ? 'expanded' : ''}" id="token-budget-bar">
+            <div class="token-budget-header">
+              <span class="token-budget-label">
+                Context Budget
+                <span class="token-budget-chevron">&#9660;</span>
+              </span>
+              <span class="token-budget-total">${formatTokens(total)} / ${formatTokens(maxTokens)} tokens</span>
+            </div>
+            <div class="token-budget-track">
+              <div class="token-budget-segment user-seg" style="width:${pct(seedTokens)}%"></div>
+              <div class="token-budget-segment files-seg" style="width:${pct(semanticTokens)}%"></div>
+            </div>
+            <div class="token-budget-legend">
+              <span class="token-legend-item"><span class="token-legend-dot user-dot"></span>Seeds: ${formatTokens(seedTokens)}</span>
+              <span class="token-legend-item"><span class="token-legend-dot files-dot"></span>Semantic: ${formatTokens(semanticTokens)}</span>
+            </div>
+            <div class="token-budget-detail">
+              ${detailRows}
+              <div class="token-detail-row" style="font-weight:600;margin-top:4px;padding-top:8px;border-top:1px solid var(--border);">
+                <span class="token-detail-name">Total</span>
+                <span class="token-detail-count">${formatTokens(total)} tokens</span>
+              </div>
+            </div>
           </div>
         `;
-      }).join('');
-    }
 
-    container.innerHTML = `
-      <div class="token-budget-bar ${expanded ? 'expanded' : ''}" id="token-budget-bar">
-        <div class="token-budget-header">
-          <span class="token-budget-label">
-            Context Budget
-            <span class="token-budget-chevron">&#9660;</span>
-          </span>
-          <span class="token-budget-total">${formatTokens(total)} / ${formatTokens(maxTokens)} tokens</span>
-        </div>
-        <div class="token-budget-track">
-          <div class="token-budget-segment user-seg" style="width:${pct(userTokens)}%"></div>
-          <div class="token-budget-segment agent-seg" style="width:${pct(agentTokens)}%"></div>
-          <div class="token-budget-segment files-seg" style="width:${pct(fileTokens)}%"></div>
-        </div>
-        <div class="token-budget-legend">
-          <span class="token-legend-item"><span class="token-legend-dot user-dot"></span>user.md: ${formatTokens(userTokens)}</span>
-          <span class="token-legend-item"><span class="token-legend-dot agent-dot"></span>agent.md: ${formatTokens(agentTokens)}</span>
-          <span class="token-legend-item"><span class="token-legend-dot files-dot"></span>Files: ${formatTokens(fileTokens)}</span>
-        </div>
-        <div class="token-budget-detail">
-          <div class="token-detail-row">
-            <span class="token-detail-name">&#9786; user.md</span>
-            <span class="token-detail-count">${formatTokens(userTokens)} tokens</span>
-          </div>
-          <div class="token-detail-row">
-            <span class="token-detail-name">&#9881; agent.md</span>
-            <span class="token-detail-count">${formatTokens(agentTokens)} tokens</span>
-          </div>
-          ${fileDetailRows}
-          <div class="token-detail-row" style="font-weight:600;margin-top:4px;padding-top:8px;border-top:1px solid var(--border);">
-            <span class="token-detail-name">Total</span>
-            <span class="token-detail-count">${formatTokens(total)} tokens</span>
-          </div>
-        </div>
-      </div>
-    `;
-
-    document.getElementById('token-budget-bar').addEventListener('click', () => {
-      state.tokenBudgetExpanded = !state.tokenBudgetExpanded;
-      document.getElementById('token-budget-bar').classList.toggle('expanded');
-    });
+        document.getElementById('token-budget-bar').addEventListener('click', () => {
+          state.tokenBudgetExpanded = !state.tokenBudgetExpanded;
+          document.getElementById('token-budget-bar').classList.toggle('expanded');
+        });
+      })
+      .catch(() => {
+        container.innerHTML = '<div class="token-budget-bar"><div class="token-budget-header"><span>Context Budget</span><span>Error loading</span></div></div>';
+      });
   }
 
   function renderPresetBar() {
@@ -3840,9 +3837,14 @@
 
     navigateTo(page) {
       state.activePage = page;
-      document.querySelectorAll('#sidebar-nav .sidebar-link').forEach(l => {
+      document.querySelectorAll('#top-nav-links .top-nav-link').forEach(l => {
         l.classList.toggle('active', l.dataset.page === page);
       });
+      render();
+    },
+
+    setMemoriesSubTab(tab) {
+      state.memoriesSubTab = tab;
       render();
     },
 

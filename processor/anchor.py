@@ -1,7 +1,7 @@
 """
 Anchor processor for Semantic Memory.
 
-Processes documents through an LLM to create tiered anchors using 🌱 emoji format.
+Processes documents through an LLM to create tiered anchors using ⚓ emoji format.
 Falls back to mechanical (heuristic) processing if no LLM is available.
 
 Anchor levels (cumulative):
@@ -33,7 +33,7 @@ CHARS_PER_TOKEN = 4
 
 # -- Anchor format constants -----------------------------------------------
 
-SEED = "🌱"
+ANCHOR = "⚓"
 LEVEL_TAGS = {
     0: "0️⃣",
     1: "1️⃣",
@@ -41,40 +41,44 @@ LEVEL_TAGS = {
     3: "3️⃣",
 }
 
-# Regex: match 🌱 optionally followed by a level indicator (digit + variation selector + keycap)
-_ANCHOR_RE = re.compile(SEED + r"([0-3]\ufe0f\u20e3)?")
+# Regex: match ⚓ optionally followed by a level indicator (digit + variation selector + keycap)
+_ANCHOR_RE = re.compile(ANCHOR + r"([0-3]\ufe0f\u20e3)?")
 
 
 # -- LLM Prompt ------------------------------------------------------------
 
 ANCHOR_PROMPT = """You are processing a document into a tiered anchor format for a memory system.
 
-Use 🌱 emoji delimiters to mark content at different importance levels:
-- 🌱0️⃣ ... 🌱 = Fingerprint. Two lines: first line is comma-separated topic tags, second line is a one-sentence summary describing what this document is about. Always loaded, minimal tokens.
-- 🌱1️⃣ ... 🌱 = Core ideas. The abstract — what you'd tell someone in 30 seconds.
-- 🌱2️⃣ ... 🌱 = Supporting detail. Key arguments, examples, mechanisms.
-- 🌱3️⃣ ... 🌱 = Deep detail. Everything worth preserving minus filler.
+Use ⚓ emoji delimiters to mark content at different importance levels:
+- ⚓0️⃣ ... ⚓ = Fingerprint. Two lines: first line is comma-separated topic tags, second line is a one-sentence summary describing what this document is about. Always loaded, minimal tokens.
+- ⚓1️⃣ ... ⚓ = Core ideas. The abstract — what you'd tell someone in 30 seconds.
+- ⚓2️⃣ ... ⚓ = Supporting detail. Key arguments, examples, mechanisms.
+- ⚓3️⃣ ... ⚓ = Deep detail. Everything worth preserving minus filler.
 
-🌱 alone (no number) is the CLOSING tag. Every opening 🌱N️⃣ must have a matching 🌱 close.
+⚓ alone (no number) is the CLOSING tag.
+
+CRITICAL: Every opening ⚓N️⃣ MUST have a matching ⚓ close. Count your opens and closes — they must be equal. If you open ⚓1️⃣ then ⚓2️⃣ then ⚓3️⃣, you need THREE closing ⚓ tags: ⚓ ⚓ ⚓ (one for each level). Innermost closes first.
 
 Rules:
-1. First line of output must be 🌱0️⃣ fingerprint with tags on one line, then summary on the next
-2. Levels are cumulative and nested: 🌱1️⃣ blocks may contain 🌱2️⃣ which may contain 🌱3️⃣
+1. First line of output must be ⚓0️⃣ fingerprint with tags on one line, then summary on the next
+2. Levels nest: ⚓1️⃣ may contain ⚓2️⃣ which may contain ⚓3️⃣. Each MUST close with its own ⚓
 3. Preserve the author's words — compress, don't paraphrase
 4. Strip boilerplate and filler
 5. Level 1 should be readable as a standalone summary
 
-Example output:
-🌱0️⃣ memory-systems, extended-mind, cognitive-extension
-External memory systems serve as genuine cognitive extensions through environmental coupling, offloading, and distributed processing. 🌱
-🌱1️⃣ External memory systems function as genuine cognitive extensions, not just storage. They change how we think, not just what we remember. 🌱2️⃣ Three mechanisms: environmental coupling, cognitive offloading, distributed processing. 🌱3️⃣ Environmental coupling: spatial arrangements serve as retrieval cues — 40% recall improvement when spatially organized vs listed. 🌱 🌱 🌱
-🌱1️⃣ Design implication: systems should support relational organization, not just search. 🌱2️⃣ Three principles: proximity, salience, decay. 🌱 🌱
+Example (note closing tag counts):
+⚓0️⃣ memory-systems, extended-mind, cognitive-extension
+External memory systems serve as genuine cognitive extensions through environmental coupling, offloading, and distributed processing. ⚓
+⚓1️⃣ External memory systems function as genuine cognitive extensions, not just storage. ⚓2️⃣ Three mechanisms: environmental coupling, cognitive offloading, distributed processing. ⚓3️⃣ Environmental coupling: spatial arrangements serve as retrieval cues — 40% recall improvement when spatially organized vs listed. ⚓ ⚓ ⚓
+                                                                                                                                                                                                         ↑ closes 3️⃣  ↑ closes 2️⃣  ↑ closes 1️⃣
+⚓1️⃣ Design implication: systems should support relational organization, not just search. ⚓2️⃣ Three principles: proximity, salience, decay. ⚓ ⚓
+                                                                                                                                               ↑ closes 2️⃣  ↑ closes 1️⃣
 
 Filename: {filename}
 
 {document_text}
 
-Output the anchored version. Start with 🌱0️⃣. No preamble."""
+Output the anchored version. Start with ⚓0️⃣. No preamble."""
 
 
 # -- Utility ---------------------------------------------------------------
@@ -200,7 +204,7 @@ def extract_at_depth(anchored_text: str, max_depth: int) -> str:
 
     Depth semantics (cumulative):
       -1 or "full" → return raw unprocessed text
-       0 → only 🌱0️⃣ content (fingerprint)
+       0 → only ⚓0️⃣ content (fingerprint)
        1 → 0 + 1 (core ideas)
        2 → 0 + 1 + 2 (supporting detail)
        3 → 0 + 1 + 2 + 3 (everything anchored)
@@ -233,7 +237,7 @@ def extract_at_depth(anchored_text: str, max_depth: int) -> str:
             depth_stack.append(level)
             pos = end
         else:
-            # Closing tag (bare 🌱)
+            # Closing tag (bare ⚓)
             if depth_stack:
                 if depth_stack[-1] <= max_depth:
                     result.append(anchored_text[pos:start])
@@ -256,8 +260,60 @@ def extract_at_depth(anchored_text: str, max_depth: int) -> str:
 
 
 def validate_anchored(text: str) -> bool:
-    """Check that anchored text has at least one 🌱0️⃣ tag."""
-    return SEED + LEVEL_TAGS[0] in text
+    """Check that anchored text has at least one ⚓0️⃣ tag."""
+    return ANCHOR + LEVEL_TAGS[0] in text
+
+
+def _repair_anchored(text: str) -> str:
+    """Fix unbalanced anchor tags in LLM output.
+
+    Walks through the text tracking the depth stack. Removes orphan closing
+    tags (closes with no matching open) and appends missing closes at the end.
+    """
+    # Strip the ↑ annotation lines the prompt example might cause LLMs to echo
+    text = re.sub(r"^[ \t]*↑[^\n]*$", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    # First pass: find positions of orphan closing tags to remove
+    depth_stack = []
+    orphan_positions = []
+
+    for match in _ANCHOR_RE.finditer(text):
+        level_str = match.group(1)
+        if level_str:
+            depth_stack.append(int(level_str[0]))
+        else:
+            if depth_stack:
+                depth_stack.pop()
+            else:
+                # This close has no matching open — mark for removal
+                orphan_positions.append((match.start(), match.end()))
+
+    # Remove orphan closes (process in reverse to preserve positions)
+    if orphan_positions:
+        parts = []
+        prev_end = 0
+        for start, end in orphan_positions:
+            parts.append(text[prev_end:start])
+            prev_end = end
+        parts.append(text[prev_end:])
+        text = "".join(parts)
+
+    # Second pass: count remaining balance and append missing closes
+    depth_stack = []
+    for match in _ANCHOR_RE.finditer(text):
+        level_str = match.group(1)
+        if level_str:
+            depth_stack.append(int(level_str[0]))
+        else:
+            if depth_stack:
+                depth_stack.pop()
+
+    if depth_stack:
+        text = text.rstrip()
+        text += " " + " ".join([ANCHOR] * len(depth_stack))
+
+    return text
 
 
 # -- LLM Processing --------------------------------------------------------
@@ -266,7 +322,7 @@ def validate_anchored(text: str) -> bool:
 def process_document_llm(text: str, filename: str) -> str:
     """Process a document through the configured LLM to create anchors.
 
-    Returns the anchored text in 🌱 format.
+    Returns the anchored text in ⚓ format.
     """
     # Dynamic max_tokens: 1.5x input tokens, floor 4096, cap 16384
     input_tokens = estimate_tokens(text)
@@ -321,16 +377,16 @@ def _is_code_fence(line: str) -> bool:
 def process_document_mechanical(text: str) -> str:
     """Fallback: mechanical anchor processing using document structure.
 
-    Maps the old 3-level system (1=highest, 2=medium, 3=full) to 🌱 format:
-      Old level 1 (title, H1, first para, bold) → 🌱1️⃣
-      Old level 2 (H2+, lists, definitions)     → 🌱2️⃣
-      Old level 3 (everything else)              → 🌱3️⃣
-    Plus a generated 🌱0️⃣ fingerprint line.
+    Maps the old 3-level system (1=highest, 2=medium, 3=full) to ⚓ format:
+      Old level 1 (title, H1, first para, bold) → ⚓1️⃣
+      Old level 2 (H2+, lists, definitions)     → ⚓2️⃣
+      Old level 3 (everything else)              → ⚓3️⃣
+    Plus a generated ⚓0️⃣ fingerprint line.
     """
     lines = text.split("\n")
     parts = []
 
-    # Generate fingerprint (🌱0️⃣)
+    # Generate fingerprint (⚓0️⃣)
     first_heading = ""
     tags = []
     for line in lines:
@@ -344,7 +400,7 @@ def process_document_mechanical(text: str) -> str:
     tags = tags[:5]
     tag_str = ", ".join(tags) if tags else "untagged"
     summary = first_heading or text.split("\n")[0].strip()[:80]
-    parts.append(f"{SEED}{LEVEL_TAGS[0]} {tag_str} | {summary} {SEED}\n")
+    parts.append(f"{ANCHOR}{LEVEL_TAGS[0]} {tag_str} | {summary} {ANCHOR}\n")
 
     # Process the rest using heuristics
     in_code_block = False
@@ -354,10 +410,10 @@ def process_document_mechanical(text: str) -> str:
     for line in lines:
         if _is_code_fence(line):
             in_code_block = not in_code_block
-            parts.append(f"{SEED}{LEVEL_TAGS[3]} {line} {SEED} ")
+            parts.append(f"{ANCHOR}{LEVEL_TAGS[3]} {line} {ANCHOR} ")
             continue
         if in_code_block:
-            parts.append(f"{SEED}{LEVEL_TAGS[3]} {line} {SEED} ")
+            parts.append(f"{ANCHOR}{LEVEL_TAGS[3]} {line} {ANCHOR} ")
             continue
         if _is_blank(line):
             parts.append("\n")
@@ -366,7 +422,7 @@ def process_document_mechanical(text: str) -> str:
         heading_level = _is_heading(line)
 
         if heading_level == 1 or (first_line and heading_level == 0):
-            parts.append(f"{SEED}{LEVEL_TAGS[1]} {line.strip()} ")
+            parts.append(f"{ANCHOR}{LEVEL_TAGS[1]} {line.strip()} ")
             after_heading = True
             first_line = False
             continue
@@ -375,7 +431,7 @@ def process_document_mechanical(text: str) -> str:
 
         if heading_level >= 2:
             # Close previous if needed
-            parts.append(f"{SEED} {SEED}{LEVEL_TAGS[1]} {line.strip()} ")
+            parts.append(f"{ANCHOR} {ANCHOR}{LEVEL_TAGS[1]} {line.strip()} ")
             after_heading = True
             continue
 
@@ -385,17 +441,17 @@ def process_document_mechanical(text: str) -> str:
             continue
 
         if _has_bold(line):
-            parts.append(f"{SEED}{LEVEL_TAGS[2]} {line.strip()} {SEED} ")
+            parts.append(f"{ANCHOR}{LEVEL_TAGS[2]} {line.strip()} {ANCHOR} ")
             continue
 
         if _is_list_item(line):
-            parts.append(f"{SEED}{LEVEL_TAGS[2]} {line.strip()} {SEED} ")
+            parts.append(f"{ANCHOR}{LEVEL_TAGS[2]} {line.strip()} {ANCHOR} ")
             continue
 
-        parts.append(f"{SEED}{LEVEL_TAGS[3]} {line.strip()} {SEED} ")
+        parts.append(f"{ANCHOR}{LEVEL_TAGS[3]} {line.strip()} {ANCHOR} ")
 
     # Close any open tags
-    parts.append(SEED)
+    parts.append(ANCHOR)
 
     return "".join(parts)
 
@@ -435,7 +491,8 @@ def process_file(filename: str, force: bool = False) -> dict:
     try:
         anchored = process_document_llm(text, filename)
         if not validate_anchored(anchored):
-            raise ValueError("LLM output missing 🌱0️⃣ fingerprint — falling back")
+            raise ValueError("LLM output missing ⚓0️⃣ fingerprint — falling back")
+        anchored = _repair_anchored(anchored)
     except Exception as e:
         log_error(f"LLM failed for {filename}: {e}")
         method = "mechanical"
