@@ -498,6 +498,27 @@
     return n.toString();
   }
 
+  function formatRelativeTime(iso) {
+    if (!iso) return 'Never';
+    const dt = new Date(iso);
+    if (Number.isNaN(dt.getTime())) return 'Unknown';
+    const diffSec = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 1000));
+    if (diffSec < 60) return `${diffSec}s ago`;
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+    if (diffSec < 86400 * 7) return `${Math.floor(diffSec / 86400)}d ago`;
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  function formatDuration(seconds) {
+    const s = Number(seconds || 0);
+    if (!Number.isFinite(s) || s <= 0) return '0m';
+    if (s < 60) return `${Math.round(s)}s`;
+    if (s < 3600) return `${Math.round(s / 60)}m`;
+    if (s < 86400) return `${Math.round(s / 3600)}h`;
+    return `${Math.round(s / 86400)}d`;
+  }
+
   // ---- Toast ----
   function showToast(message, type = '') {
     const el = document.getElementById('toast');
@@ -1113,6 +1134,9 @@
       state.serverConnected = false;
     }
     updateSidebarStatus();
+    if (state.activePage === 'dashboard' || state.activePage === 'settings') {
+      renderPage();
+    }
   }
 
   function updateSidebarStatus() {
@@ -1325,7 +1349,18 @@
     const contextFileCount = status ? Number(status.file_count || 0) : '\u2014';
     const daemonRunning = status ? status.daemon_running : false;
     const seedsExist = status ? status.seeds_present : true;
-    const daemonEnabled = !!(((state.settingsCache || {}).daemon || {}).enabled);
+    const daemonEnabled = status
+      ? !!status.daemon_enabled
+      : !!(((state.settingsCache || {}).daemon || {}).enabled);
+    const daemonHealth = status && status.daemon_health ? status.daemon_health : null;
+    const daemonIssues = daemonHealth && Array.isArray(daemonHealth.issues)
+      ? daemonHealth.issues
+      : [];
+    const daemonLagSeconds = status && Number.isFinite(status.daemon_lag_seconds)
+      ? Number(status.daemon_lag_seconds)
+      : null;
+    const lastNoteDate = status ? status.last_note_date : '';
+    const lastTranscriptDate = status ? status.last_transcript_date : '';
 
     // Get recent notes (up to 5)
     const recentNotes = state.notesCache.slice(0, 5);
@@ -1415,6 +1450,53 @@
       `;
     }
 
+    let daemonReliabilityHtml = '';
+    if (status && daemonHealth && daemonHealth.state !== 'healthy') {
+      const issueText = daemonIssues.map((issue) => {
+        if (issue === 'daemon_not_running') return 'Daemon is enabled but not running.';
+        if (issue === 'notes_lagging') return `Notes are lagging behind transcripts (${formatDuration(daemonLagSeconds)} behind).`;
+        if (issue === 'no_notes_generated') return 'Transcripts exist, but no notes have been generated yet.';
+        return issue;
+      });
+      let bodyText = '';
+      if (daemonHealth.state === 'disabled') {
+        bodyText = 'Daemon note capture is disabled. New sessions will not create notes until you enable it.';
+      } else if (issueText.length) {
+        bodyText = issueText.join(' ');
+      } else {
+        bodyText = 'Daemon is not fully healthy yet. Open settings to review capture configuration.';
+      }
+
+      daemonReliabilityHtml = `
+        <div class="dashboard-daemon-health dashboard-daemon-health-${esc(daemonHealth.state || 'idle')}">
+          <div class="dashboard-daemon-health-header">
+            <h2>Daemon Reliability</h2>
+            <span class="dashboard-daemon-health-badge">${esc((daemonHealth.state || 'idle').toUpperCase())}</span>
+          </div>
+          <p>${esc(bodyText)}</p>
+          <div class="dashboard-daemon-health-meta">
+            <span>Last note: ${esc(formatRelativeTime(lastNoteDate))}</span>
+            <span>Last transcript: ${esc(formatRelativeTime(lastTranscriptDate))}</span>
+          </div>
+          <div class="dashboard-daemon-health-actions">
+            ${!daemonEnabled ? '<button class="btn btn-primary" onclick="window.memorableApp.enableDaemon()">Enable Daemon</button>' : ''}
+            ${daemonIssues.includes('notes_lagging') || daemonIssues.includes('no_notes_generated')
+              ? '<button class="btn" onclick="window.memorableApp.navigateTo(\'memories\')">Open Memories</button>'
+              : ''}
+            <button class="btn" onclick="window.memorableApp.navigateTo('settings')">Open Settings</button>
+          </div>
+        </div>
+      `;
+    }
+
+    const daemonStatSub = (() => {
+      const noteText = `Last note ${formatRelativeTime(lastNoteDate)}`;
+      if (daemonLagSeconds && daemonLagSeconds > 0) {
+        return `${noteText} · Lag ${formatDuration(daemonLagSeconds)}`;
+      }
+      return noteText;
+    })();
+
     container.innerHTML = `
       <div class="dashboard-page">
         <div class="page-header">
@@ -1424,6 +1506,7 @@
 
         ${onboardingHtml}
         ${setupChecklistHtml}
+        ${daemonReliabilityHtml}
 
         <div class="dashboard-stats">
           <div class="stat-card">
@@ -1444,6 +1527,7 @@
               ${daemonRunning ? 'Active' : 'Inactive'}
             </div>
             <div class="stat-label" title="Background process that watches sessions and auto-generates notes.">Daemon</div>
+            <div class="stat-card-sub">${esc(daemonStatSub)}</div>
           </div>
         </div>
 
@@ -2485,6 +2569,43 @@
   function renderSettingsPage(container) {
     const s = state.settingsCache || {};
     const llm = s.llm_provider || {};
+    const status = state.statusCache || {};
+    const daemonHealth = status.daemon_health && typeof status.daemon_health === 'object'
+      ? status.daemon_health
+      : null;
+    let daemonHealthHtml = '';
+    if (daemonHealth) {
+      const issues = Array.isArray(daemonHealth.issues) ? daemonHealth.issues : [];
+      const issueLabels = issues.map((issue) => {
+        if (issue === 'daemon_not_running') return 'Daemon process is not running.';
+        if (issue === 'notes_lagging') return `Notes are lagging by ${formatDuration(status.daemon_lag_seconds || 0)}.`;
+        if (issue === 'no_notes_generated') return 'No notes generated yet from available transcripts.';
+        return issue;
+      });
+      let summary = '';
+      if (daemonHealth.state === 'healthy') {
+        summary = 'Daemon capture looks healthy.';
+      } else if (daemonHealth.state === 'disabled') {
+        summary = 'Daemon capture is disabled.';
+      } else if (issueLabels.length) {
+        summary = issueLabels.join(' ');
+      } else {
+        summary = 'Daemon needs attention.';
+      }
+
+      daemonHealthHtml = `
+        <div class="settings-daemon-health settings-daemon-health-${esc(daemonHealth.state || 'idle')}">
+          <div class="settings-daemon-health-header">
+            <span class="settings-daemon-health-badge">${esc((daemonHealth.state || 'idle').toUpperCase())}</span>
+            <span class="settings-daemon-health-summary">${esc(summary)}</span>
+          </div>
+          <div class="settings-daemon-health-meta">
+            <span>Last note: ${esc(formatRelativeTime(status.last_note_date))}</span>
+            <span>Last transcript: ${esc(formatRelativeTime(status.last_transcript_date))}</span>
+          </div>
+        </div>
+      `;
+    }
 
     container.innerHTML = `
       <div class="settings-page">
@@ -2576,6 +2697,7 @@
               <h3 title="Background process that watches sessions and auto-generates notes.">Daemon</h3>
             </div>
             <div class="settings-section-body">
+              ${daemonHealthHtml}
               <div class="settings-row">
                 <div class="settings-row-info">
                   <div class="settings-row-label">Daemon Enabled</div>

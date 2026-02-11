@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -17,6 +18,7 @@ import server_api  # noqa: E402
 
 class ServerApiTests(unittest.TestCase):
     def setUp(self):
+        self.orig_data_dir = server_api.DATA_DIR
         self.orig_notes_dir = server_api.NOTES_DIR
         self.orig_files_dir = server_api.FILES_DIR
         self.orig_sessions_dir = server_api.SESSIONS_DIR
@@ -25,6 +27,7 @@ class ServerApiTests(unittest.TestCase):
         self.orig_load_config = server_api.load_config
 
     def tearDown(self):
+        server_api.DATA_DIR = self.orig_data_dir
         server_api.NOTES_DIR = self.orig_notes_dir
         server_api.FILES_DIR = self.orig_files_dir
         server_api.SESSIONS_DIR = self.orig_sessions_dir
@@ -246,6 +249,76 @@ class ServerApiTests(unittest.TestCase):
             status, data = server_api.handle_get_status()
             self.assertEqual(200, status)
             self.assertEqual(1, data["file_count"])
+
+    def test_handle_get_status_reports_daemon_not_running_when_enabled(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            files_dir = root / "files"
+            notes_dir = root / "notes"
+            sessions_dir = root / "sessions"
+            seeds_dir = root / "seeds"
+            transcripts_dir = root / "transcripts"
+            for d in (files_dir, notes_dir, sessions_dir, seeds_dir, transcripts_dir):
+                d.mkdir(parents=True, exist_ok=True)
+
+            (transcripts_dir / "s1.txt").write_text("transcript", encoding="utf-8")
+
+            server_api.DATA_DIR = root
+            server_api.FILES_DIR = files_dir
+            server_api.NOTES_DIR = notes_dir
+            server_api.SESSIONS_DIR = sessions_dir
+            server_api.SEEDS_DIR = seeds_dir
+            server_api.load_config = lambda: {
+                "daemon": {"enabled": True, "idle_threshold": 300}
+            }
+
+            status, data = server_api.handle_get_status()
+            self.assertEqual(200, status)
+            self.assertTrue(data["daemon_enabled"])
+            self.assertFalse(data["daemon_running"])
+            self.assertEqual("attention", data["daemon_health"]["state"])
+            self.assertIn("daemon_not_running", data["daemon_health"]["issues"])
+
+    def test_handle_get_status_detects_lagging_notes_when_transcripts_are_newer(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            files_dir = root / "files"
+            notes_dir = root / "notes"
+            sessions_dir = root / "sessions"
+            seeds_dir = root / "seeds"
+            transcripts_dir = root / "transcripts"
+            for d in (files_dir, notes_dir, sessions_dir, seeds_dir, transcripts_dir):
+                d.mkdir(parents=True, exist_ok=True)
+
+            (notes_dir / "session_notes.jsonl").write_text(
+                json.dumps(
+                    {
+                        "ts": "2026-01-01T00:00:00Z",
+                        "note": "old note",
+                        "topic_tags": [],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (transcripts_dir / "latest.txt").write_text("new transcript", encoding="utf-8")
+            (root / "daemon.pid").write_text(str(os.getpid()), encoding="utf-8")
+
+            server_api.DATA_DIR = root
+            server_api.FILES_DIR = files_dir
+            server_api.NOTES_DIR = notes_dir
+            server_api.SESSIONS_DIR = sessions_dir
+            server_api.SEEDS_DIR = seeds_dir
+            server_api.load_config = lambda: {
+                "daemon": {"enabled": True, "idle_threshold": 60}
+            }
+
+            status, data = server_api.handle_get_status()
+            self.assertEqual(200, status)
+            self.assertTrue(data["daemon_running"])
+            self.assertIn("notes_lagging", data["daemon_health"]["issues"])
+            self.assertIsNotNone(data["daemon_lag_seconds"])
+            self.assertGreater(data["daemon_lag_seconds"], data["daemon_health"]["lag_threshold_seconds"])
 
 
 if __name__ == "__main__":

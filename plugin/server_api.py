@@ -616,15 +616,129 @@ def _check_config_validity() -> dict:
     return {"exists": True, "valid": True, "error": None}
 
 
+def _parse_iso_timestamp(value) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _latest_transcript_activity() -> datetime | None:
+    transcripts_dir = DATA_DIR / "transcripts"
+    if not transcripts_dir.is_dir():
+        return None
+
+    latest = None
+    for path in transcripts_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            dt = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        except OSError:
+            continue
+        if latest is None or dt > latest:
+            latest = dt
+    return latest
+
+
+def _daemon_health_snapshot(
+    *,
+    daemon_enabled: bool,
+    daemon_status: dict,
+    idle_threshold: int,
+    last_note_dt: datetime | None,
+    last_transcript_dt: datetime | None,
+    note_count: int,
+) -> dict:
+    running = bool(daemon_status.get("running"))
+    issues: list[str] = []
+    actions: list[str] = []
+
+    lag_threshold_seconds = max(600, max(60, idle_threshold) * 3)
+    lag_seconds = None
+    if last_transcript_dt is not None:
+        if last_note_dt is not None:
+            lag_seconds = int((last_transcript_dt - last_note_dt).total_seconds())
+        elif note_count == 0:
+            lag_seconds = int((datetime.now(timezone.utc) - last_transcript_dt).total_seconds())
+        if lag_seconds is not None and lag_seconds < 0:
+            lag_seconds = 0
+
+    if daemon_enabled and not running:
+        issues.append("daemon_not_running")
+        actions.append("start_daemon_process")
+
+    if daemon_enabled and lag_seconds is not None and lag_seconds > lag_threshold_seconds:
+        issues.append("notes_lagging")
+        actions.append("check_daemon_backlog")
+
+    if daemon_enabled and note_count == 0 and last_transcript_dt is not None:
+        issues.append("no_notes_generated")
+        actions.append("verify_note_generation")
+
+    if not daemon_enabled:
+        state = "disabled"
+    elif issues:
+        state = "attention"
+    elif running:
+        state = "healthy"
+    else:
+        state = "idle"
+
+    deduped_actions = list(dict.fromkeys(actions))
+
+    return {
+        "state": state,
+        "enabled": daemon_enabled,
+        "running": running,
+        "pid": daemon_status.get("pid"),
+        "issues": issues,
+        "actions": deduped_actions,
+        "lag_seconds": lag_seconds,
+        "lag_threshold_seconds": lag_threshold_seconds if daemon_enabled else None,
+        "last_note_at": last_note_dt.isoformat() if last_note_dt else None,
+        "last_transcript_at": last_transcript_dt.isoformat() if last_transcript_dt else None,
+    }
+
+
 def handle_get_status():
     """GET /api/status — dashboard data."""
-    # Note count
+    config = load_config()
+    daemon_cfg = config.get("daemon", {})
+    if not isinstance(daemon_cfg, dict):
+        daemon_cfg = {}
+    daemon_enabled = bool(daemon_cfg.get("enabled", False))
+    try:
+        idle_threshold = int(daemon_cfg.get("idle_threshold", 300))
+    except (TypeError, ValueError):
+        idle_threshold = 300
+
+    # Note count + newest note timestamp
     note_count = 0
+    last_note_dt = None
     if NOTES_DIR.is_dir():
         for jsonl_path in NOTES_DIR.glob("*.jsonl"):
             try:
                 with jsonl_path.open("r", encoding="utf-8") as fh:
-                    note_count += sum(1 for line in fh if line.strip())
+                    for raw_line in fh:
+                        line = raw_line.strip()
+                        if not line:
+                            continue
+                        note_count += 1
+                        try:
+                            obj = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if not isinstance(obj, dict):
+                            continue
+                        dt = _parse_iso_timestamp(obj.get("ts") or obj.get("first_ts"))
+                        if dt and (last_note_dt is None or dt > last_note_dt):
+                            last_note_dt = dt
             except Exception:
                 continue
 
@@ -647,8 +761,17 @@ def handle_get_status():
     # Seed files present
     seeds_present = SEEDS_DIR.is_dir() and any(SEEDS_DIR.glob("*.md"))
 
-    # Daemon running — check for PID file
-    daemon_running = _get_daemon_status()["running"]
+    daemon_status = _get_daemon_status()
+    daemon_running = bool(daemon_status.get("running"))
+    last_transcript_dt = _latest_transcript_activity()
+    daemon_health = _daemon_health_snapshot(
+        daemon_enabled=daemon_enabled,
+        daemon_status=daemon_status,
+        idle_threshold=idle_threshold,
+        last_note_dt=last_note_dt,
+        last_transcript_dt=last_transcript_dt,
+        note_count=note_count,
+    )
 
     # Total token estimate from seed files
     total_tokens = 0
@@ -676,8 +799,14 @@ def handle_get_status():
         "total_sessions": session_count,
         "session_count": session_count,
         "last_session_date": last_session_date,
+        "last_note_date": daemon_health.get("last_note_at"),
+        "last_transcript_date": daemon_health.get("last_transcript_at"),
         "seeds_present": seeds_present,
         "daemon_running": daemon_running,
+        "daemon_enabled": daemon_enabled,
+        "daemon_pid": daemon_status.get("pid"),
+        "daemon_lag_seconds": daemon_health.get("lag_seconds"),
+        "daemon_health": daemon_health,
         "total_seed_tokens": total_tokens,
         "file_count": file_count,
         "data_dir": str(DATA_DIR),
