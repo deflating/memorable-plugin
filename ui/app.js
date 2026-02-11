@@ -1492,11 +1492,11 @@
                     ${!f.anchored ? `<button class="btn btn-primary btn-sm file-process-btn" data-filename="${esc(f.name)}">Process</button>` : ''}
                     ${f.anchored ? `
                       <select class="file-depth-select" data-filename="${esc(f.name)}">${depthOptions}</select>
-                      <label class="file-enabled-label">
-                        <input type="checkbox" class="file-enabled-toggle" data-filename="${esc(f.name)}" ${f.enabled ? 'checked' : ''}>
-                        Load
-                      </label>
                     ` : ''}
+                    <label class="file-enabled-label">
+                      <input type="checkbox" class="file-enabled-toggle" data-filename="${esc(f.name)}" ${f.enabled ? 'checked' : ''}>
+                      Load
+                    </label>
                     <button class="btn btn-ghost btn-sm file-delete-btn" data-filename="${esc(f.name)}">Delete</button>
                   </div>
                 </div>
@@ -1604,7 +1604,7 @@
         const filename = toggle.dataset.filename;
         const enabled = toggle.checked;
         const depthSel = container.querySelector(`.file-depth-select[data-filename="${filename}"]`);
-        const depth = depthSel ? parseInt(depthSel.value) : 1;
+        const depth = depthSel ? parseInt(depthSel.value) : -1;
         await apiFetch(`/api/files/${encodeURIComponent(filename)}/depth`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
