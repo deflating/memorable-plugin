@@ -123,6 +123,16 @@ p { color: var(--text-secondary); }
   gap: 8px;
   margin-right: 32px;
   flex-shrink: 0;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  padding: 4px 8px;
+  margin-left: -8px;
+  transition: background var(--transition-fast);
+}
+
+.top-nav-brand:hover {
+  background: var(--nav-hover);
 }
 
 .top-nav-brand-icon {
@@ -143,7 +153,6 @@ p { color: var(--text-secondary); }
   display: flex;
   align-items: center;
   gap: 2px;
-  flex: 1;
 }
 
 .top-nav-link {
@@ -167,6 +176,14 @@ p { color: var(--text-secondary); }
   color: var(--nav-text-active);
 }
 
+.top-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .top-nav-status {
   display: flex;
   align-items: center;
@@ -174,7 +191,31 @@ p { color: var(--text-secondary); }
   font-size: 0.74rem;
   color: rgba(200, 191, 181, 0.5);
   flex-shrink: 0;
-  margin-left: 16px;
+}
+
+.top-nav-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  color: var(--nav-text);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.top-nav-settings:hover {
+  background: var(--nav-hover);
+  color: var(--nav-text-active);
+}
+
+.top-nav-settings.active {
+  background: var(--nav-active);
+  color: var(--nav-text-active);
 }
 
 .top-nav-status-dot {
@@ -217,6 +258,7 @@ p { color: var(--text-secondary); }
   padding: 16px 32px 0;
   max-width: 1100px;
   width: 100%;
+  margin: 0 auto;
 }
 
 .token-budget-bar {

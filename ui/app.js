@@ -159,7 +159,7 @@
       customSections: []
     },
     // --- New app-level state ---
-    activePage: 'dashboard',  // which page is shown: dashboard, configure, memories, backups, settings
+    activePage: 'dashboard',  // which page is shown: dashboard, configure, memories, settings
     memoriesSubTab: 'episodic', // memories sub-tab: episodic, working, semantic
     notesCache: [],           // cached session notes from API
     settingsCache: null,      // cached settings from API
@@ -852,28 +852,61 @@
       case 'dashboard': renderDashboard(container); break;
       case 'configure': renderSeedsPage(container); break;
       case 'memories': renderMemoriesPage(container); break;
-      case 'backups': renderBackupsPage(container); break;
       case 'settings': renderSettingsPage(container); break;
       // Legacy route names
-      case 'seeds': state.activePage = 'configure'; renderSeedsPage(container); break;
-      case 'notes': state.activePage = 'memories'; renderMemoriesPage(container); break;
+      case 'backups': state.activePage = 'settings'; syncNavHighlight(); renderSettingsPage(container); break;
+      case 'seeds': state.activePage = 'configure'; syncNavHighlight(); renderSeedsPage(container); break;
+      case 'notes': case 'remember': state.activePage = 'memories'; syncNavHighlight(); renderMemoriesPage(container); break;
       default: renderDashboard(container);
     }
   }
 
   // ---- Top Navigation ----
+  function syncNavHighlight() {
+    document.querySelectorAll('#top-nav-links .top-nav-link').forEach(l => {
+      l.classList.toggle('active', l.dataset.page === state.activePage);
+    });
+    const settingsBtn = document.getElementById('top-nav-settings');
+    if (settingsBtn) {
+      settingsBtn.classList.toggle('active', state.activePage === 'settings');
+    }
+  }
+
   function bindSidebarNav() {
+    // Logo = dashboard
+    const homeLink = document.getElementById('top-nav-home');
+    if (homeLink) {
+      homeLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        state.activePage = 'dashboard';
+        syncNavHighlight();
+        render();
+      });
+    }
+
+    // Nav links
     document.querySelectorAll('#top-nav-links .top-nav-link').forEach(link => {
       link.addEventListener('click', (e) => {
         e.preventDefault();
         const page = link.dataset.page;
         if (page === state.activePage) return;
         state.activePage = page;
-        document.querySelectorAll('#top-nav-links .top-nav-link').forEach(l => l.classList.remove('active'));
-        link.classList.add('active');
+        syncNavHighlight();
         render();
       });
     });
+
+    // Settings cog
+    const settingsBtn = document.getElementById('top-nav-settings');
+    if (settingsBtn) {
+      settingsBtn.addEventListener('click', () => {
+        state.activePage = 'settings';
+        syncNavHighlight();
+        render();
+      });
+    }
+
+    syncNavHighlight();
   }
 
   // ---- Dashboard Page ----
@@ -1658,21 +1691,6 @@
     renderSemanticMemory(container);
   }
 
-  // ---- Backups Page ----
-
-  function renderBackupsPage(container) {
-    container.innerHTML = `
-      <div class="page-header">
-        <h1>Backups</h1>
-      </div>
-      <div class="notes-empty">
-        <div class="notes-empty-icon">&#128268;</div>
-        <h3>Backup and restore</h3>
-        <p>Coming soon. This will let you export and import your memory data.</p>
-      </div>
-    `;
-  }
-
   // ---- Settings Page ----
   async function loadSettings() {
     const data = await apiFetch('/api/settings');
@@ -1810,9 +1828,10 @@
         </div>
 
         <div class="settings-grid" style="margin-top:20px;">
-          <div class="settings-section settings-danger-zone">
+          <div class="settings-section">
             <div class="settings-section-header">
-              <h3>Danger Zone</h3>
+              <div class="settings-section-icon sage">&#128268;</div>
+              <h3>Backups</h3>
             </div>
             <div class="settings-section-body">
               <div class="settings-row">
@@ -1824,6 +1843,25 @@
                   <button class="btn btn-small" id="settings-export-btn">Export</button>
                 </div>
               </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Import Data</div>
+                  <div class="settings-row-desc">Restore from a previous export</div>
+                </div>
+                <div class="settings-row-control">
+                  <button class="btn btn-small" disabled>Coming soon</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-grid" style="margin-top:20px;">
+          <div class="settings-section settings-danger-zone">
+            <div class="settings-section-header">
+              <h3>Danger Zone</h3>
+            </div>
+            <div class="settings-section-body">
               <div class="settings-row">
                 <div class="settings-row-info">
                   <div class="settings-row-label">Reset All Data</div>
@@ -1999,6 +2037,7 @@
     controls.querySelectorAll('.view-toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         state.activeView = btn.dataset.view;
+        controls.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.view === state.activeView));
         renderSeedsContent();
         renderPreview();
         saveToLocalStorage();
@@ -3837,9 +3876,7 @@
 
     navigateTo(page) {
       state.activePage = page;
-      document.querySelectorAll('#top-nav-links .top-nav-link').forEach(l => {
-        l.classList.toggle('active', l.dataset.page === page);
-      });
+      syncNavHighlight();
       render();
     },
 

@@ -16,20 +16,25 @@
     <!-- Top Navigation -->
     <header class="top-nav" id="top-nav">
       <div class="top-nav-inner">
-        <div class="top-nav-brand">
+        <a class="top-nav-brand" id="top-nav-home" href="#">
           <img class="top-nav-brand-icon" src="logo.png" alt="Memorable">
           <span class="top-nav-brand-name">Memorable</span>
-        </div>
+        </a>
         <nav class="top-nav-links" id="top-nav-links">
-          <a class="top-nav-link active" data-page="dashboard" href="#">Dashboard</a>
           <a class="top-nav-link" data-page="configure" href="#">Configure</a>
-          <a class="top-nav-link" data-page="memories" href="#">Memories</a>
-          <a class="top-nav-link" data-page="backups" href="#">Backups</a>
-          <a class="top-nav-link" data-page="settings" href="#">Settings</a>
+          <a class="top-nav-link" data-page="memories" href="#">Remember</a>
         </nav>
-        <div class="top-nav-status" id="top-nav-status">
-          <span class="top-nav-status-dot"></span>
-          <span class="top-nav-status-text">Connecting...</span>
+        <div class="top-nav-right">
+          <div class="top-nav-status" id="top-nav-status">
+            <span class="top-nav-status-dot"></span>
+            <span class="top-nav-status-text">Connecting...</span>
+          </div>
+          <button class="top-nav-settings" id="top-nav-settings" title="Settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
         </div>
       </div>
     </header>
