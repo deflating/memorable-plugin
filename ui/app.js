@@ -105,14 +105,6 @@
     'agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'
   ];
 
-  // ---- Anchor Depth Levels ----
-  const ANCHOR_DEPTHS = [
-    { key: 'full', label: 'Full', desc: 'All content' },
-    { key: 'detailed', label: 'Detailed', desc: 'Level 1 + 2 headings' },
-    { key: 'summary', label: 'Summary', desc: 'Level 1 headings only' },
-    { key: 'none', label: 'None', desc: 'Excluded from context' }
-  ];
-
   // ---- Materiality: Content Density ----
   function getSectionDensity(sectionId) {
     const u = state.user;
@@ -208,9 +200,6 @@
     activeView: 'form',
     markdownSubMode: 'plain',
     preset: 'custom',
-    // Context files
-    files: [],          // [{id, name, content, anchorDepth, projectTag}]
-    activeFileId: null,  // which file is selected in Files tab
     tokenBudgetExpanded: false,
     // Which sections are enabled (toggle on/off)
     enabledSections: {
@@ -539,53 +528,6 @@
       clearTimeout(timer);
       timer = setTimeout(() => fn.apply(this, args), ms);
     };
-  }
-
-  // ---- Token Estimation ----
-  function estimateTokens(text) {
-    if (!text) return 0;
-    return Math.ceil(text.length / 4);
-  }
-
-  function getFileTokens(file) {
-    if (!file || !file.content) return 0;
-    if (file.anchorDepth === 'none') return 0;
-    if (file.anchorDepth === 'summary') {
-      // Only level 1 headings
-      const lines = file.content.split('\n');
-      const kept = lines.filter(l => /^#(?!#)\s+/.test(l));
-      return estimateTokens(kept.join('\n'));
-    }
-    if (file.anchorDepth === 'detailed') {
-      // Level 1 + 2 headings and their immediate content
-      const lines = file.content.split('\n');
-      const kept = [];
-      let include = false;
-      let depth = 0;
-      for (const line of lines) {
-        if (/^#(?!#)\s+/.test(line)) { include = true; depth = 1; kept.push(line); }
-        else if (/^##(?!#)\s+/.test(line)) { include = true; depth = 2; kept.push(line); }
-        else if (/^###/.test(line)) { include = false; }
-        else if (include) { kept.push(line); }
-      }
-      return estimateTokens(kept.join('\n'));
-    }
-    // full
-    return estimateTokens(file.content);
-  }
-
-  function getTotalFileTokens() {
-    return state.files.reduce((sum, f) => sum + getFileTokens(f), 0);
-  }
-
-  function generateFileId() {
-    return 'f_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-  }
-
-  function formatBytes(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   }
 
   function formatTokens(n) {
@@ -3818,258 +3760,6 @@
     }
   }
 
-  // ---- Files Page ----
-  function renderFilesPage(container) {
-    container.innerHTML = `
-      <div class="files-page">
-        <div class="page-header">
-          <div style="display:flex;align-items:center;gap:12px;">
-            <h1>Files</h1>
-            <span style="font-size:0.88rem;color:var(--text-muted);">${state.files.length} file${state.files.length !== 1 ? 's' : ''}</span>
-          </div>
-          <div class="action-buttons">
-            <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
-          </div>
-        </div>
-        <div class="files-content" id="files-content"></div>
-      </div>
-    `;
-    renderFilesTab(document.getElementById('files-content'));
-  }
-
-  // ---- Files Tab ----
-  function renderFilesTab(container) {
-    const files = state.files;
-    const activeFile = files.find(f => f.id === state.activeFileId);
-
-    let sidebarItems = '';
-    if (files.length > 0) {
-      sidebarItems = files.map(f => {
-        const tokens = getFileTokens(f);
-        const depthLabel = ANCHOR_DEPTHS.find(d => d.key === (f.anchorDepth || 'full'))?.label || 'Full';
-        return `
-          <div class="file-list-item ${f.id === state.activeFileId ? 'active' : ''}" data-file-id="${f.id}">
-            <span class="file-list-item-icon">&#128196;</span>
-            <div class="file-list-item-info">
-              <div class="file-list-item-name">${esc(f.name)}</div>
-              <div class="file-list-item-meta">${formatTokens(tokens)} tokens &middot; ${depthLabel}</div>
-            </div>
-            ${f.projectTag ? `<span class="file-list-item-tag">${esc(f.projectTag)}</span>` : ''}
-          </div>
-        `;
-      }).join('');
-    } else {
-      sidebarItems = `<div style="padding:20px 16px;text-align:center;color:var(--text-muted);font-size:0.82rem;">No files yet</div>`;
-    }
-
-    let mainContent = '';
-    if (activeFile) {
-      const tokens = getFileTokens(activeFile);
-      const sizeBytes = new Blob([activeFile.content || '']).size;
-      const projects = state.user.projects.filter(p => p.name);
-      const projectOptions = projects.map(p => `<option value="${esc(p.name)}" ${activeFile.projectTag === p.name ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
-
-      mainContent = `
-        <div class="file-detail-card">
-          <div class="file-detail-header">
-            <div class="file-detail-title">
-              <span>&#128196;</span>
-              <span>${esc(activeFile.name)}</span>
-            </div>
-            <div class="file-detail-actions">
-              <button class="btn btn-small" onclick="window.seedApp.copyFileContent('${activeFile.id}')">Copy</button>
-              <button class="btn btn-small btn-danger-ghost" onclick="window.seedApp.removeFile('${activeFile.id}')">Remove</button>
-            </div>
-          </div>
-          <div class="file-detail-meta">
-            <div class="file-meta-item">
-              <span class="file-meta-label">Size</span>
-              <span class="file-meta-value">${formatBytes(sizeBytes)}</span>
-            </div>
-            <div class="file-meta-item">
-              <span class="file-meta-label">Tokens</span>
-              <span class="file-meta-value">${formatTokens(tokens)}</span>
-            </div>
-            <div class="file-meta-item">
-              <span class="file-meta-label" title="How much detail to include when loading this document. Higher depth uses more tokens.">Anchor Depth</span>
-              <select data-file-depth="${activeFile.id}" class="file-meta-value" title="How much detail to include when loading this document. Higher depth uses more tokens.">
-                ${ANCHOR_DEPTHS.map(d => `<option value="${d.key}" ${(activeFile.anchorDepth || 'full') === d.key ? 'selected' : ''}>${d.label} &mdash; ${d.desc}</option>`).join('')}
-              </select>
-            </div>
-            <div class="file-meta-item">
-              <span class="file-meta-label">Project</span>
-              <select data-file-project="${activeFile.id}" class="file-meta-value">
-                <option value="">None</option>
-                ${projectOptions}
-              </select>
-            </div>
-          </div>
-          <div class="file-detail-body">
-            <textarea id="file-content-editor" placeholder="File content...">${esc(activeFile.content || '')}</textarea>
-          </div>
-        </div>
-      `;
-    } else {
-      mainContent = `
-        <div class="file-upload-zone" id="files-upload-zone">
-          <div class="file-upload-zone-icon">&#128196;</div>
-          <h3>Add context files</h3>
-          <p>Upload documents, paste text, or drag files here.<br>
-          These provide additional context for your AI agent.</p>
-          <input type="file" id="files-upload-input" multiple accept=".md,.txt,.markdown,.json,.yaml,.yml,.csv,.xml,.html,.py,.js,.ts,.toml,.cfg,.ini,.log">
-          <div class="file-upload-actions">
-            <button class="btn" id="files-browse-btn">Browse Files</button>
-            <button class="btn" id="files-paste-btn">Paste Text</button>
-          </div>
-        </div>
-      `;
-    }
-
-    container.innerHTML = `
-      <div class="files-layout">
-        <div class="files-sidebar">
-          <div class="files-sidebar-header">
-            <h3>Files</h3>
-            <button class="btn btn-small" id="files-add-btn" title="Add file">&#43; Add</button>
-          </div>
-          <div class="files-sidebar-list">
-            ${sidebarItems}
-          </div>
-        </div>
-        <div class="files-main">
-          ${mainContent}
-        </div>
-      </div>
-    `;
-
-    bindFilesTabEvents(container);
-  }
-
-  function bindFilesTabEvents(container) {
-    // Sidebar file selection
-    container.querySelectorAll('.file-list-item[data-file-id]').forEach(el => {
-      el.addEventListener('click', () => {
-        state.activeFileId = el.dataset.fileId;
-        render();
-      });
-    });
-
-    // File content editing
-    const contentEditor = document.getElementById('file-content-editor');
-    if (contentEditor) {
-      contentEditor.addEventListener('input', debounce(() => {
-        const file = state.files.find(f => f.id === state.activeFileId);
-        if (file) {
-          file.content = contentEditor.value;
-          renderTokenBudget();
-          debouncedSave();
-        }
-      }, 300));
-    }
-
-    // Anchor depth change
-    container.querySelectorAll('[data-file-depth]').forEach(el => {
-      el.addEventListener('change', () => {
-        const file = state.files.find(f => f.id === el.dataset.fileDepth);
-        if (file) {
-          file.anchorDepth = el.value;
-          render();
-        }
-      });
-    });
-
-    // Project tag change
-    container.querySelectorAll('[data-file-project]').forEach(el => {
-      el.addEventListener('change', () => {
-        const file = state.files.find(f => f.id === el.dataset.fileProject);
-        if (file) {
-          file.projectTag = el.value || '';
-          render();
-        }
-      });
-    });
-
-    // Add button
-    const addBtn = document.getElementById('files-add-btn');
-    if (addBtn) {
-      addBtn.addEventListener('click', () => {
-        state.activeFileId = null;
-        render();
-      });
-    }
-
-    // Upload zone
-    const uploadZone = document.getElementById('files-upload-zone');
-    const uploadInput = document.getElementById('files-upload-input');
-    const browseBtn = document.getElementById('files-browse-btn');
-    const pasteBtn = document.getElementById('files-paste-btn');
-
-    if (uploadZone) {
-      uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
-      uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
-      uploadZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadZone.classList.remove('dragover');
-        handleFileUploads(e.dataTransfer.files);
-      });
-    }
-
-    if (uploadInput) {
-      uploadInput.addEventListener('change', () => {
-        handleFileUploads(uploadInput.files);
-      });
-    }
-
-    if (browseBtn) {
-      browseBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (uploadInput) uploadInput.click();
-      });
-    }
-
-    if (pasteBtn) {
-      pasteBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        addPastedFile();
-      });
-    }
-  }
-
-  function handleFileUploads(fileList) {
-    Array.from(fileList).forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const newFile = {
-          id: generateFileId(),
-          name: file.name,
-          content: e.target.result,
-          anchorDepth: 'full',
-          projectTag: ''
-        };
-        state.files.push(newFile);
-        state.activeFileId = newFile.id;
-        render();
-        showToast(`Added ${file.name}`, 'success');
-      };
-      reader.readAsText(file);
-    });
-  }
-
-  function addPastedFile() {
-    const name = prompt('File name:', 'untitled.md');
-    if (!name) return;
-    const newFile = {
-      id: generateFileId(),
-      name: name,
-      content: '',
-      anchorDepth: 'full',
-      projectTag: ''
-    };
-    state.files.push(newFile);
-    state.activeFileId = newFile.id;
-    render();
-  }
-
   // ---- Preview ----
   function renderPreview() {
     const container = document.getElementById('preview-content');
@@ -4531,21 +4221,6 @@
   }
 
   // ---- Partial Renderers ----
-  function renderSwitchRow(bind, label, desc, checked) {
-    return `
-      <div class="switch-row">
-        <div>
-          <div class="switch-label">${label}</div>
-          ${desc ? `<div class="switch-label-desc">${desc}</div>` : ''}
-        </div>
-        <label class="switch">
-          <input type="checkbox" data-bind="${bind}" ${checked ? 'checked' : ''}>
-          <span class="switch-track"></span>
-        </label>
-      </div>
-    `;
-  }
-
   function renderSwitchRowWithRemove(bind, label, desc, checked, removeKey, removeType) {
     return `
       <div class="switch-row">
@@ -5922,15 +5597,6 @@
     // Ensure preset exists
     if (!state.preset) state.preset = 'custom';
 
-    // Ensure files array exists
-    if (!Array.isArray(state.files)) state.files = [];
-    // Ensure each file has anchorDepth
-    state.files.forEach(f => {
-      if (!f.anchorDepth) f.anchorDepth = 'full';
-      if (!f.projectTag) f.projectTag = '';
-      if (!f.id) f.id = generateFileId();
-    });
-
     // Ensure new state properties
     if (!state.activePage) state.activePage = 'dashboard';
     if (!Array.isArray(state.notesCache)) state.notesCache = [];
@@ -6136,27 +5802,6 @@
       showToast(`${file}.md downloaded`, 'success');
     },
 
-    removeFile(fileId) {
-      if (confirm('Remove this file?')) {
-        state.files = state.files.filter(f => f.id !== fileId);
-        if (state.activeFileId === fileId) {
-          state.activeFileId = state.files.length > 0 ? state.files[0].id : null;
-        }
-        render();
-        showToast('File removed', '');
-      }
-    },
-
-    copyFileContent(fileId) {
-      const file = state.files.find(f => f.id === fileId);
-      if (!file) return;
-      navigator.clipboard.writeText(file.content || '').then(() => {
-        showToast(`${file.name} copied to clipboard`, 'success');
-      }).catch(() => {
-        showToast('Failed to copy', '');
-      });
-    },
-
     navigateTo(page) {
       state.activePage = page;
       syncNavHighlight();
@@ -6168,12 +5813,6 @@
       render();
     },
 
-    resetAll() {
-      if (confirm('Reset all data? This cannot be undone.')) {
-        localStorage.removeItem('seedConfigurator');
-        location.reload();
-      }
-    }
   };
 
   // Keep backward compat

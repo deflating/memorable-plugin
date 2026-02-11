@@ -391,9 +391,7 @@ p { color: var(--text-secondary); }
 }
 
 .token-budget-segment.user-seg { background: var(--terracotta); }
-.token-budget-segment.agent-seg { background: var(--sage); }
 .token-budget-segment.files-seg { background: var(--ochre); }
-.token-budget-segment.notes-seg { background: var(--clay); }
 
 .token-budget-legend {
   display: flex;
@@ -418,9 +416,7 @@ p { color: var(--text-secondary); }
 }
 
 .token-legend-dot.user-dot { background: var(--terracotta); }
-.token-legend-dot.agent-dot { background: var(--sage); }
 .token-legend-dot.files-dot { background: var(--ochre); }
-.token-legend-dot.notes-dot { background: var(--clay); }
 
 .token-budget-detail {
   margin-top: 12px;
@@ -496,16 +492,6 @@ p { color: var(--text-secondary); }
   margin-top: 4px;
 }
 
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
-}
-
-.dashboard-grid .full-width {
-  grid-column: 1 / -1;
-}
-
 /* Dashboard stat cards — ambient treatment (no card wrapper) */
 .stat-card {
   background: transparent;
@@ -521,66 +507,10 @@ p { color: var(--text-secondary); }
   border-top-color: var(--terracotta-light);
 }
 
-.stat-card-label {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 6px;
-}
-
-.stat-card-value {
-  font-size: 1.6rem;
-  font-weight: 700;
-  font-family: var(--font-heading);
-  color: var(--text-primary);
-}
-
 .stat-card-sub {
   font-size: 0.78rem;
   color: var(--text-muted);
   margin-top: 4px;
-}
-
-/* Dashboard session summary — primary card treatment */
-.session-summary-card {
-  background: var(--warm-white);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  overflow: hidden;
-}
-
-.session-summary-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-light);
-  background: linear-gradient(135deg, var(--terracotta-muted), transparent);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.session-summary-header h3 {
-  font-size: 0.95rem;
-  font-weight: 600;
-  font-family: var(--font-heading);
-}
-
-.session-summary-date {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-}
-
-.session-summary-body {
-  padding: 20px;
-  font-size: 0.88rem;
-  line-height: 1.7;
-  color: var(--text-secondary);
-}
-
-.session-summary-body p {
-  margin-bottom: 0.5em;
 }
 
 /* Quick actions */
@@ -683,68 +613,6 @@ p { color: var(--text-secondary); }
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--text-muted);
-}
-
-/* Recent notes on dashboard */
-.recent-notes-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.recent-note-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--cream);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.recent-note-item:hover {
-  border-color: var(--sand-dark);
-  background: var(--sand-light);
-}
-
-.recent-note-salience {
-  width: 4px;
-  min-height: 36px;
-  border-radius: 2px;
-  flex-shrink: 0;
-  align-self: stretch;
-}
-
-.recent-note-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.recent-note-title {
-  font-size: 0.86rem;
-  font-weight: 500;
-  color: var(--text-primary);
-  margin-bottom: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.recent-note-meta {
-  font-size: 0.76rem;
-  color: var(--text-muted);
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.recent-note-tags {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  margin-top: 4px;
 }
 
 .note-tag {
@@ -1400,14 +1268,6 @@ p { color: var(--text-secondary); }
   min-width: 0;
 }
 
-.note-card-title {
-  font-size: 0.92rem;
-  font-weight: 600;
-  font-family: var(--font-heading);
-  color: var(--text-primary);
-  margin-bottom: 4px;
-}
-
 .note-card-meta {
   display: flex;
   gap: 12px;
@@ -1415,12 +1275,6 @@ p { color: var(--text-secondary); }
   font-size: 0.78rem;
   color: var(--text-muted);
   flex-wrap: wrap;
-}
-
-.note-card-meta-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
 }
 
 .note-card-tags {
@@ -2745,10 +2599,6 @@ p { color: var(--text-secondary); }
   color: var(--text-primary);
 }
 
-.card-body {
-  padding: 20px;
-}
-
 /* ============================================
    Buttons
    ============================================ */
@@ -2788,18 +2638,6 @@ p { color: var(--text-secondary); }
 .btn-primary:hover {
   background: var(--terracotta-dark);
   border-color: var(--terracotta-dark);
-  color: white;
-}
-
-.btn-success {
-  background: var(--sage);
-  color: white;
-  border-color: var(--sage);
-}
-
-.btn-success:hover {
-  background: var(--sage-dark);
-  border-color: var(--sage-dark);
   color: white;
 }
 
@@ -2864,13 +2702,7 @@ p { color: var(--text-secondary); }
   gap: 12px;
 }
 
-.form-row-3 {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 12px;
-}
-
-label, .form-label {
+label {
   font-size: 0.82rem;
   font-weight: 500;
   color: var(--text-secondary);
@@ -2952,15 +2784,6 @@ select {
   transition: box-shadow 400ms ease-in-out, transform 200ms ease-out,
     border-color 400ms ease-in-out, background 400ms ease-in-out,
     border-left 400ms ease-in-out, padding 150ms ease-out;
-}
-
-.section.section-disabled {
-  opacity: 0.5;
-  box-shadow: none;
-}
-
-.section.section-disabled:hover {
-  box-shadow: none;
 }
 
 .section.section-disabled .section-body {
@@ -3207,38 +3030,6 @@ select {
 }
 
 /* ============================================
-   Contextual Prompts & Ghost Preview (MEM-83)
-   ============================================ */
-.section-prompt {
-  font-size: 0.84rem;
-  font-style: italic;
-  color: var(--text-muted);
-  padding: 0 0 4px;
-  transition: opacity 300ms ease;
-}
-.ghost-preview {
-  opacity: 0.4;
-  font-size: 0.82rem;
-  font-family: var(--font-mono, monospace);
-  color: var(--text-muted);
-  line-height: 1.7;
-  padding: 8px 12px;
-  background: var(--cream);
-  border-radius: var(--radius-sm);
-  border: 1px dashed var(--border-light);
-  transition: opacity 400ms ease-in-out;
-}
-.ghost-preview.ghost-realizing {
-  opacity: 0;
-  animation: ghostPulse 600ms ease-in-out;
-}
-@keyframes ghostPulse {
-  0% { opacity: 0.4; border-color: var(--border-light); }
-  40% { opacity: 0.8; border-color: var(--terracotta); box-shadow: 0 0 8px var(--terracotta-muted); }
-  100% { opacity: 0; border-color: var(--terracotta-light); }
-}
-
-/* ============================================
    Connective Preview (MEM-84)
    ============================================ */
 
@@ -3284,10 +3075,6 @@ select {
   animation: sectionHighlight 1.2s ease-out;
 }
 
-/* Preview content scroll behavior */
-.preview-content {
-  scroll-behavior: smooth;
-}
 
 /* ============================================
    Toggle Groups, Switch Rows, Sliders, Tags
@@ -4398,17 +4185,6 @@ input[type="range"]::-moz-range-thumb {
   flex-wrap: wrap;
 }
 
-.history-controls {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.history-controls .btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 /* ============================================
    Seed deployment status
    ============================================ */
@@ -4868,38 +4644,6 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* ============================================
-   Loading skeleton
-   ============================================ */
-.skeleton {
-  background: linear-gradient(90deg, var(--cream-dark) 25%, var(--cream) 50%, var(--cream-dark) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border-radius: var(--radius-sm);
-}
-
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-.skeleton-line {
-  height: 14px;
-  margin-bottom: 8px;
-}
-
-.skeleton-line.short {
-  width: 60%;
-}
-
-.skeleton-line.medium {
-  width: 80%;
-}
-
-.skeleton-block {
-  height: 80px;
-}
-
-/* ============================================
    Scrollbar
    ============================================ */
 ::-webkit-scrollbar {
@@ -4951,9 +4695,6 @@ input[type="range"]::-moz-range-thumb {
     position: static;
   }
 
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 768px) {
@@ -4997,7 +4738,7 @@ input[type="range"]::-moz-range-thumb {
     padding: 16px 16px 0;
   }
 
-  .form-row, .form-row-3 {
+  .form-row {
     grid-template-columns: 1fr;
   }
 
