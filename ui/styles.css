@@ -276,6 +276,7 @@ p { color: var(--text-secondary); }
 .top-nav-link.active {
   background: var(--nav-active);
   color: var(--nav-text-active);
+  font-weight: 600;
 }
 
 .top-nav-right {
@@ -3131,7 +3132,7 @@ select {
   display: grid;
   gap: 16px;
   overflow: hidden;
-  max-height: 5000px;
+  max-height: 20000px;
   opacity: 1;
   transition: max-height 250ms ease-out, opacity 200ms ease-out, padding 250ms ease-out;
 }
