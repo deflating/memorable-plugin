@@ -25,8 +25,8 @@ from pathlib import Path
 
 DATA_DIR = Path.home() / ".memorable" / "data"
 FILES_DIR = DATA_DIR / "files"
-# LLM config lives in the old config location (where the API key is stored)
-LLM_CONFIG_PATH = Path.home() / ".memorable" / "config.json"
+LLM_CONFIG_PATH = DATA_DIR / "config.json"
+LEGACY_LLM_CONFIG_PATH = Path.home() / ".memorable" / "config.json"
 ERROR_LOG = Path.home() / ".memorable" / "hook-errors.log"
 
 CHARS_PER_TOKEN = 4
@@ -98,10 +98,16 @@ def estimate_tokens(text: str) -> int:
 
 
 def _load_llm_config() -> dict:
-    """Load LLM config from ~/.memorable/config.json."""
+    """Load LLM config from ~/.memorable/data/config.json."""
     try:
         if LLM_CONFIG_PATH.exists():
             return json.loads(LLM_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    # Backward compatibility for older installs
+    try:
+        if LEGACY_LLM_CONFIG_PATH.exists():
+            return json.loads(LEGACY_LLM_CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
         pass
     return {}
@@ -111,8 +117,9 @@ def _load_llm_config() -> dict:
 
 
 def _call_deepseek(prompt: str, api_key: str, model: str = "deepseek-chat",
-                   max_tokens: int = 4096) -> str:
-    url = "https://api.deepseek.com/v1/chat/completions"
+                   max_tokens: int = 4096, endpoint: str | None = None) -> str:
+    base = (endpoint or "https://api.deepseek.com/v1").rstrip("/")
+    url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -163,13 +170,40 @@ def _call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5-20251
     return data["content"][0]["text"]
 
 
+def _resolve_provider(llm_cfg: dict) -> str:
+    explicit = (llm_cfg.get("provider") or "").strip().lower()
+    if explicit in ("deepseek", "gemini", "claude"):
+        return explicit
+
+    endpoint = (llm_cfg.get("endpoint") or "").lower()
+    model = (llm_cfg.get("model") or "").lower()
+
+    if "anthropic" in endpoint or model.startswith("claude"):
+        return "claude"
+    if "generativelanguage.googleapis.com" in endpoint or "gemini" in model:
+        return "gemini"
+    return "deepseek"
+
+
 def call_llm(prompt: str, max_tokens: int = 4096) -> str:
-    """Call the configured LLM provider. Reads config from ~/.memorable/config.json."""
+    """Call the configured LLM provider using current config schema."""
     cfg = _load_llm_config()
-    summarizer = cfg.get("summarizer", {})
-    provider = summarizer.get("provider", "deepseek")
-    model = summarizer.get("model")
-    api_key = summarizer.get("api_key", "")
+
+    # Current schema: llm_provider {endpoint, api_key, model}
+    llm_cfg = cfg.get("llm_provider", {})
+    # Backward compatibility schemas
+    if not isinstance(llm_cfg, dict) or not llm_cfg:
+        llm_cfg = cfg.get("llm", {})
+    if not isinstance(llm_cfg, dict) or not llm_cfg:
+        llm_cfg = cfg.get("summarizer", {})
+
+    if not isinstance(llm_cfg, dict):
+        llm_cfg = {}
+
+    provider = _resolve_provider(llm_cfg)
+    model = llm_cfg.get("model")
+    api_key = llm_cfg.get("api_key", "")
+    endpoint = llm_cfg.get("endpoint")
 
     if not api_key:
         if provider == "deepseek":
@@ -182,12 +216,18 @@ def call_llm(prompt: str, max_tokens: int = 4096) -> str:
 
     if not api_key:
         raise ValueError(
-            f"No API key for '{provider}'. Set summarizer.api_key in "
-            f"~/.memorable/config.json or use an environment variable."
+            f"No API key for '{provider}'. Set llm_provider.api_key in "
+            f"~/.memorable/data/config.json (llm_provider.api_key) or use an environment variable."
         )
 
     if provider == "deepseek":
-        return _call_deepseek(prompt, api_key, model or "deepseek-chat", max_tokens)
+        return _call_deepseek(
+            prompt,
+            api_key,
+            model or "deepseek-chat",
+            max_tokens,
+            endpoint=endpoint,
+        )
     elif provider == "gemini":
         return _call_gemini(prompt, api_key, model or "gemini-2.5-flash", max_tokens)
     elif provider == "claude":
