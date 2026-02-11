@@ -2296,6 +2296,35 @@ input[type="range"]::-moz-range-thumb {
   margin-bottom: 10px;
 }
 
+.repeatable-item-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.drag-handle {
+  color: var(--text-muted);
+  cursor: grab;
+  user-select: none;
+  line-height: 1;
+  font-size: 0.95rem;
+  letter-spacing: -1px;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.reorder-item.dragging {
+  opacity: 0.55;
+}
+
+.reorder-item.drag-over {
+  border-color: var(--terracotta);
+  box-shadow: inset 0 0 0 1px var(--terracotta-light);
+}
+
 .repeatable-item-fields {
   display: grid;
   gap: 10px;

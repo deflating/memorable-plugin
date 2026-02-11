@@ -2788,7 +2788,7 @@
       `)}
 
       ${renderSection('people', 'People', 'People the agent should know about', 'clay', '&#9824;', `
-        <div class="repeatable-list" id="people-list">
+        <div class="repeatable-list" id="people-list" data-reorder-list="people">
           ${u.people.length ? u.people.map((p, i) => renderPersonItem(p, i)).join('') : `
             <div class="empty-state">
               <div class="empty-state-icon">&#128101;</div>
@@ -2801,7 +2801,7 @@
       `)}
 
       ${renderSection('projects', 'Projects', 'Active projects and their context', 'sand', '&#128193;', `
-        <div class="repeatable-list" id="projects-list">
+        <div class="repeatable-list" id="projects-list" data-reorder-list="projects">
           ${u.projects.length ? u.projects.map((p, i) => renderProjectItem(p, i)).join('') : `
             <div class="empty-state">
               <div class="empty-state-icon">&#128194;</div>
@@ -2814,7 +2814,7 @@
       `)}
 
       ${renderSection('user-custom', 'Custom Sections', 'Add your own sections', 'terracotta', '&#43;', `
-        <div class="custom-sections" id="user-custom-sections">
+        <div class="custom-sections" id="user-custom-sections" data-reorder-list="user-custom">
           ${u.customSections.length ? u.customSections.map((s, i) => renderCustomSectionItem(s, i, 'user')).join('') : `
             <div class="empty-state">
               <div class="empty-state-icon">&#9997;</div>
@@ -2831,6 +2831,7 @@
     bindUserSpecificEvents(container);
     bindPresetEvents(container);
     bindSectionToggleEvents(container);
+    bindReorderEvents(container);
   }
 
   // ---- Agent Form ----
@@ -2908,7 +2909,7 @@
       `)}
 
       ${renderSection('agent-custom', 'Custom Sections', 'Add your own sections', 'sage', '&#43;', `
-        <div class="custom-sections" id="agent-custom-sections">
+        <div class="custom-sections" id="agent-custom-sections" data-reorder-list="agent-custom">
           ${a.customSections.length ? a.customSections.map((s, i) => renderCustomSectionItem(s, i, 'agent')).join('') : `
             <div class="empty-state">
               <div class="empty-state-icon">&#9997;</div>
@@ -2925,6 +2926,7 @@
     bindAgentSpecificEvents(container);
     bindPresetEvents(container);
     bindSectionToggleEvents(container);
+    bindReorderEvents(container);
   }
 
   // ---- Partial Renderers ----
@@ -2983,9 +2985,12 @@
 
   function renderPersonItem(p, i) {
     return `
-      <div class="repeatable-item" data-person-index="${i}">
+      <div class="repeatable-item reorder-item" draggable="true" data-reorder-group="people" data-reorder-index="${i}" data-person-index="${i}">
         <div class="repeatable-item-header">
-          <strong style="font-size:0.88rem;">${p.name || 'New person'}</strong>
+          <div class="repeatable-item-title">
+            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">&#8942;&#8942;</span>
+            <strong style="font-size:0.88rem;">${p.name || 'New person'}</strong>
+          </div>
           <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-person="${i}" title="Remove">&#10005;</button>
         </div>
         <div class="repeatable-item-fields">
@@ -3020,9 +3025,12 @@
     `).join('');
 
     return `
-      <div class="repeatable-item" data-project-index="${i}">
+      <div class="repeatable-item reorder-item" draggable="true" data-reorder-group="projects" data-reorder-index="${i}" data-project-index="${i}">
         <div class="repeatable-item-header">
-          <strong style="font-size:0.88rem;">${p.name || 'New project'}</strong>
+          <div class="repeatable-item-title">
+            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">&#8942;&#8942;</span>
+            <strong style="font-size:0.88rem;">${p.name || 'New project'}</strong>
+          </div>
           <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-project="${i}" title="Remove">&#10005;</button>
         </div>
         <div class="repeatable-item-fields">
@@ -3064,10 +3072,14 @@
   }
 
   function renderCustomSectionItem(s, i, type) {
+    const group = type === 'user' ? 'user-custom' : 'agent-custom';
     return `
-      <div class="custom-section-item" data-custom-index="${i}" data-custom-type="${type}">
+      <div class="custom-section-item reorder-item" draggable="true" data-reorder-group="${group}" data-reorder-index="${i}" data-custom-index="${i}" data-custom-type="${type}">
         <div class="repeatable-item-header">
-          <strong style="font-size:0.88rem;">${s.title || 'New section'}</strong>
+          <div class="repeatable-item-title">
+            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">&#8942;&#8942;</span>
+            <strong style="font-size:0.88rem;">${s.title || 'New section'}</strong>
+          </div>
           <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-custom="${i}" data-custom-type="${type}" title="Remove">&#10005;</button>
         </div>
         <div class="form-group">
@@ -3551,6 +3563,107 @@
         render();
       });
     }
+  }
+
+  function getReorderTargetArray(group) {
+    if (group === 'people') return state.user.people;
+    if (group === 'projects') return state.user.projects;
+    if (group === 'user-custom') return state.user.customSections;
+    if (group === 'agent-custom') return state.agent.customSections;
+    return null;
+  }
+
+  function moveArrayItem(arr, from, to) {
+    if (!arr || from === to || from < 0 || to < 0) return;
+    if (from >= arr.length || to > arr.length) return;
+    const [item] = arr.splice(from, 1);
+    if (item === undefined) return;
+    arr.splice(to, 0, item);
+  }
+
+  function bindReorderEvents(container) {
+    const dragState = { group: null, fromIndex: -1 };
+
+    function clearDragClasses() {
+      container.querySelectorAll('.reorder-item.dragging, .reorder-item.drag-over').forEach(el => {
+        el.classList.remove('dragging', 'drag-over');
+      });
+    }
+
+    container.querySelectorAll('.reorder-item[data-reorder-group]').forEach(item => {
+      item.addEventListener('dragstart', (e) => {
+        if (!e.target.closest('.drag-handle')) {
+          e.preventDefault();
+          return;
+        }
+
+        dragState.group = item.dataset.reorderGroup;
+        dragState.fromIndex = parseInt(item.dataset.reorderIndex, 10);
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', `${dragState.group}:${dragState.fromIndex}`);
+      });
+
+      item.addEventListener('dragover', (e) => {
+        const targetGroup = item.dataset.reorderGroup;
+        if (!dragState.group || dragState.group !== targetGroup) return;
+        e.preventDefault();
+        item.classList.add('drag-over');
+        e.dataTransfer.dropEffect = 'move';
+      });
+
+      item.addEventListener('dragleave', () => {
+        item.classList.remove('drag-over');
+      });
+
+      item.addEventListener('drop', (e) => {
+        const targetGroup = item.dataset.reorderGroup;
+        if (!dragState.group || dragState.group !== targetGroup) return;
+        e.preventDefault();
+        item.classList.remove('drag-over');
+
+        const toIndexRaw = parseInt(item.dataset.reorderIndex, 10);
+        const rect = item.getBoundingClientRect();
+        const dropAfter = e.clientY > rect.top + (rect.height / 2);
+        let toIndex = dropAfter ? toIndexRaw + 1 : toIndexRaw;
+        if (dragState.fromIndex < toIndex) toIndex -= 1;
+
+        const arr = getReorderTargetArray(targetGroup);
+        if (!arr) return;
+        moveArrayItem(arr, dragState.fromIndex, toIndex);
+        dragState.group = null;
+        dragState.fromIndex = -1;
+        render();
+      });
+
+      item.addEventListener('dragend', () => {
+        dragState.group = null;
+        dragState.fromIndex = -1;
+        clearDragClasses();
+      });
+    });
+
+    container.querySelectorAll('[data-reorder-list]').forEach(list => {
+      list.addEventListener('dragover', (e) => {
+        const listGroup = list.dataset.reorderList;
+        if (!dragState.group || dragState.group !== listGroup) return;
+        if (e.target.closest('.reorder-item')) return;
+        e.preventDefault();
+      });
+
+      list.addEventListener('drop', (e) => {
+        const listGroup = list.dataset.reorderList;
+        if (!dragState.group || dragState.group !== listGroup) return;
+        if (e.target.closest('.reorder-item')) return;
+        e.preventDefault();
+        const arr = getReorderTargetArray(listGroup);
+        if (!arr) return;
+        moveArrayItem(arr, dragState.fromIndex, arr.length - 1);
+        dragState.group = null;
+        dragState.fromIndex = -1;
+        render();
+      });
+    });
   }
 
   // ---- Inline Add (for toggle groups) ----
