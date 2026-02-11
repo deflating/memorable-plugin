@@ -50,6 +50,7 @@ MAINTENANCE_INTERVAL_HOURS = 24
 MAX_WEEKLY_TAGS = 6
 MAX_WEEKLY_BULLETS_PER_TAG = 3
 MAX_MONTHLY_WEEKS = 8
+PINNED_SALIENCE_BOOST = 0.8
 
 
 def load_config() -> dict:
@@ -178,6 +179,9 @@ def collect_files(config: dict) -> list[str]:
 
 def _effective_salience(entry: dict, usage_notes: dict | None = None) -> float:
     """Calculate effective salience with decay + density + actionability."""
+    if bool(entry.get("archived", False)):
+        return MIN_SALIENCE
+
     try:
         salience = float(entry.get("salience", 1.0))
     except (TypeError, ValueError):
@@ -201,6 +205,8 @@ def _effective_salience(entry: dict, usage_notes: dict | None = None) -> float:
 
     adjusted_days = days * (1.0 - emotional_weight * 0.5)
     decayed = salience * (DECAY_FACTOR ** adjusted_days)
+    if bool(entry.get("pinned", False)):
+        decayed += PINNED_SALIENCE_BOOST
     base = max(MIN_SALIENCE, decayed)
     density_mult = _information_density_multiplier(entry)
     actionability_mult = _actionability_multiplier(entry)
@@ -878,7 +884,12 @@ def _load_all_notes(notes_dir: Path) -> list[dict]:
                     if not line:
                         continue
                     try:
-                        entries.append(json.loads(line))
+                        obj = json.loads(line)
+                        if not isinstance(obj, dict):
+                            continue
+                        if bool(obj.get("archived", False)):
+                            continue
+                        entries.append(obj)
                     except json.JSONDecodeError:
                         continue
         except OSError:

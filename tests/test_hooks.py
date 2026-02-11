@@ -148,5 +148,37 @@ class UserPromptTrackingTests(unittest.TestCase):
             self.assertNotIn("note-2", usage["notes"])
 
 
+class SessionStartSelectionTests(unittest.TestCase):
+    def test_load_all_notes_skips_archived_rows(self):
+        with tempfile.TemporaryDirectory() as td:
+            notes_dir = Path(td)
+            notes_file = notes_dir / "session_notes.jsonl"
+            notes_file.write_text(
+                json.dumps({"ts": "2026-01-01T00:00:00Z", "note": "active"}) + "\n"
+                + json.dumps({"ts": "2026-01-02T00:00:00Z", "note": "archived", "archived": True}) + "\n",
+                encoding="utf-8",
+            )
+
+            entries = session_start._load_all_notes(notes_dir)
+            self.assertEqual(1, len(entries))
+            self.assertEqual("active", entries[0]["note"])
+
+    def test_effective_salience_prioritizes_pinned_and_deprioritizes_archived(self):
+        ts = datetime.now(timezone.utc).isoformat()
+        base = {
+            "ts": ts,
+            "note": "todo: ship release",
+            "salience": 1.0,
+            "topic_tags": ["release"],
+        }
+
+        normal = session_start._effective_salience(dict(base), {})
+        pinned = session_start._effective_salience({**base, "pinned": True}, {})
+        archived = session_start._effective_salience({**base, "archived": True}, {})
+
+        self.assertGreater(pinned, normal)
+        self.assertEqual(session_start.MIN_SALIENCE, archived)
+
+
 if __name__ == "__main__":
     unittest.main()

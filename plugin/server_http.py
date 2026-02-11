@@ -22,6 +22,7 @@ from server_api import (
     handle_post_deploy,
     handle_post_import,
     handle_post_file_upload,
+    handle_post_note_review,
     handle_post_process,
     handle_post_reset,
     handle_post_seeds,
@@ -170,7 +171,7 @@ class MemorableHandler(SimpleHTTPRequestHandler):
             return self.send_json(status, data)
 
         if path == "/api/notes/tags":
-            status, data = handle_get_notes_tags()
+            status, data = handle_get_notes_tags(query_params)
             return self.send_json(status, data)
 
         if path == "/api/machines":
@@ -255,6 +256,7 @@ class MemorableHandler(SimpleHTTPRequestHandler):
             "/api/deploy",
             "/api/process",
             "/api/reset",
+            "/api/notes/review",
         }
         if path not in body_routes:
             return self.send_json(
@@ -285,6 +287,10 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/reset":
             status, data = handle_post_reset(body)
+            return self.send_json(status, data)
+
+        if path == "/api/notes/review":
+            status, data = handle_post_note_review(body)
             return self.send_json(status, data)
 
         self.send_json(

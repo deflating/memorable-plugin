@@ -8,6 +8,7 @@ Python 3 stdlib only. No external dependencies.
 """
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -57,6 +58,9 @@ MAX_IMPORT_SIZE = 100 * 1024 * 1024
 MAX_IMPORT_FILES = 5000
 MAX_IMPORT_UNCOMPRESSED = 300 * 1024 * 1024
 NOTE_USAGE_PATH = DATA_DIR / "note_usage.json"
+NOTE_SALIENCE_STEP = 0.25
+NOTE_SALIENCE_MIN = 0.0
+NOTE_SALIENCE_MAX = 3.0
 
 
 # -- Notes -----------------------------------------------------------------
@@ -67,7 +71,91 @@ def _is_internal_context_artifact(filename: str) -> bool:
     return filename.endswith(".anchored") or filename.startswith(".cache-")
 
 
-def _normalize_note(obj: dict) -> dict:
+def _note_id(source_path: Path, line_no: int, obj: dict) -> str:
+    text = obj.get("note", "")
+    if not isinstance(text, str):
+        text = str(text)
+    fingerprint = (
+        f"{source_path.name}|{line_no}|{obj.get('ts', '')}|"
+        f"{obj.get('session', '')}|{text}"
+    )
+    digest = hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()[:16]
+    return f"note_{digest}"
+
+
+def _note_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in {"true", "1", "yes", "on"}:
+            return True
+        if v in {"false", "0", "no", "off"}:
+            return False
+    return default
+
+
+def _note_salience(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _clamp_note_salience(value: float) -> float:
+    return max(NOTE_SALIENCE_MIN, min(NOTE_SALIENCE_MAX, float(value)))
+
+
+def _sanitize_tags(raw_tags) -> list[str] | None:
+    if not isinstance(raw_tags, list):
+        return None
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for tag in raw_tags:
+        text = str(tag).strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(text[:64])
+        if len(cleaned) >= 24:
+            break
+    return cleaned
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _iter_note_rows():
+    if not NOTES_DIR.is_dir():
+        return
+    for jsonl_path in sorted(NOTES_DIR.glob("*.jsonl")):
+        try:
+            with jsonl_path.open("r", encoding="utf-8") as fh:
+                for line_no, raw_line in enumerate(fh, start=1):
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(obj, dict):
+                        continue
+                    yield {
+                        "source_path": jsonl_path,
+                        "line_no": line_no,
+                        "obj": obj,
+                        "id": _note_id(jsonl_path, line_no, obj),
+                    }
+        except Exception:
+            continue
+
+
+def _normalize_note(obj: dict, note_id: str = "") -> dict:
     """Map raw JSONL note fields to the shape the UI expects.
 
     JSONL has: ts, session, note, topic_tags, salience, ...
@@ -107,14 +195,17 @@ def _normalize_note(obj: dict) -> dict:
         conflicts_with = []
 
     return {
+        "id": note_id,
         "date": obj.get("ts", ""),
         "summary": summary,
         "content": note_text,
         "tags": tags,
-        "salience": obj.get("salience", 0),
+        "salience": _note_salience(obj.get("salience", 0), 0.0),
         "session": obj.get("session", ""),
         "machine": obj.get("machine", ""),
         "message_count": obj.get("message_count", 0),
+        "pinned": _note_bool(obj.get("pinned", False), False),
+        "archived": _note_bool(obj.get("archived", False), False),
         "should_not_try": should_not_try,
         "conflicts_with": conflicts_with,
     }
@@ -240,41 +331,33 @@ def _annotate_conflicts(notes: list[dict]) -> list[dict]:
     return notes
 
 
-def load_all_notes() -> list[dict]:
+def load_all_notes(include_archived: bool = True) -> list[dict]:
     """Read all .jsonl files from the notes directory.
 
     Each line in each file is a JSON object.
     Returns a flat list of normalized note objects.
     """
     notes = []
-    if not NOTES_DIR.is_dir():
-        return notes
-
-    for jsonl_path in sorted(NOTES_DIR.glob("*.jsonl")):
+    for row in _iter_note_rows() or []:
         try:
-            with jsonl_path.open("r", encoding="utf-8") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                        if not isinstance(obj, dict):
-                            continue
-                        try:
-                            notes.append(_normalize_note(obj))
-                        except Exception:
-                            continue
-                    except json.JSONDecodeError:
-                        continue
+            normalized = _normalize_note(row["obj"], row["id"])
         except Exception:
             continue
+        if not include_archived and normalized.get("archived"):
+            continue
+        notes.append(normalized)
     return _annotate_conflicts(notes)
 
 
 def handle_get_notes(query_params: dict):
     """GET /api/notes — list session notes with optional search/sort/limit/tag/machine/session."""
-    notes = load_all_notes()
+    notes = load_all_notes(include_archived=True)
+
+    archived_mode = str(query_params.get("archived", ["exclude"])[0] or "exclude").strip().lower()
+    if archived_mode == "only":
+        notes = [n for n in notes if n.get("archived")]
+    elif archived_mode != "include":
+        notes = [n for n in notes if not n.get("archived")]
 
     # Tag filter
     tag = query_params.get("tag", [None])[0]
@@ -357,9 +440,16 @@ def handle_get_notes(query_params: dict):
     return 200, {"notes": notes, "total": total}
 
 
-def handle_get_notes_tags():
+def handle_get_notes_tags(query_params: dict | None = None):
     """GET /api/notes/tags — return all tags with counts."""
-    notes = load_all_notes()
+    query_params = query_params or {}
+    notes = load_all_notes(include_archived=True)
+    archived_mode = str(query_params.get("archived", ["exclude"])[0] or "exclude").strip().lower()
+    if archived_mode == "only":
+        notes = [n for n in notes if n.get("archived")]
+    elif archived_mode != "include":
+        notes = [n for n in notes if not n.get("archived")]
+
     tag_counts: dict[str, int] = {}
     for n in notes:
         for t in n.get("tags", []):
@@ -374,7 +464,7 @@ def handle_get_notes_tags():
 
 def handle_get_machines():
     """GET /api/machines — return distinct machine names from notes."""
-    notes = load_all_notes()
+    notes = load_all_notes(include_archived=False)
     seen: set[str] = set()
     machines: list[str] = []
     for n in notes:
@@ -383,6 +473,152 @@ def handle_get_machines():
             seen.add(m)
             machines.append(m)
     return 200, {"machines": machines}
+
+
+def _apply_note_review_action(obj: dict, action: str, body: dict) -> tuple[bool, str | None]:
+    changed = False
+    now_iso = _utc_now_iso()
+
+    if action == "pin":
+        if not _note_bool(obj.get("pinned", False), False):
+            obj["pinned"] = True
+            changed = True
+    elif action == "unpin":
+        if _note_bool(obj.get("pinned", False), False):
+            obj["pinned"] = False
+            changed = True
+    elif action == "archive":
+        if not _note_bool(obj.get("archived", False), False):
+            obj["archived"] = True
+            changed = True
+    elif action == "restore":
+        if _note_bool(obj.get("archived", False), False):
+            obj["archived"] = False
+            changed = True
+    elif action == "promote":
+        salience = _note_salience(obj.get("salience", 0.0), 0.0)
+        next_salience = _clamp_note_salience(salience + NOTE_SALIENCE_STEP)
+        if next_salience != salience:
+            obj["salience"] = round(next_salience, 3)
+            changed = True
+    elif action == "demote":
+        salience = _note_salience(obj.get("salience", 0.0), 0.0)
+        next_salience = _clamp_note_salience(salience - NOTE_SALIENCE_STEP)
+        if next_salience != salience:
+            obj["salience"] = round(next_salience, 3)
+            changed = True
+    elif action == "retag":
+        tags = _sanitize_tags(body.get("tags", []))
+        if tags is None:
+            return False, "INVALID_TAGS"
+        current = _sanitize_tags(obj.get("topic_tags", []))
+        if current is None:
+            current = []
+        if tags != current:
+            obj["topic_tags"] = tags
+            changed = True
+    else:
+        return False, "INVALID_NOTE_ACTION"
+
+    if changed:
+        obj["review_updated_at"] = now_iso
+    return changed, None
+
+
+def handle_post_note_review(body: dict):
+    """POST /api/notes/review — mutate note review metadata."""
+    note_id = str(body.get("note_id", "")).strip()
+    if not note_id:
+        return 400, error_response(
+            "INVALID_NOTE_ID",
+            "Missing note id",
+            "Send a non-empty 'note_id' field.",
+        )
+
+    action = str(body.get("action", "")).strip().lower()
+    if not action:
+        return 400, error_response(
+            "INVALID_NOTE_ACTION",
+            "Missing note action",
+            "Send an 'action' field like pin, demote, archive, or retag.",
+        )
+
+    for jsonl_path in sorted(NOTES_DIR.glob("*.jsonl")):
+        try:
+            raw_lines = jsonl_path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+
+        if not raw_lines:
+            continue
+
+        updated_lines: list[str] = []
+        matched = False
+        updated_note = None
+
+        for line_no, raw_line in enumerate(raw_lines, start=1):
+            line = raw_line.strip()
+            if not line:
+                updated_lines.append(raw_line)
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                updated_lines.append(raw_line)
+                continue
+            if not isinstance(obj, dict):
+                updated_lines.append(raw_line)
+                continue
+
+            row_id = _note_id(jsonl_path, line_no, obj)
+            if row_id != note_id:
+                updated_lines.append(json.dumps(obj, ensure_ascii=False))
+                continue
+
+            matched = True
+            changed, err = _apply_note_review_action(obj, action, body)
+            if err == "INVALID_TAGS":
+                return 400, error_response(
+                    "INVALID_TAGS",
+                    "Invalid tags payload",
+                    "Send 'tags' as an array of strings for retag actions.",
+                )
+            if err:
+                return 400, error_response(
+                    "INVALID_NOTE_ACTION",
+                    "Invalid note action",
+                    "Use one of: pin, unpin, archive, restore, promote, demote, retag.",
+                )
+            updated_lines.append(json.dumps(obj, ensure_ascii=False))
+            updated_note = _normalize_note(obj, row_id)
+            if changed:
+                append_audit(
+                    "notes.review",
+                    {"id": row_id, "action": action, "source": jsonl_path.name},
+                )
+
+        if not matched:
+            continue
+
+        payload = "\n".join(updated_lines)
+        if payload:
+            payload += "\n"
+        try:
+            atomic_write(jsonl_path, payload)
+        except OSError:
+            return 500, error_response(
+                "WRITE_FAILED",
+                "Failed to update note",
+                "Check file permissions and retry.",
+            )
+
+        return 200, {"ok": True, "note": updated_note}
+
+    return 404, error_response(
+        "NOTE_NOT_FOUND",
+        "Note not found",
+        "Refresh notes and retry the action.",
+    )
 
 
 # -- Sessions --------------------------------------------------------------

@@ -227,6 +227,112 @@ class ServerApiTests(unittest.TestCase):
             self.assertEqual(2, data["total"])
             self.assertEqual(2, len(data["notes"]))
 
+    def test_handle_get_notes_excludes_archived_by_default(self):
+        with tempfile.TemporaryDirectory() as td:
+            notes_dir = Path(td)
+            notes_file = notes_dir / "notes.jsonl"
+            rows = [
+                {"ts": "2026-01-01T00:00:00Z", "session": "a", "note": "active note", "topic_tags": []},
+                {"ts": "2026-01-02T00:00:00Z", "session": "b", "note": "archived note", "topic_tags": [], "archived": True},
+            ]
+            with notes_file.open("w", encoding="utf-8") as fh:
+                for row in rows:
+                    fh.write(json.dumps(row) + "\n")
+
+            server_api.NOTES_DIR = notes_dir
+
+            status, data = server_api.handle_get_notes({})
+            self.assertEqual(200, status)
+            self.assertEqual(1, data["total"])
+            self.assertEqual("active note", data["notes"][0]["summary"])
+
+            status, data = server_api.handle_get_notes({"archived": ["include"]})
+            self.assertEqual(200, status)
+            self.assertEqual(2, data["total"])
+
+            status, data = server_api.handle_get_notes({"archived": ["only"]})
+            self.assertEqual(200, status)
+            self.assertEqual(1, data["total"])
+            self.assertTrue(data["notes"][0]["archived"])
+
+    def test_handle_post_note_review_updates_persistence_and_filters(self):
+        with tempfile.TemporaryDirectory() as td:
+            notes_dir = Path(td)
+            notes_file = notes_dir / "notes.jsonl"
+            rows = [
+                {
+                    "ts": "2026-01-01T00:00:00Z",
+                    "session": "abcdef123456",
+                    "note": "alpha",
+                    "topic_tags": ["one"],
+                    "salience": 1.0,
+                }
+            ]
+            with notes_file.open("w", encoding="utf-8") as fh:
+                for row in rows:
+                    fh.write(json.dumps(row) + "\n")
+
+            server_api.NOTES_DIR = notes_dir
+            status, data = server_api.handle_get_notes({"archived": ["include"]})
+            self.assertEqual(200, status)
+            note = data["notes"][0]
+            note_id = note["id"]
+
+            status, data = server_api.handle_post_note_review({"note_id": note_id, "action": "pin"})
+            self.assertEqual(200, status)
+            self.assertTrue(data["note"]["pinned"])
+
+            status, _ = server_api.handle_post_note_review({"note_id": note_id, "action": "promote"})
+            self.assertEqual(200, status)
+
+            status, data = server_api.handle_post_note_review(
+                {"note_id": note_id, "action": "retag", "tags": ["work", "release"]}
+            )
+            self.assertEqual(200, status)
+            self.assertEqual(["work", "release"], data["note"]["tags"])
+
+            status, _ = server_api.handle_post_note_review({"note_id": note_id, "action": "archive"})
+            self.assertEqual(200, status)
+
+            status, data = server_api.handle_get_notes({})
+            self.assertEqual(200, status)
+            self.assertEqual(0, data["total"])
+
+            status, data = server_api.handle_get_notes({"archived": ["only"]})
+            self.assertEqual(200, status)
+            self.assertEqual(1, data["total"])
+            self.assertTrue(data["notes"][0]["archived"])
+            self.assertTrue(data["notes"][0]["pinned"])
+            self.assertEqual(["work", "release"], data["notes"][0]["tags"])
+            self.assertAlmostEqual(1.25, data["notes"][0]["salience"])
+
+    def test_handle_post_note_review_rejects_invalid_tags_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            notes_dir = Path(td)
+            notes_file = notes_dir / "notes.jsonl"
+            notes_file.write_text(
+                json.dumps(
+                    {
+                        "ts": "2026-01-01T00:00:00Z",
+                        "session": "abcdef123456",
+                        "note": "alpha",
+                        "topic_tags": ["one"],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            server_api.NOTES_DIR = notes_dir
+            status, data = server_api.handle_get_notes({"archived": ["include"]})
+            self.assertEqual(200, status)
+            note_id = data["notes"][0]["id"]
+
+            status, data = server_api.handle_post_note_review(
+                {"note_id": note_id, "action": "retag", "tags": "not-a-list"}
+            )
+            self.assertEqual(400, status)
+            self.assertEqual("INVALID_TAGS", data["error"]["code"])
+
     def test_handle_get_status_file_count_ignores_internal_artifacts(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

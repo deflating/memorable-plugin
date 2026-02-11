@@ -1587,15 +1587,18 @@
     sort: 'date',
     machine: '',
     session: '',
+    archived: 'exclude',
     fetchError: false,
     expandedIdx: null,
+    actionBusy: false,
     loaded: false,
   };
 
   async function loadNotes() {
+    const archivedParam = encodeURIComponent(notesState.archived || 'exclude');
     // Fetch tags, machines, and memory insights in parallel
     const [tagsData, machinesData, insightsData] = await Promise.all([
-      apiFetch('/api/notes/tags'),
+      apiFetch('/api/notes/tags?archived=' + archivedParam),
       apiFetch('/api/machines'),
       apiFetch('/api/memory/insights'),
     ]);
@@ -1617,6 +1620,7 @@
       limit: String(notesState.pageSize),
       offset: String(append ? notesState.offset : 0),
       sort: notesState.sort,
+      archived: notesState.archived || 'exclude',
     });
     if (notesState.search) params.set('search', notesState.search);
     if (notesState.tag) params.set('tag', notesState.tag);
@@ -1643,6 +1647,47 @@
       notesState.notes = notes;
     }
     notesState.offset = notesState.notes.length;
+  }
+
+  async function mutateNoteReview(note, action, extra = {}) {
+    if (!note || !note.id || !action) {
+      return false;
+    }
+    if (notesState.actionBusy) {
+      return false;
+    }
+    notesState.actionBusy = true;
+    try {
+      const result = await apiFetch('/api/notes/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          note_id: note.id,
+          action,
+          ...extra,
+        }),
+      });
+
+      if (!result || result.ok !== true) {
+        showToast('Could not update note', 'error');
+        return false;
+      }
+
+      const messages = {
+        pin: 'Pinned note',
+        unpin: 'Unpinned note',
+        archive: 'Archived note',
+        restore: 'Restored note',
+        promote: 'Increased salience',
+        demote: 'Decreased salience',
+        retag: 'Updated tags',
+      };
+      showToast(messages[action] || 'Note updated');
+      await loadNotes();
+      return true;
+    } finally {
+      notesState.actionBusy = false;
+    }
   }
 
   function salienceColor(salience) {
@@ -1703,7 +1748,13 @@
         const overflowCount = (note.tags || []).length - 4;
         const shouldNotTry = Array.isArray(note.should_not_try) ? note.should_not_try : [];
         const conflicts = Array.isArray(note.conflicts_with) ? note.conflicts_with : [];
+        const pinAction = note.pinned ? 'unpin' : 'pin';
+        const pinLabel = note.pinned ? 'Unpin' : 'Pin';
+        const archiveAction = note.archived ? 'restore' : 'archive';
+        const archiveLabel = note.archived ? 'Restore' : 'Archive';
         const tagsHtml = visibleTags.map(t => `<span class="note-tag">${esc(t)}</span>`).join('') +
+          (note.pinned ? '<span class="note-review-chip pinned" title="Pinned notes receive extra retrieval weight.">Pinned</span>' : '') +
+          (note.archived ? '<span class="note-review-chip archived" title="Archived notes are excluded by default.">Archived</span>' : '') +
           (overflowCount > 0 ? `<span class="note-tag">+${overflowCount}</span>` : '') +
           (shouldNotTry.length > 0 ? `<span class="note-antiforce-chip" title="Approaches marked as failed or unhelpful.">Avoid ${shouldNotTry.length}</span>` : '') +
           (conflicts.length > 0 ? `<span class="note-conflict-chip" title="This note may conflict with other notes.">Conflicts ${conflicts.length}</span>` : '');
@@ -1743,8 +1794,18 @@
           </div>
         ` : '';
 
+        const actionsHtml = `
+          <div class="note-card-actions">
+            <button type="button" class="note-action-btn ${note.pinned ? 'active' : ''}" data-note-idx="${idx}" data-action="${pinAction}">${pinLabel}</button>
+            <button type="button" class="note-action-btn" data-note-idx="${idx}" data-action="promote">Promote</button>
+            <button type="button" class="note-action-btn" data-note-idx="${idx}" data-action="demote">Demote</button>
+            <button type="button" class="note-action-btn ${note.archived ? 'active' : ''}" data-note-idx="${idx}" data-action="${archiveAction}">${archiveLabel}</button>
+            <button type="button" class="note-action-btn" data-note-idx="${idx}" data-action="retag">Retag</button>
+          </div>
+        `;
+
         return `
-          <div class="note-card${isExpanded ? ' expanded' : ''}" data-note-idx="${idx}">
+          <div class="note-card${isExpanded ? ' expanded' : ''}${note.archived ? ' note-card-archived' : ''}${note.pinned ? ' note-card-pinned' : ''}" data-note-idx="${idx}">
             <div class="note-card-header">
               <div class="note-card-salience-bar" style="background:${color}"></div>
               <div class="note-card-info">
@@ -1755,6 +1816,7 @@
               <div class="note-card-salience" style="color:${color}">${salience.toFixed(2)}</div>
             </div>
             <div class="note-card-body">
+              ${actionsHtml}
               ${shouldNotTryHtml}
               ${conflictsHtml}
               <div class="note-card-content">${markdownToHtml(note.content || 'No content')}</div>
@@ -1776,7 +1838,7 @@
             </div>
           </div>
         `;
-      } else if (ns.search || ns.tag || ns.session) {
+      } else if (ns.search || ns.tag || ns.session || ns.machine || ns.archived !== 'exclude') {
         notesHtml = `
           <div class="notes-empty">
             <div class="notes-empty-icon">&#128221;</div>
@@ -1913,6 +1975,7 @@
       || ns.tag
       || ns.machine
       || ns.session
+      || ns.archived !== 'exclude'
       || ns.sort !== 'date'
     );
     const resetFiltersHtml = hasActiveFilters
@@ -1931,6 +1994,11 @@
             <svg class="notes-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" class="notes-search-input" id="notes-search-input" placeholder="Search notes\u2026" value="${esc(ns.search)}">
           </div>
+          <select class="notes-archive-filter" id="notes-archive-filter">
+            <option value="exclude"${ns.archived === 'exclude' ? ' selected' : ''}>Active</option>
+            <option value="only"${ns.archived === 'only' ? ' selected' : ''}>Archived</option>
+            <option value="include"${ns.archived === 'include' ? ' selected' : ''}>All</option>
+          </select>
           <select class="notes-tag-filter" id="notes-tag-filter">${tagOptions}</select>
           <div class="notes-sort">
             <button class="notes-sort-btn ${ns.sort === 'date' ? 'active' : ''}" data-sort="date">Newest</button>
@@ -1966,6 +2034,15 @@
         ns.tag = tagFilter.value;
         ns.expandedIdx = null;
         fetchNotesPage(false).then(() => renderNotesPage(container));
+      });
+    }
+
+    const archiveFilter = document.getElementById('notes-archive-filter');
+    if (archiveFilter) {
+      archiveFilter.addEventListener('change', () => {
+        ns.archived = archiveFilter.value || 'exclude';
+        ns.expandedIdx = null;
+        loadNotes().then(() => renderNotesPage(container));
       });
     }
 
@@ -2035,11 +2112,45 @@
         ns.tag = '';
         ns.machine = '';
         ns.session = '';
+        ns.archived = 'exclude';
         ns.sort = 'date';
         ns.expandedIdx = null;
-        fetchNotesPage(false).then(() => renderNotesPage(container));
+        loadNotes().then(() => renderNotesPage(container));
       });
     }
+
+    container.querySelectorAll('.note-action-btn').forEach(btn => {
+      btn.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (notesState.actionBusy) return;
+
+        const idx = Number.parseInt(btn.dataset.noteIdx || '', 10);
+        if (!Number.isFinite(idx)) return;
+        const note = ns.notes[idx];
+        if (!note) return;
+
+        const action = String(btn.dataset.action || '').trim();
+        if (!action) return;
+
+        const payload = {};
+        if (action === 'retag') {
+          const current = Array.isArray(note.tags) ? note.tags.join(', ') : '';
+          const raw = window.prompt('Edit tags (comma-separated):', current);
+          if (raw === null) return;
+          payload.tags = raw
+            .split(',')
+            .map(t => t.trim())
+            .filter(Boolean);
+        }
+
+        const ok = await mutateNoteReview(note, action, payload);
+        if (ok) {
+          ns.expandedIdx = null;
+          renderNotesPage(container);
+        }
+      });
+    });
 
     // Card accordion — only one expanded at a time
     container.querySelectorAll('.note-card').forEach(card => {

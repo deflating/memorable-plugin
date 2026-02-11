@@ -1260,6 +1260,14 @@ p { color: var(--text-secondary); }
   cursor: pointer;
 }
 
+.note-card.note-card-pinned {
+  border-color: #d2bca0;
+}
+
+.note-card.note-card-archived {
+  opacity: 0.76;
+}
+
 .note-card:hover {
   box-shadow: var(--shadow-md);
 }
@@ -1339,6 +1347,28 @@ p { color: var(--text-secondary); }
   font-weight: 600;
 }
 
+.note-review-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.note-review-chip.pinned {
+  border: 1px solid #d6c4a3;
+  background: #fdf7e7;
+  color: #7f6332;
+}
+
+.note-review-chip.archived {
+  border: 1px solid #d4d4d4;
+  background: #f7f7f7;
+  color: #666;
+}
+
 .note-card-salience {
   font-size: 0.76rem;
   font-weight: 600;
@@ -1360,6 +1390,36 @@ p { color: var(--text-secondary); }
 .note-card.expanded .note-card-body {
   display: block;
   padding-top: 16px;
+}
+
+.note-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.note-action-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--warm-white);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 0.74rem;
+  line-height: 1;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.note-action-btn:hover {
+  background: var(--cream-dark);
+  color: var(--text-primary);
+}
+
+.note-action-btn.active {
+  border-color: var(--sand-dark);
+  color: var(--text-primary);
+  background: #f8f1e4;
 }
 
 .note-card-body h1, .note-card-body h2, .note-card-body h3 {
@@ -1527,6 +1587,23 @@ p { color: var(--text-secondary); }
   background: var(--warm-white);
   cursor: pointer;
   min-width: 140px;
+}
+
+.notes-archive-filter {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 0.84rem;
+  color: var(--text-primary);
+  background: var(--warm-white);
+  cursor: pointer;
+  min-width: 120px;
+}
+
+.notes-archive-filter:focus {
+  outline: none;
+  border-color: var(--terracotta-light);
 }
 
 .notes-tag-filter:focus {
