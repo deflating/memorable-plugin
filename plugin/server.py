@@ -8,11 +8,13 @@ Python 3 stdlib only. No external dependencies.
 """
 
 import argparse
+import io
 import json
 import os
 import shutil
 import time
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -920,6 +922,71 @@ def handle_get_budget():
     }
 
 
+# -- Export / reset --------------------------------------------------------
+
+
+def _build_export_zip() -> bytes:
+    """Create an in-memory ZIP of all files under DATA_DIR."""
+    ensure_dirs()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(DATA_DIR.rglob("*")):
+            if not path.is_file():
+                continue
+            arcname = path.relative_to(DATA_DIR).as_posix()
+            zf.write(path, arcname)
+    return buf.getvalue()
+
+
+def handle_get_export():
+    """GET /api/export — download a ZIP archive of all local data."""
+    try:
+        payload = _build_export_zip()
+    except Exception:
+        return 500, {"error": "Failed to build export archive"}
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+    filename = f"memorable-export-{stamp}.zip"
+    return 200, {"filename": filename, "payload": payload}
+
+
+def handle_post_reset(body: dict):
+    """POST /api/reset — wipe DATA_DIR contents after explicit confirmation."""
+    token = str(body.get("confirmation_token", "")).strip()
+    if token != "RESET":
+        return 400, {
+            "error": "Confirmation token mismatch",
+            "expected": "RESET",
+        }
+
+    ensure_dirs()
+    removed = []
+    failed = []
+
+    for entry in DATA_DIR.iterdir():
+        try:
+            if entry.is_symlink() or entry.is_file():
+                entry.unlink()
+            elif entry.is_dir():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink(missing_ok=True)
+            removed.append(entry.name)
+        except Exception:
+            failed.append(entry.name)
+
+    ensure_dirs()
+
+    if failed:
+        return 500, {
+            "error": "Reset partially failed",
+            "removed": removed,
+            "failed": failed,
+        }
+
+    return 200, {"ok": True, "removed_count": len(removed)}
+
+
 # -- Request handler -------------------------------------------------------
 
 CONTENT_TYPES = {
@@ -955,6 +1022,24 @@ class MemorableHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def send_bytes(
+        self,
+        status: int,
+        payload: bytes,
+        content_type: str,
+        filename=None,
+    ):
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(payload)))
+        if filename:
+            self.send_header(
+                "Content-Disposition",
+                f'attachment; filename="{filename}"',
+            )
+        self.end_headers()
+        self.wfile.write(payload)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -1027,6 +1112,17 @@ class MemorableHandler(SimpleHTTPRequestHandler):
             status, data = handle_get_budget()
             return self.send_json(status, data)
 
+        if path == "/api/export":
+            status, data = handle_get_export()
+            if status != 200:
+                return self.send_json(status, data)
+            return self.send_bytes(
+                status=200,
+                payload=data["payload"],
+                content_type="application/zip",
+                filename=data["filename"],
+            )
+
         # --- Static files ---
         self.serve_static(path)
 
@@ -1061,6 +1157,10 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/process":
             status, data = handle_post_process(body)
+            return self.send_json(status, data)
+
+        if path == "/api/reset":
+            status, data = handle_post_reset(body)
             return self.send_json(status, data)
 
         self.send_json(404, {"error": "Not found"})

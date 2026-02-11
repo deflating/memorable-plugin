@@ -1847,7 +1847,7 @@
               <div class="settings-row">
                 <div class="settings-row-info">
                   <div class="settings-row-label">Export All Data</div>
-                  <div class="settings-row-desc">Download all seeds, notes, and settings as JSON</div>
+                  <div class="settings-row-desc">Download all seeds, notes, and settings as a ZIP archive</div>
                 </div>
                 <div class="settings-row-control">
                   <button class="btn btn-small" id="settings-export-btn">Export</button>
@@ -1930,21 +1930,28 @@
     const exportBtn = document.getElementById('settings-export-btn');
     if (exportBtn) {
       exportBtn.addEventListener('click', async () => {
-        const data = await apiFetch('/api/export');
-        if (data) {
-          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        try {
+          const resp = await fetch('/api/export');
+          if (!resp.ok) throw new Error(`Export failed (${resp.status})`);
+          const blob = await resp.blob();
+          const cd = resp.headers.get('Content-Disposition') || '';
+          const match = cd.match(/filename="([^"]+)"/i);
+          const filename = match ? match[1] : 'memorable-export.zip';
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = 'memorable-export.json';
+          a.download = filename;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
-          showToast('Data exported', 'success');
-        } else {
-          // Fallback: export local state
-          const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+          showToast('Data exported as ZIP', 'success');
+        } catch (err) {
+          console.warn('Export failed:', err);
+          // Fallback: export local state snapshot as JSON
+          const blob = new Blob([JSON.stringify(state, null, 2)], {
+            type: 'application/json'
+          });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
@@ -1961,11 +1968,28 @@
     // Reset
     const resetBtn = document.getElementById('settings-reset-btn');
     if (resetBtn) {
-      resetBtn.addEventListener('click', () => {
+      resetBtn.addEventListener('click', async () => {
         if (confirm('Reset ALL data? This cannot be undone.')) {
-          localStorage.removeItem('seedConfigurator');
-          apiFetch('/api/reset', { method: 'POST' });
-          location.reload();
+          const token = prompt('Type RESET to confirm permanent deletion.');
+          if (token === null) return;
+          if (token.trim() !== 'RESET') {
+            showToast('Reset canceled (token mismatch)', '');
+            return;
+          }
+
+          const result = await apiFetch('/api/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmation_token: token.trim() })
+          });
+
+          if (result && result.ok) {
+            localStorage.removeItem('seedConfigurator');
+            showToast('All data reset', 'success');
+            location.reload();
+          } else {
+            showToast('Reset failed', '');
+          }
         }
       });
     }
