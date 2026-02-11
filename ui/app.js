@@ -1408,7 +1408,7 @@
           </div>
           <div class="dashboard-setup-actions">
             ${!daemonEnabled ? '<button class="btn btn-primary" onclick="window.memorableApp.enableDaemon()">Enable Daemon</button>' : ''}
-            ${daemonEnabled && !hasFirstNote ? '<button class="btn" onclick="window.memorableApp.navigateTo(\'memories\')">Open Session Notes</button>' : ''}
+            ${daemonEnabled && !hasFirstNote ? '<button class="btn" onclick="window.memorableApp.navigateTo(\'memories\')">Open Memories</button>' : ''}
             <button class="btn" onclick="window.memorableApp.navigateTo('settings')">Open Settings</button>
           </div>
         </div>
@@ -1428,7 +1428,7 @@
         <div class="dashboard-stats">
           <div class="stat-card">
             <div class="stat-value">${totalNotes}</div>
-            <div class="stat-label">Session Notes</div>
+            <div class="stat-label">Episodic Notes</div>
           </div>
           <div class="stat-card">
             <div class="stat-value">${totalSessions}</div>
@@ -1922,16 +1922,16 @@
     const subTab = state.memoriesSubTab || 'episodic';
     const memoryKinds = {
       episodic: {
-        label: 'Session Notes',
+        label: 'Episodic',
         helper: 'Browse and search notes from past sessions.',
       },
       working: {
-        label: 'Now Context',
-        helper: 'View `now.md`, your current rolling working context.',
+        label: 'Working',
+        helper: 'Your current rolling context — what\'s on your mind right now.',
       },
       semantic: {
-        label: 'Knowledge Docs',
-        helper: 'Manage long-lived documents and anchor depth for loading.',
+        label: 'Semantic',
+        helper: 'Long-lived knowledge documents and their anchor depth.',
       },
     };
     const activeMemory = memoryKinds[subTab] || memoryKinds.episodic;
@@ -1939,9 +1939,9 @@
     // Sub-tab bar
     const subTabBar = `
       <div class="memories-sub-tabs">
-        <button class="memories-sub-tab ${subTab === 'episodic' ? 'active' : ''}" data-subtab="episodic">Session Notes</button>
-        <button class="memories-sub-tab ${subTab === 'working' ? 'active' : ''}" data-subtab="working">Now Context</button>
-        <button class="memories-sub-tab ${subTab === 'semantic' ? 'active' : ''}" data-subtab="semantic">Knowledge Docs</button>
+        <button class="memories-sub-tab ${subTab === 'episodic' ? 'active' : ''}" data-subtab="episodic">Episodic</button>
+        <button class="memories-sub-tab ${subTab === 'working' ? 'active' : ''}" data-subtab="working">Working</button>
+        <button class="memories-sub-tab ${subTab === 'semantic' ? 'active' : ''}" data-subtab="semantic">Semantic</button>
       </div>
       <div class="memories-subtab-helper">
         <strong>${esc(activeMemory.label)}</strong>
@@ -1957,7 +1957,7 @@
     wrapper.innerHTML = `
       <div class="page-header">
         <h1>Memories</h1>
-        <p>Session memory, current context, and knowledge documents</p>
+        <p>Episodic, working, and semantic memory</p>
       </div>
       ${subTabBar}
       <div class="memories-content" id="memories-content"></div>
