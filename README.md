@@ -45,6 +45,9 @@ memorable/
 ├── plugin/
 │   ├── install.sh
 │   ├── server.py
+│   ├── server_http.py
+│   ├── server_api.py
+│   ├── server_storage.py
 │   └── hooks/
 │       ├── hooks.json
 │       └── scripts/
@@ -60,6 +63,12 @@ memorable/
 │   └── app.js
 └── PLAN.md
 ```
+
+Server module responsibilities:
+- `plugin/server.py` — thin CLI entrypoint.
+- `plugin/server_http.py` — HTTP handler, routing, static serving, server startup.
+- `plugin/server_api.py` — endpoint/business logic.
+- `plugin/server_storage.py` — shared paths, config/storage helpers, constants.
 
 ## Configuration
 

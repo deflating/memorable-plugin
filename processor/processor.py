@@ -13,7 +13,11 @@ import json
 import sys
 from pathlib import Path
 
-from .anchor import process_full, extract_level, annotate_document
+from .anchor import (
+    estimate_tokens,
+    extract_at_depth,
+    process_document_mechanical,
+)
 
 
 def main():
@@ -34,22 +38,35 @@ def main():
         sys.exit(1)
 
     text = filepath.read_text(encoding="utf-8")
+    # Keep CLI deterministic/offline-friendly. This path is for local inspection.
+    anchored = process_document_mechanical(text)
 
     if args.level:
-        content = extract_level(text, args.level)
+        content = extract_at_depth(anchored, args.level)
         if args.json:
             print(json.dumps({"content": content}, indent=2))
         else:
             print(content)
     elif args.annotate:
-        content = annotate_document(text)
+        content = anchored
         if args.json:
-            print(json.dumps({"content": content}, indent=2))
+            print(json.dumps({"method": "mechanical", "content": content}, indent=2))
         else:
             print(content)
     else:
-        # Default: full JSON output
-        result = process_full(text)
+        # Default: JSON output with anchored text + token counts by depth.
+        tokens_by_depth = {
+            str(level): estimate_tokens(extract_at_depth(anchored, level))
+            for level in range(4)
+        }
+        tokens_by_depth["full"] = estimate_tokens(text)
+        result = {
+            "status": "ok",
+            "method": "mechanical",
+            "filename": filepath.name,
+            "anchored": anchored,
+            "tokens_by_depth": tokens_by_depth,
+        }
         print(json.dumps(result, indent=2))
 
 

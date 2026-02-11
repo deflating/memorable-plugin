@@ -63,6 +63,8 @@ def _normalize_note(obj: dict) -> dict:
     UI wants:  date, summary, content, tags, salience, session
     """
     note_text = obj.get("note", "")
+    if not isinstance(note_text, str):
+        note_text = str(note_text)
     # Extract first meaningful line as summary
     summary = ""
     for line in note_text.splitlines():
@@ -246,7 +248,12 @@ def load_all_notes() -> list[dict]:
                         continue
                     try:
                         obj = json.loads(line)
-                        notes.append(_normalize_note(obj))
+                        if not isinstance(obj, dict):
+                            continue
+                        try:
+                            notes.append(_normalize_note(obj))
+                        except Exception:
+                            continue
                     except json.JSONDecodeError:
                         continue
         except Exception:
@@ -687,8 +694,8 @@ def handle_get_files():
     for f in sorted(FILES_DIR.iterdir()):
         if not f.is_file():
             continue
-        # Skip .anchored companion files
-        if f.name.endswith(".anchored"):
+        # Skip internal helper artifacts.
+        if f.name.endswith(".anchored") or f.name.startswith(".cache-"):
             continue
         try:
             stat = f.stat()
@@ -1218,5 +1225,4 @@ def handle_post_reset(body: dict):
 
     append_audit("data.reset", {"removed_count": len(removed)})
     return 200, {"ok": True, "removed_count": len(removed)}
-
 

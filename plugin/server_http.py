@@ -95,17 +95,59 @@ class MemorableHandler(SimpleHTTPRequestHandler):
         self.send_response(204)
         self.end_headers()
 
-    def read_body(self) -> dict:
-        length = int(self.headers.get("Content-Length", 0))
+    def read_body(self):
+        """Parse JSON body.
+
+        Returns:
+            (body: dict, err: tuple[int, dict] | None)
+        """
+        raw_length = self.headers.get("Content-Length", "0")
+        try:
+            length = int(raw_length)
+        except (TypeError, ValueError):
+            return None, (
+                400,
+                error_response(
+                    "INVALID_CONTENT_LENGTH",
+                    "Invalid Content-Length header",
+                    "Send a valid numeric Content-Length header.",
+                ),
+            )
         if length == 0:
-            return {}
+            return {}, None
         if length > MAX_UPLOAD_SIZE:
-            return {}
+            return None, (
+                413,
+                error_response(
+                    "UPLOAD_TOO_LARGE",
+                    "Upload too large",
+                    f"Reduce payload to <= {MAX_UPLOAD_SIZE} bytes.",
+                ),
+            )
+
         raw = self.rfile.read(length)
         try:
-            return json.loads(raw.decode("utf-8"))
+            body = json.loads(raw.decode("utf-8"))
         except Exception:
-            return {}
+            return None, (
+                400,
+                error_response(
+                    "INVALID_JSON",
+                    "Invalid JSON",
+                    "Send a valid JSON object.",
+                ),
+            )
+
+        if not isinstance(body, dict):
+            return None, (
+                400,
+                error_response(
+                    "INVALID_JSON_OBJECT",
+                    "JSON body must be an object",
+                    "Send a JSON object payload.",
+                ),
+            )
+        return body, None
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -188,7 +230,23 @@ class MemorableHandler(SimpleHTTPRequestHandler):
             status, data = handle_process_file(filename)
             return self.send_json(status, data)
 
-        body = self.read_body()
+        body_routes = {
+            "/api/seeds",
+            "/api/settings",
+            "/api/deploy",
+            "/api/process",
+            "/api/reset",
+        }
+        if path not in body_routes:
+            return self.send_json(
+                404,
+                error_response("NOT_FOUND", "Not found", "Check the endpoint path and method."),
+            )
+
+        body, err = self.read_body()
+        if err:
+            status, payload = err
+            return self.send_json(status, payload)
 
         if path == "/api/seeds":
             status, data = handle_post_seeds(body)
@@ -218,9 +276,12 @@ class MemorableHandler(SimpleHTTPRequestHandler):
     def do_PUT(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
-        body = self.read_body()
 
         if path.startswith("/api/files/") and path.endswith("/depth"):
+            body, err = self.read_body()
+            if err:
+                status, payload = err
+                return self.send_json(status, payload)
             filename = unquote(path[len("/api/files/"):-len("/depth")])
             status, data = handle_put_file_depth(filename, body)
             return self.send_json(status, data)
