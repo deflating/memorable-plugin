@@ -1812,6 +1812,7 @@
         <p>Drop a document here, or click to upload</p>
         <p class="semantic-upload-hint">Markdown, plain text, or any text document</p>
         <input type="file" id="semantic-file-input" accept=".md,.txt,.text,.markdown,.rst,.org" multiple style="display:none">
+        <div class="semantic-upload-progress" id="semantic-upload-progress" hidden></div>
       </div>
     `;
 
@@ -2038,20 +2039,161 @@
     });
   }
 
+  function uploadSemanticFileWithProgress(file, onProgress) {
+    return new Promise((resolve, reject) => {
+      const report = (percent, stage) => {
+        const bounded = Math.max(0, Math.min(100, Number(percent) || 0));
+        if (typeof onProgress === 'function') onProgress(bounded, stage);
+      };
+
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.onprogress = (evt) => {
+        if (evt.lengthComputable && evt.total > 0) {
+          const pct = Math.round((evt.loaded / evt.total) * 45);
+          report(pct, 'Reading');
+        }
+      };
+      reader.onload = () => {
+        const content = typeof reader.result === 'string'
+          ? reader.result
+          : String(reader.result || '');
+        const payload = JSON.stringify({ filename: file.name, content });
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/files/upload', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+
+        xhr.upload.onprogress = (evt) => {
+          if (evt.lengthComputable && evt.total > 0) {
+            const pct = 45 + Math.round((evt.loaded / evt.total) * 50);
+            report(pct, 'Uploading');
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            report(100, 'Done');
+            resolve();
+            return;
+          }
+          reject(new Error(`Upload failed (${xhr.status})`));
+        };
+        xhr.onerror = () => reject(new Error('Network error'));
+        xhr.onabort = () => reject(new Error('Upload aborted'));
+
+        report(50, 'Uploading');
+        xhr.send(payload);
+      };
+
+      report(0, 'Reading');
+      reader.readAsText(file);
+    });
+  }
+
   async function handleSemanticUpload(fileList, container) {
-    for (const file of fileList) {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (!files.length) return;
+
+    const dropzone = container.querySelector('#semantic-dropzone');
+    const input = container.querySelector('#semantic-file-input');
+    const progressRoot = container.querySelector('#semantic-upload-progress');
+
+    if (dropzone) dropzone.classList.add('uploading');
+    if (input) input.disabled = true;
+
+    let rowByIndex = new Map();
+    let progressByIndex = new Map();
+
+    if (progressRoot) {
+      const rows = files.map((file, index) => {
+        const safeName = esc(file.name);
+        return `
+          <div class="semantic-upload-item" data-upload-index="${index}">
+            <div class="semantic-upload-item-top">
+              <span class="semantic-upload-item-name">${safeName}</span>
+              <span class="semantic-upload-item-status">Queued</span>
+            </div>
+            <div class="semantic-upload-item-track">
+              <div class="semantic-upload-item-fill" style="width:0%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      progressRoot.innerHTML = `
+        <div class="semantic-upload-summary">
+          <span class="semantic-upload-summary-title">Uploading ${files.length} file${files.length > 1 ? 's' : ''}</span>
+          <span class="semantic-upload-summary-percent">0%</span>
+        </div>
+        <div class="semantic-upload-summary-track">
+          <div class="semantic-upload-summary-fill" style="width:0%"></div>
+        </div>
+        <div class="semantic-upload-items">${rows}</div>
+      `;
+      progressRoot.hidden = false;
+
+      progressRoot.querySelectorAll('.semantic-upload-item').forEach((row) => {
+        const idx = parseInt(row.dataset.uploadIndex, 10);
+        if (!Number.isNaN(idx)) rowByIndex.set(idx, row);
+      });
+    }
+
+    const updateOverallProgress = () => {
+      if (!progressRoot || !files.length) return;
+      let total = 0;
+      files.forEach((_, index) => { total += progressByIndex.get(index) || 0; });
+      const pct = Math.round(total / files.length);
+      const pctEl = progressRoot.querySelector('.semantic-upload-summary-percent');
+      const fillEl = progressRoot.querySelector('.semantic-upload-summary-fill');
+      if (pctEl) pctEl.textContent = `${pct}%`;
+      if (fillEl) fillEl.style.width = `${pct}%`;
+    };
+
+    const updateFileProgress = (index, percent, label) => {
+      progressByIndex.set(index, percent);
+      const row = rowByIndex.get(index);
+      if (row) {
+        const statusEl = row.querySelector('.semantic-upload-item-status');
+        const fillEl = row.querySelector('.semantic-upload-item-fill');
+        if (statusEl) statusEl.textContent = label ? `${label} ${percent}%` : `${percent}%`;
+        if (fillEl) fillEl.style.width = `${percent}%`;
+      }
+      updateOverallProgress();
+    };
+
+    let successCount = 0;
+    let failureCount = 0;
+
+    for (const [index, file] of files.entries()) {
+      progressByIndex.set(index, 0);
+      const row = rowByIndex.get(index);
+      if (row) row.classList.remove('error', 'done');
+
       try {
-        const text = await file.text();
-        await apiFetch('/api/files/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: file.name, content: text }),
+        await uploadSemanticFileWithProgress(file, (percent, stage) => {
+          updateFileProgress(index, percent, stage || 'Uploading');
         });
-        showToast('Uploaded ' + file.name, 'success');
+        successCount += 1;
+        updateFileProgress(index, 100, 'Done');
+        if (row) row.classList.add('done');
       } catch (err) {
+        failureCount += 1;
+        updateFileProgress(index, 100, 'Failed');
+        if (row) row.classList.add('error');
         showToast('Upload failed: ' + file.name, 'error');
       }
     }
+
+    if (successCount > 0) {
+      showToast(
+        `Uploaded ${successCount} file${successCount > 1 ? 's' : ''}` +
+        (failureCount > 0 ? ` (${failureCount} failed)` : ''),
+        failureCount > 0 ? '' : 'success'
+      );
+    }
+
+    if (dropzone) dropzone.classList.remove('uploading');
+    if (input) input.disabled = false;
     renderSemanticMemory(container);
   }
 
