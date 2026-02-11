@@ -1322,6 +1322,7 @@
     const totalNotes = status ? (status.total_notes || 0) : '\u2014';
     const totalNotesCount = status ? Number(status.total_notes || 0) : 0;
     const totalSessions = status ? (status.total_sessions || 0) : '\u2014';
+    const contextFileCount = status ? Number(status.file_count || 0) : '\u2014';
     const daemonRunning = status ? status.daemon_running : false;
     const seedsExist = status ? status.seeds_present : true;
     const daemonEnabled = !!(((state.settingsCache || {}).daemon || {}).enabled);
@@ -1434,7 +1435,7 @@
             <div class="stat-label">Sessions Tracked</div>
           </div>
           <div class="stat-card">
-            <div class="stat-value">${state.files.length}</div>
+            <div class="stat-value">${contextFileCount}</div>
             <div class="stat-label">Context Files</div>
           </div>
           <div class="stat-card">
@@ -2726,8 +2727,6 @@
 
   // ---- Seeds Page ----
   function renderSeedsPage(container) {
-    const fileCount = state.files.length;
-
     container.innerHTML = `
       <div class="seeds-page">
         <div class="seeds-header">
@@ -3572,16 +3571,6 @@
   }
 
   function renderProjectItem(p, i) {
-    // Find files associated with this project
-    const associatedFiles = state.files.filter(f => f.projectTag === p.name && p.name);
-    const unassociatedFiles = state.files.filter(f => !f.projectTag);
-    const fileTags = associatedFiles.map(f => `
-      <span class="project-file-tag">
-        &#128196; ${esc(f.name)}
-        <button class="tag-remove" data-detach-file="${f.id}" data-from-project="${i}">&#10005;</button>
-      </span>
-    `).join('');
-
     return `
       <div class="repeatable-item reorder-item" draggable="true" data-reorder-group="projects" data-reorder-index="${i}" data-project-index="${i}">
         <div class="repeatable-item-header">
@@ -3612,18 +3601,6 @@
             <label>Description</label>
             <textarea data-project="${i}" data-field="description" rows="2" placeholder="What this project is about">${esc(p.description)}</textarea>
           </div>
-          ${p.name ? `
-          <div class="project-files-area">
-            <div class="project-files-label">Attached Files</div>
-            <div class="project-files-tags">
-              ${fileTags}
-              ${unassociatedFiles.length > 0 ? `
-                <button class="project-attach-btn" data-attach-project="${i}">&#43; Attach file</button>
-              ` : ''}
-            </div>
-            ${associatedFiles.length === 0 && unassociatedFiles.length === 0 ? `<span style="font-size:0.76rem;color:var(--text-muted);">No files available. Add files in the Files tab.</span>` : ''}
-          </div>
-          ` : ''}
         </div>
       </div>
     `;
@@ -3875,63 +3852,6 @@
         render();
       });
     }
-
-    // Detach file from project
-    container.querySelectorAll('[data-detach-file]').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const fileId = btn.dataset.detachFile;
-        const file = state.files.find(f => f.id === fileId);
-        if (file) {
-          file.projectTag = '';
-          render();
-        }
-      });
-    });
-
-    // Attach file to project
-    container.querySelectorAll('[data-attach-project]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const projIdx = parseInt(btn.dataset.attachProject, 10);
-        const proj = state.user.projects[projIdx];
-        if (!proj || !proj.name) return;
-        const unassociated = state.files.filter(f => !f.projectTag);
-        if (unassociated.length === 0) return;
-
-        // Show a small dropdown to pick a file
-        const existing = btn.parentNode.querySelector('.attach-dropdown');
-        if (existing) { existing.remove(); return; }
-
-        const dropdown = document.createElement('div');
-        dropdown.className = 'attach-dropdown';
-        dropdown.style.cssText = 'position:absolute;background:white;border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:var(--shadow-md);z-index:10;min-width:160px;padding:4px 0;';
-        unassociated.forEach(f => {
-          const item = document.createElement('div');
-          item.style.cssText = 'padding:6px 12px;font-size:0.82rem;cursor:pointer;color:var(--text-secondary);';
-          item.textContent = f.name;
-          item.addEventListener('mouseenter', () => { item.style.background = 'var(--cream)'; });
-          item.addEventListener('mouseleave', () => { item.style.background = ''; });
-          item.addEventListener('click', () => {
-            f.projectTag = proj.name;
-            render();
-          });
-          dropdown.appendChild(item);
-        });
-
-        btn.style.position = 'relative';
-        btn.appendChild(dropdown);
-
-        // Close on outside click
-        setTimeout(() => {
-          document.addEventListener('click', function closeDropdown(e) {
-            if (!dropdown.contains(e.target)) {
-              dropdown.remove();
-              document.removeEventListener('click', closeDropdown);
-            }
-          });
-        }, 0);
-      });
-    });
 
     // Custom sections (user)
     bindCustomSectionEvents(container, 'user');
