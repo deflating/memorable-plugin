@@ -1209,8 +1209,10 @@
 
         const visibleTags = (note.tags || []).slice(0, 4);
         const overflowCount = (note.tags || []).length - 4;
+        const shouldNotTry = Array.isArray(note.should_not_try) ? note.should_not_try : [];
         const tagsHtml = visibleTags.map(t => `<span class="note-tag">${esc(t)}</span>`).join('') +
-          (overflowCount > 0 ? `<span class="note-tag">+${overflowCount}</span>` : '');
+          (overflowCount > 0 ? `<span class="note-tag">+${overflowCount}</span>` : '') +
+          (shouldNotTry.length > 0 ? `<span class="note-antiforce-chip" title="Approaches marked as failed or unhelpful.">Avoid ${shouldNotTry.length}</span>` : '');
 
         const date = note.date ? new Date(note.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
         const msgCount = note.message_count ? `${note.message_count} msgs` : '';
@@ -1229,6 +1231,15 @@
           metaFooter += `<span class="note-meta-item">${esc(note.machine)}</span>`;
         }
 
+        const shouldNotTryHtml = shouldNotTry.length > 0 ? `
+          <div class="note-card-antiforce">
+            <div class="note-card-antiforce-label">Don't try again</div>
+            <ul class="note-card-antiforce-list">
+              ${shouldNotTry.map(item => `<li>${esc(item)}</li>`).join('')}
+            </ul>
+          </div>
+        ` : '';
+
         return `
           <div class="note-card${isExpanded ? ' expanded' : ''}" data-note-idx="${idx}">
             <div class="note-card-header">
@@ -1241,6 +1252,7 @@
               <div class="note-card-salience" style="color:${color}">${salience.toFixed(2)}</div>
             </div>
             <div class="note-card-body">
+              ${shouldNotTryHtml}
               <div class="note-card-content">${markdownToHtml(note.content || 'No content')}</div>
               ${metaFooter ? `<div class="note-card-meta-footer">${metaFooter}</div>` : ''}
             </div>

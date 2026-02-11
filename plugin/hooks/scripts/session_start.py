@@ -233,9 +233,14 @@ def _format_notes(scored: list[tuple[float, dict]]) -> str:
     for score, entry in scored:
         tags = entry.get("topic_tags", [])
         tag_str = ", ".join(tags) if tags else "untagged"
+        raw_anti = entry.get("should_not_try", [])
+        anti = []
+        if isinstance(raw_anti, list):
+            anti = [str(x).strip() for x in raw_anti if str(x).strip()]
+        anti_str = f" avoid:{'; '.join(anti[:3])}" if anti else ""
         ts = entry.get("first_ts", entry.get("ts", ""))[:10]
         sid = entry.get("session", "")[:8]
-        parts.append(f"  {ts} [{tag_str}] salience:{score:.2f} session:{sid}")
+        parts.append(f"  {ts} [{tag_str}] salience:{score:.2f} session:{sid}{anti_str}")
     return "\n".join(parts)
 
 

@@ -168,6 +168,16 @@ def _normalize_note(obj: dict) -> dict:
             summary = stripped
             break
 
+    raw_should_not_try = obj.get("should_not_try", [])
+    if isinstance(raw_should_not_try, list):
+        should_not_try = [
+            str(item).strip()
+            for item in raw_should_not_try
+            if str(item).strip()
+        ]
+    else:
+        should_not_try = []
+
     return {
         "date": obj.get("ts", ""),
         "summary": summary,
@@ -177,6 +187,7 @@ def _normalize_note(obj: dict) -> dict:
         "session": obj.get("session", ""),
         "machine": obj.get("machine", ""),
         "message_count": obj.get("message_count", 0),
+        "should_not_try": should_not_try,
     }
 
 
@@ -230,7 +241,13 @@ def handle_get_notes(query_params: dict):
             text = n.get("content", "")
             tags = n.get("tags", [])
             tag_str = " ".join(tags) if isinstance(tags, list) else ""
-            if search_lower in text.lower() or search_lower in tag_str.lower():
+            anti = n.get("should_not_try", [])
+            anti_str = " ".join(anti) if isinstance(anti, list) else ""
+            if (
+                search_lower in text.lower()
+                or search_lower in tag_str.lower()
+                or search_lower in anti_str.lower()
+            ):
                 filtered.append(n)
         notes = filtered
 

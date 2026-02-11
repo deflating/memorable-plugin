@@ -852,6 +852,19 @@ p { color: var(--text-secondary); }
   margin-top: 6px;
 }
 
+.note-antiforce-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #e6c4b8;
+  background: #fff2ec;
+  color: #8f4b35;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
 .note-card-salience {
   font-size: 0.76rem;
   font-weight: 600;
@@ -905,6 +918,32 @@ p { color: var(--text-secondary); }
   border-radius: 3px;
   font-size: 0.85em;
   font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.note-card-antiforce {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e6c4b8;
+  border-radius: var(--radius-sm);
+  background: #fff7f4;
+}
+
+.note-card-antiforce-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8f4b35;
+  margin-bottom: 6px;
+}
+
+.note-card-antiforce-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.note-card-antiforce-list li {
+  margin-bottom: 2px;
 }
 
 /* Empty state for notes */
