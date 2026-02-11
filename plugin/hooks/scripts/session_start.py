@@ -3,12 +3,14 @@
 
 Outputs read instructions for seed files and context files so Claude
 actively reads them with the Read tool, rather than passively receiving
-content in a system reminder.
+content in a system reminder. Also surfaces session notes with a recency
+ceiling: the most recent notes are always included regardless of salience.
 """
 
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 BASE_DIR = Path.home() / ".memorable"
@@ -18,6 +20,12 @@ CONFIG_PATH = BASE_DIR / "data" / "config.json"
 
 ANCHOR = "\u2693"
 _ANCHOR_RE = re.compile(ANCHOR + r"([0-3]\ufe0f\u20e3)?")
+
+# Note loading constants
+DECAY_FACTOR = 0.97
+MIN_SALIENCE = 0.05
+MAX_SALIENT_NOTES = 8
+RECENCY_CEILING = 3  # Always include this many most-recent notes
 
 
 def load_config() -> dict:
@@ -135,6 +143,93 @@ def collect_files(config: dict) -> list[str]:
     return paths
 
 
+def _effective_salience(entry: dict) -> float:
+    """Calculate effective salience with time decay and emotional weight."""
+    salience = entry.get("salience", 1.0)
+    emotional_weight = entry.get("emotional_weight", 0.3)
+
+    last_ref = entry.get("last_referenced", entry.get("ts", ""))
+    try:
+        ts_clean = str(last_ref).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(ts_clean)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        days = (datetime.now(timezone.utc) - dt).total_seconds() / 86400
+    except (ValueError, TypeError):
+        days = 30
+
+    adjusted_days = days * (1.0 - emotional_weight * 0.5)
+    decayed = salience * (DECAY_FACTOR ** adjusted_days)
+    return max(MIN_SALIENCE, decayed)
+
+
+def _note_timestamp(entry: dict) -> str:
+    """Get the best timestamp for recency sorting."""
+    return entry.get("first_ts", entry.get("ts", ""))
+
+
+def _load_all_notes(notes_dir: Path) -> list[dict]:
+    """Load all note entries from JSONL files in the notes directory."""
+    entries = []
+    for jsonl_file in notes_dir.glob("*.jsonl"):
+        try:
+            with open(jsonl_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
+            continue
+    return entries
+
+
+def _select_notes(entries: list[dict]) -> list[tuple[float, dict]]:
+    """Select notes with recency ceiling: always include the N most recent,
+    then fill remaining slots by salience score."""
+    if not entries:
+        return []
+
+    # Sort by timestamp descending to find most recent
+    by_recency = sorted(entries, key=lambda e: _note_timestamp(e), reverse=True)
+
+    # Always include the RECENCY_CEILING most recent notes
+    recent = by_recency[:RECENCY_CEILING]
+    recent_sessions = {e.get("session", "") for e in recent}
+
+    # Score all remaining notes by salience
+    remaining = [e for e in entries if e.get("session", "") not in recent_sessions]
+    scored_remaining = [(_effective_salience(e), e) for e in remaining]
+    scored_remaining.sort(key=lambda x: x[0], reverse=True)
+
+    # Fill remaining budget with highest-salience notes
+    budget = MAX_SALIENT_NOTES - len(recent)
+    top_by_salience = scored_remaining[:budget]
+
+    # Combine: recent notes (scored) + salience notes
+    result = [(_effective_salience(e), e) for e in recent]
+    result.extend(top_by_salience)
+
+    # Sort final list by salience descending for display
+    result.sort(key=lambda x: x[0], reverse=True)
+    return result
+
+
+def _format_notes(scored: list[tuple[float, dict]]) -> str:
+    """Format selected notes as compact references."""
+    parts = []
+    for score, entry in scored:
+        tags = entry.get("topic_tags", [])
+        tag_str = ", ".join(tags) if tags else "untagged"
+        ts = entry.get("first_ts", entry.get("ts", ""))[:10]
+        sid = entry.get("session", "")[:8]
+        parts.append(f"  {ts} [{tag_str}] salience:{score:.2f} session:{sid}")
+    return "\n".join(parts)
+
+
 def main():
     try:
         # Read stdin (hook input)
@@ -159,6 +254,18 @@ def main():
             print(f"{i}. Read {path}")
 
         print("\nDo NOT skip this. Do NOT respond before reading these files.")
+
+        # Add session notes with recency ceiling
+        notes_dir = BASE_DIR / "data" / "notes"
+        if notes_dir.exists():
+            entries = _load_all_notes(notes_dir)
+            if entries:
+                selected = _select_notes(entries)
+                if selected:
+                    formatted = _format_notes(selected)
+                    print(f"\n[Memorable] Most salient session notes ({len(entries)} total in {notes_dir}/):")
+                    print(formatted)
+                    print(f"To read a note: grep {notes_dir}/ for its session ID. To search by topic: grep by keyword.")
 
     except Exception as e:
         log_path = BASE_DIR / "hook-errors.log"
