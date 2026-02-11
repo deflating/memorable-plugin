@@ -1305,6 +1305,31 @@ p { color: var(--text-secondary); }
   box-shadow: var(--shadow-sm);
 }
 
+.memories-subtab-helper {
+  margin: -8px 0 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.memories-subtab-helper strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.memories-subtab-helper span {
+  color: var(--text-muted);
+}
+
+@media (max-width: 640px) {
+  .memories-subtab-helper {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+}
+
 /* Notes header row (inside Memories > Episodic) */
 .notes-header-row {
   display: flex;

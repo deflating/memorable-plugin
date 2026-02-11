@@ -1743,13 +1743,32 @@
 
   function renderMemoriesPage(container) {
     const subTab = state.memoriesSubTab || 'episodic';
+    const memoryKinds = {
+      episodic: {
+        label: 'Session Notes',
+        helper: 'Browse and search notes from past sessions.',
+      },
+      working: {
+        label: 'Now Context',
+        helper: 'View `now.md`, your current rolling working context.',
+      },
+      semantic: {
+        label: 'Knowledge Docs',
+        helper: 'Manage long-lived documents and anchor depth for loading.',
+      },
+    };
+    const activeMemory = memoryKinds[subTab] || memoryKinds.episodic;
 
     // Sub-tab bar
     const subTabBar = `
       <div class="memories-sub-tabs">
-        <button class="memories-sub-tab ${subTab === 'episodic' ? 'active' : ''}" data-subtab="episodic">Episodic</button>
-        <button class="memories-sub-tab ${subTab === 'working' ? 'active' : ''}" data-subtab="working">Working</button>
-        <button class="memories-sub-tab ${subTab === 'semantic' ? 'active' : ''}" data-subtab="semantic">Semantic</button>
+        <button class="memories-sub-tab ${subTab === 'episodic' ? 'active' : ''}" data-subtab="episodic">Session Notes</button>
+        <button class="memories-sub-tab ${subTab === 'working' ? 'active' : ''}" data-subtab="working">Now Context</button>
+        <button class="memories-sub-tab ${subTab === 'semantic' ? 'active' : ''}" data-subtab="semantic">Knowledge Docs</button>
+      </div>
+      <div class="memories-subtab-helper">
+        <strong>${esc(activeMemory.label)}</strong>
+        <span>${esc(activeMemory.helper)}</span>
       </div>
     `;
 
@@ -1761,6 +1780,7 @@
     wrapper.innerHTML = `
       <div class="page-header">
         <h1>Memories</h1>
+        <p>Session memory, current context, and knowledge documents</p>
       </div>
       ${subTabBar}
       <div class="memories-content" id="memories-content"></div>

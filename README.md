@@ -30,6 +30,11 @@ The install script creates the `~/.memorable/` directory structure, writes defau
 - **Token Budget Visualization** — Real-time token usage across seeds, agent config, and context files.
 - **Settings** — Configure LLM provider, daemon behavior, and token budget.
 
+In the **Memories** area, memory is organized into:
+- **Session Notes** — episodic memory from past sessions.
+- **Now Context** — your current `now.md` working context.
+- **Knowledge Docs** — semantic memory documents and depth controls.
+
 ## How It Works
 
 1. **Hooks** load your seed files at session start, giving Claude your full context before you say anything.
