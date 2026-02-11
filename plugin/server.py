@@ -39,6 +39,7 @@ NOTES_DIR = DATA_DIR / "notes"
 SESSIONS_DIR = DATA_DIR / "sessions"
 FILES_DIR = DATA_DIR / "files"
 CONFIG_PATH = DATA_DIR / "config.json"
+AUDIT_LOG_PATH = DATA_DIR / "audit.log"
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
@@ -106,6 +107,29 @@ def save_config(config: dict):
 
 def estimate_tokens(text: str) -> int:
     return len(text) // CHARS_PER_TOKEN
+
+
+def append_audit(event: str, details: dict | None = None):
+    """Append a JSONL audit event. Best-effort only."""
+    try:
+        ensure_dirs()
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "event": event,
+            "details": details or {},
+        }
+        with AUDIT_LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        pass
+
+
+def error_response(code: str, message: str, suggestion: str | None = None):
+    """Build a structured API error payload."""
+    payload = {"error": {"code": code, "message": message}}
+    if suggestion:
+        payload["error"]["suggestion"] = suggestion
+    return payload
 
 
 # -- Notes -----------------------------------------------------------------
@@ -291,7 +315,11 @@ def handle_get_sessions(query_params: dict):
 def handle_get_session(session_id: str):
     """GET /api/sessions/:id — get a single session by ID."""
     if not SESSIONS_DIR.is_dir():
-        return 404, {"error": "Session not found"}
+        return 404, error_response(
+            "SESSION_NOT_FOUND",
+            "Session not found",
+            "Check the session ID and try again.",
+        )
 
     for json_path in SESSIONS_DIR.glob("*.json"):
         if json_path.parent != SESSIONS_DIR:
@@ -303,7 +331,11 @@ def handle_get_session(session_id: str):
         except Exception:
             continue
 
-    return 404, {"error": "Session not found"}
+    return 404, error_response(
+        "SESSION_NOT_FOUND",
+        "Session not found",
+        "Check the session ID and try again.",
+    )
 
 
 # -- Seeds -----------------------------------------------------------------
@@ -331,7 +363,11 @@ def handle_post_seeds(body: dict):
     """
     files = body.get("files")
     if not files or not isinstance(files, dict):
-        return 400, {"error": "Missing or invalid 'files' field"}
+        return 400, error_response(
+            "INVALID_FILES_PAYLOAD",
+            "Missing or invalid 'files' field",
+            "Send JSON with a 'files' object mapping filename.md to content.",
+        )
 
     ensure_dirs()
     written = []
@@ -350,14 +386,23 @@ def handle_post_seeds(body: dict):
             try:
                 shutil.copy2(path, bak)
             except Exception:
-                return 500, {"error": f"Backup failed for {safe}, aborting write"}
+                return 500, error_response(
+                    "BACKUP_FAILED",
+                    f"Backup failed for {safe}, aborting write",
+                    "Free disk space or check permissions, then retry.",
+                )
 
         atomic_write(path, content)
         written.append(safe)
 
     if not written:
-        return 400, {"error": "No valid .md files to write"}
+        return 400, error_response(
+            "NO_VALID_SEED_FILES",
+            "No valid .md files to write",
+            "Use filenames ending in .md with safe characters.",
+        )
 
+    append_audit("seeds.write", {"written": written, "count": len(written)})
     return 200, {"ok": True, "written": written}
 
 
@@ -394,6 +439,7 @@ def handle_post_settings(body: dict):
         config["data_dir"] = body["data_dir"]
 
     save_config(config)
+    append_audit("settings.update", {"changed_keys": sorted(list(body.keys()))})
     return 200, {"ok": True, "settings": config}
 
 
@@ -628,20 +674,36 @@ def handle_post_file_upload(handler):
     if "application/json" in content_type:
         length = int(handler.headers.get("Content-Length", 0))
         if length == 0:
-            return 400, {"error": "Empty body"}
+            return 400, error_response(
+                "EMPTY_BODY",
+                "Empty body",
+                "Provide a JSON body with filename and content.",
+            )
         if length > MAX_UPLOAD_SIZE:
-            return 413, {"error": "Upload too large"}
+            return 413, error_response(
+                "UPLOAD_TOO_LARGE",
+                "Upload too large",
+                f"Reduce payload to <= {MAX_UPLOAD_SIZE} bytes.",
+            )
         raw = handler.rfile.read(length)
         try:
             body = json.loads(raw)
         except json.JSONDecodeError:
-            return 400, {"error": "Invalid JSON"}
+            return 400, error_response(
+                "INVALID_JSON",
+                "Invalid JSON",
+                "Send a valid JSON object.",
+            )
 
         filename = body.get("filename", "")
         content = body.get("content", "")
 
         if not filename or not content:
-            return 400, {"error": "Missing 'filename' or 'content'"}
+            return 400, error_response(
+                "MISSING_UPLOAD_FIELDS",
+                "Missing 'filename' or 'content'",
+                "Include both filename and content in the JSON body.",
+            )
 
         # Sanitize filename
         safe = "".join(
@@ -652,6 +714,10 @@ def handle_post_file_upload(handler):
 
         path = FILES_DIR / safe
         atomic_write(path, content)
+        append_audit(
+            "files.upload",
+            {"filename": safe, "size_bytes": len(content), "mode": "json"},
+        )
 
         return 200, {
             "ok": True,
@@ -664,9 +730,17 @@ def handle_post_file_upload(handler):
         filename = handler.headers.get("X-Filename", "")
         length = int(handler.headers.get("Content-Length", 0))
         if length == 0:
-            return 400, {"error": "Empty body"}
+            return 400, error_response(
+                "EMPTY_BODY",
+                "Empty body",
+                "Provide request body bytes and optional X-Filename header.",
+            )
         if length > MAX_UPLOAD_SIZE:
-            return 413, {"error": "Upload too large"}
+            return 413, error_response(
+                "UPLOAD_TOO_LARGE",
+                "Upload too large",
+                f"Reduce payload to <= {MAX_UPLOAD_SIZE} bytes.",
+            )
 
         raw = handler.rfile.read(length)
 
@@ -680,6 +754,10 @@ def handle_post_file_upload(handler):
 
         path = FILES_DIR / safe
         atomic_write_bytes(path, raw)
+        append_audit(
+            "files.upload",
+            {"filename": safe, "size_bytes": len(raw), "mode": "raw"},
+        )
 
         tokens = 0
         try:
@@ -702,9 +780,21 @@ def handle_process_file(filename: str):
     """POST /api/files/<filename>/process — trigger LLM anchor processing."""
     safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
     if not safe:
-        return 400, {"error": "Invalid filename"}
+        return 400, error_response(
+            "INVALID_FILENAME",
+            "Invalid filename",
+            "Use only alphanumeric characters, dash, underscore, and dot.",
+        )
 
     result = _process_file(safe, force=True)
+    append_audit(
+        "files.process",
+        {
+            "filename": safe,
+            "status": result.get("status"),
+            "method": result.get("method"),
+        },
+    )
     return 200, result
 
 
@@ -717,7 +807,11 @@ def handle_preview_file(filename: str, query_params: dict):
     """
     safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
     if not safe:
-        return 400, {"error": "Invalid filename"}
+        return 400, error_response(
+            "INVALID_FILENAME",
+            "Invalid filename",
+            "Use only alphanumeric characters, dash, underscore, and dot.",
+        )
 
     # raw=true returns the anchored file with tags intact
     if query_params.get("raw", [""])[0] == "true":
@@ -739,7 +833,11 @@ def handle_preview_file(filename: str, query_params: dict):
 
     content = _read_file_at_depth(safe, depth)
     if content is None:
-        return 404, {"error": "File not found"}
+        return 404, error_response(
+            "FILE_NOT_FOUND",
+            "File not found",
+            "Check the filename and upload the file if needed.",
+        )
 
     return 200, {
         "content": content,
@@ -752,7 +850,11 @@ def handle_put_file_depth(filename: str, body: dict):
     """PUT /api/files/<filename>/depth — set loading depth + enabled."""
     safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
     if not safe:
-        return 400, {"error": "Invalid filename"}
+        return 400, error_response(
+            "INVALID_FILENAME",
+            "Invalid filename",
+            "Use only alphanumeric characters, dash, underscore, and dot.",
+        )
 
     depth = body.get("depth", 1)
     enabled = body.get("enabled", True)
@@ -777,6 +879,10 @@ def handle_put_file_depth(filename: str, body: dict):
 
     config["context_files"] = context_files
     save_config(config)
+    append_audit(
+        "files.depth.update",
+        {"filename": safe, "depth": depth, "enabled": enabled},
+    )
 
     return 200, {"ok": True, "filename": safe, "depth": depth, "enabled": enabled}
 
@@ -788,9 +894,11 @@ def handle_post_deploy(body: dict):
     """
     files = body.get("files")
     if not files or not isinstance(files, dict):
-        return 400, {
-            "error": "Missing or invalid 'files' field. Expected {filename: content}"
-        }
+        return 400, error_response(
+            "INVALID_FILES_PAYLOAD",
+            "Missing or invalid 'files' field. Expected {filename: content}",
+            "Send JSON with a 'files' object mapping filename.md to content.",
+        )
 
     ensure_dirs()
     deployed_files = []
@@ -810,14 +918,26 @@ def handle_post_deploy(body: dict):
             try:
                 shutil.copy2(path, bak)
             except Exception:
-                return 500, {"error": f"Backup failed for {safe}, aborting write"}
+                return 500, error_response(
+                    "BACKUP_FAILED",
+                    f"Backup failed for {safe}, aborting write",
+                    "Free disk space or check permissions, then retry.",
+                )
 
         atomic_write(path, content)
         deployed_files.append(safe)
 
     if not deployed_files:
-        return 400, {"error": "No valid .md files to deploy"}
+        return 400, error_response(
+            "NO_VALID_SEED_FILES",
+            "No valid .md files to deploy",
+            "Use filenames ending in .md with safe characters.",
+        )
 
+    append_audit(
+        "seeds.deploy",
+        {"deployed": deployed_files, "count": len(deployed_files)},
+    )
     return 200, {
         "ok": True,
         "deployed": deployed_files,
@@ -835,7 +955,11 @@ def handle_post_process(body: dict):
     depth = body.get("anchor_depth", 3)
 
     if not content:
-        return 400, {"error": "Missing 'content' field"}
+        return 400, error_response(
+            "MISSING_CONTENT",
+            "Missing 'content' field",
+            "Provide a non-empty content field.",
+        )
 
     ensure_dirs()
 
@@ -845,6 +969,14 @@ def handle_post_process(body: dict):
     )
     original_path = FILES_DIR / f"original_{safe_name}"
     atomic_write(original_path, content)
+    append_audit(
+        "files.store_for_processing",
+        {
+            "filename": safe_name,
+            "tokens": estimate_tokens(content),
+            "anchor_depth": depth,
+        },
+    )
 
     return 200, {
         "ok": True,
@@ -960,7 +1092,11 @@ def handle_get_export():
     try:
         payload = _build_export_zip()
     except Exception:
-        return 500, {"error": "Failed to build export archive"}
+        return 500, error_response(
+            "EXPORT_BUILD_FAILED",
+            "Failed to build export archive",
+            "Retry and check file permissions in the data directory.",
+        )
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
     filename = f"memorable-export-{stamp}.zip"
@@ -971,10 +1107,11 @@ def handle_post_reset(body: dict):
     """POST /api/reset — wipe DATA_DIR contents after explicit confirmation."""
     token = str(body.get("confirmation_token", "")).strip()
     if token != "RESET":
-        return 400, {
-            "error": "Confirmation token mismatch",
-            "expected": "RESET",
-        }
+        return 400, error_response(
+            "CONFIRMATION_TOKEN_MISMATCH",
+            "Confirmation token mismatch",
+            "Send confirmation_token exactly as 'RESET'.",
+        )
 
     ensure_dirs()
     removed = []
@@ -995,12 +1132,17 @@ def handle_post_reset(body: dict):
     ensure_dirs()
 
     if failed:
-        return 500, {
-            "error": "Reset partially failed",
-            "removed": removed,
-            "failed": failed,
-        }
+        append_audit(
+            "data.reset.failed",
+            {"removed": removed, "failed": failed},
+        )
+        return 500, error_response(
+            "RESET_PARTIAL_FAILURE",
+            "Reset partially failed",
+            "Check file permissions in the data directory and retry.",
+        )
 
+    append_audit("data.reset", {"removed_count": len(removed)})
     return 200, {"ok": True, "removed_count": len(removed)}
 
 
@@ -1184,7 +1326,10 @@ class MemorableHandler(SimpleHTTPRequestHandler):
             status, data = handle_post_reset(body)
             return self.send_json(status, data)
 
-        self.send_json(404, {"error": "Not found"})
+        self.send_json(
+            404,
+            error_response("NOT_FOUND", "Not found", "Check the endpoint path and method."),
+        )
 
     def do_PUT(self):
         parsed = urlparse(self.path)
@@ -1197,7 +1342,10 @@ class MemorableHandler(SimpleHTTPRequestHandler):
             status, data = handle_put_file_depth(filename, body)
             return self.send_json(status, data)
 
-        self.send_json(404, {"error": "Not found"})
+        self.send_json(
+            404,
+            error_response("NOT_FOUND", "Not found", "Check the endpoint path and method."),
+        )
 
     def do_DELETE(self):
         parsed = urlparse(self.path)
@@ -1215,8 +1363,10 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                         file_path.unlink()
                         # Also delete .anchored companion
                         anchored = FILES_DIR / (safe + ".anchored")
+                        anchored_deleted = False
                         if anchored.is_file():
                             anchored.unlink()
+                            anchored_deleted = True
                         # Remove from context_files config
                         config = load_config()
                         cf = config.get("context_files", [])
@@ -1224,10 +1374,24 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                             f for f in cf if f.get("filename") != safe
                         ]
                         save_config(config)
+                        append_audit(
+                            "files.delete",
+                            {"filename": safe, "anchored_deleted": anchored_deleted},
+                        )
                         return self.send_json(200, {"ok": True, "deleted": safe})
-            return self.send_json(404, {"error": "File not found"})
+            return self.send_json(
+                404,
+                error_response(
+                    "FILE_NOT_FOUND",
+                    "File not found",
+                    "Check the filename and try again.",
+                ),
+            )
 
-        self.send_json(404, {"error": "Not found"})
+        self.send_json(
+            404,
+            error_response("NOT_FOUND", "Not found", "Check the endpoint path and method."),
+        )
 
     def serve_static(self, url_path: str):
         """Serve a file from the UI directory."""

@@ -25,8 +25,8 @@ from pathlib import Path
 
 DATA_DIR = Path.home() / ".memorable" / "data"
 FILES_DIR = DATA_DIR / "files"
-# LLM config lives in the old config location (where the API key is stored)
-LLM_CONFIG_PATH = Path.home() / ".memorable" / "config.json"
+LLM_CONFIG_PATH = DATA_DIR / "config.json"
+LEGACY_LLM_CONFIG_PATH = Path.home() / ".memorable" / "config.json"
 ERROR_LOG = Path.home() / ".memorable" / "hook-errors.log"
 
 CHARS_PER_TOKEN = 4
@@ -105,10 +105,16 @@ def estimate_tokens(text: str) -> int:
 
 
 def _load_llm_config() -> dict:
-    """Load LLM config from ~/.memorable/config.json."""
+    """Load LLM config from ~/.memorable/data/config.json."""
     try:
         if LLM_CONFIG_PATH.exists():
             return json.loads(LLM_CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    # Backward compatibility for older installs
+    try:
+        if LEGACY_LLM_CONFIG_PATH.exists():
+            return json.loads(LEGACY_LLM_CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
         pass
     return {}
@@ -118,8 +124,9 @@ def _load_llm_config() -> dict:
 
 
 def _call_deepseek(prompt: str, api_key: str, model: str = "deepseek-chat",
-                   max_tokens: int = 4096) -> str:
-    url = "https://api.deepseek.com/v1/chat/completions"
+                   max_tokens: int = 4096, endpoint: str | None = None) -> str:
+    base = (endpoint or "https://api.deepseek.com/v1").rstrip("/")
+    url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -170,13 +177,40 @@ def _call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5-20251
     return data["content"][0]["text"]
 
 
+def _resolve_provider(llm_cfg: dict) -> str:
+    explicit = (llm_cfg.get("provider") or "").strip().lower()
+    if explicit in ("deepseek", "gemini", "claude"):
+        return explicit
+
+    endpoint = (llm_cfg.get("endpoint") or "").lower()
+    model = (llm_cfg.get("model") or "").lower()
+
+    if "anthropic" in endpoint or model.startswith("claude"):
+        return "claude"
+    if "generativelanguage.googleapis.com" in endpoint or "gemini" in model:
+        return "gemini"
+    return "deepseek"
+
+
 def call_llm(prompt: str, max_tokens: int = 4096) -> str:
-    """Call the configured LLM provider. Reads config from ~/.memorable/config.json."""
+    """Call the configured LLM provider using current config schema."""
     cfg = _load_llm_config()
-    summarizer = cfg.get("summarizer", {})
-    provider = summarizer.get("provider", "deepseek")
-    model = summarizer.get("model")
-    api_key = summarizer.get("api_key", "")
+
+    # Current schema: llm_provider {endpoint, api_key, model}
+    llm_cfg = cfg.get("llm_provider", {})
+    # Backward compatibility schemas
+    if not isinstance(llm_cfg, dict) or not llm_cfg:
+        llm_cfg = cfg.get("llm", {})
+    if not isinstance(llm_cfg, dict) or not llm_cfg:
+        llm_cfg = cfg.get("summarizer", {})
+
+    if not isinstance(llm_cfg, dict):
+        llm_cfg = {}
+
+    provider = _resolve_provider(llm_cfg)
+    model = llm_cfg.get("model")
+    api_key = llm_cfg.get("api_key", "")
+    endpoint = llm_cfg.get("endpoint")
 
     if not api_key:
         if provider == "deepseek":
@@ -189,12 +223,18 @@ def call_llm(prompt: str, max_tokens: int = 4096) -> str:
 
     if not api_key:
         raise ValueError(
-            f"No API key for '{provider}'. Set summarizer.api_key in "
-            f"~/.memorable/config.json or use an environment variable."
+            f"No API key for '{provider}'. Set llm_provider.api_key in "
+            f"~/.memorable/data/config.json (llm_provider.api_key) or use an environment variable."
         )
 
     if provider == "deepseek":
-        return _call_deepseek(prompt, api_key, model or "deepseek-chat", max_tokens)
+        return _call_deepseek(
+            prompt,
+            api_key,
+            model or "deepseek-chat",
+            max_tokens,
+            endpoint=endpoint,
+        )
     elif provider == "gemini":
         return _call_gemini(prompt, api_key, model or "gemini-2.5-flash", max_tokens)
     elif provider == "claude":
@@ -391,7 +431,6 @@ def process_document_mechanical(text: str) -> str:
     Plus a generated ⚓0️⃣ fingerprint line.
     """
     lines = text.split("\n")
-    parts = []
 
     # Generate fingerprint (⚓0️⃣)
     first_heading = ""
@@ -406,61 +445,85 @@ def process_document_mechanical(text: str) -> str:
 
     tags = tags[:5]
     tag_str = ", ".join(tags) if tags else "untagged"
-    summary = first_heading or text.split("\n")[0].strip()[:80]
-    parts.append(f"{ANCHOR}{LEVEL_TAGS[0]} {tag_str} | {summary} {ANCHOR}\n")
+    first_nonblank = next((ln.strip() for ln in lines if ln.strip()), "")
+    summary = first_heading or first_nonblank[:80] or "No summary"
 
-    # Process the rest using heuristics
+    # First pass: assign a heuristic level to each line
+    annotated: list[AnnotatedLine] = []
     in_code_block = False
     after_heading = False
-    first_line = True
+    first_content_line = True
 
-    for line in lines:
+    for raw_line in lines:
+        line = raw_line.rstrip()
+
         if _is_code_fence(line):
             in_code_block = not in_code_block
-            parts.append(f"{ANCHOR}{LEVEL_TAGS[3]} {line} {ANCHOR} ")
+            annotated.append(AnnotatedLine(line, 3))
+            first_content_line = False
+            after_heading = False
             continue
+
         if in_code_block:
-            parts.append(f"{ANCHOR}{LEVEL_TAGS[3]} {line} {ANCHOR} ")
+            annotated.append(AnnotatedLine(line, 3))
             continue
+
         if _is_blank(line):
-            parts.append("\n")
+            annotated.append(AnnotatedLine("", 0))
             continue
 
         heading_level = _is_heading(line)
+        stripped = line.strip()
 
-        if heading_level == 1 or (first_line and heading_level == 0):
-            parts.append(f"{ANCHOR}{LEVEL_TAGS[1]} {line.strip()} ")
+        if heading_level == 1 or (first_content_line and heading_level == 0):
+            annotated.append(AnnotatedLine(stripped, 1))
             after_heading = True
-            first_line = False
+            first_content_line = False
             continue
 
-        first_line = False
+        first_content_line = False
 
         if heading_level >= 2:
-            # Close previous if needed
-            parts.append(f"{ANCHOR} {ANCHOR}{LEVEL_TAGS[1]} {line.strip()} ")
+            annotated.append(AnnotatedLine(stripped, 2))
             after_heading = True
             continue
 
         if after_heading:
-            parts.append(f"{line.strip()} ")
+            annotated.append(AnnotatedLine(stripped, 1))
             after_heading = False
             continue
 
-        if _has_bold(line):
-            parts.append(f"{ANCHOR}{LEVEL_TAGS[2]} {line.strip()} {ANCHOR} ")
+        if _has_bold(line) or _is_list_item(line):
+            annotated.append(AnnotatedLine(stripped, 2))
             continue
 
-        if _is_list_item(line):
-            parts.append(f"{ANCHOR}{LEVEL_TAGS[2]} {line.strip()} {ANCHOR} ")
+        annotated.append(AnnotatedLine(stripped, 3))
+
+    # Second pass: emit valid nested anchors using a level stack
+    parts = [f"{ANCHOR}{LEVEL_TAGS[0]} {tag_str}\n{summary} {ANCHOR}\n"]
+    open_levels: list[int] = []
+
+    def close_until(level: int):
+        while open_levels and open_levels[-1] > level:
+            open_levels.pop()
+            parts.append(f"{ANCHOR}\n")
+
+    for ann in annotated:
+        if ann.level == 0:
+            parts.append("\n")
             continue
 
-        parts.append(f"{ANCHOR}{LEVEL_TAGS[3]} {line.strip()} {ANCHOR} ")
+        close_until(ann.level)
+        if not open_levels or open_levels[-1] < ann.level:
+            parts.append(f"{ANCHOR}{LEVEL_TAGS[ann.level]} ")
+            open_levels.append(ann.level)
+        parts.append(f"{ann.text}\n")
 
-    # Close any open tags
-    parts.append(ANCHOR)
+    close_until(0)
 
-    return "".join(parts)
+    out = "".join(parts).strip() + "\n"
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out
 
 
 # -- High-level API --------------------------------------------------------

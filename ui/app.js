@@ -116,6 +116,7 @@
       'agent-name': true, 'traits': true, 'behaviors': true, 'avoid': true,
       'when-low': true, 'tech-style': true, 'agent-custom': true
     },
+    collapsedSections: {},
     user: {
       identity: { name: '', age: '', location: '', pronouns: '' },
       about: '',
@@ -977,7 +978,7 @@
         <div class="empty-state" style="padding:24px;">
           <div class="empty-state-icon">&#128221;</div>
           <h3>No session notes yet</h3>
-          <p>Notes will appear here as sessions are recorded by the daemon.</p>
+          <p>Notes will appear here as sessions are recorded by the <span title="Background process that watches sessions and auto-generates notes.">daemon</span>.</p>
         </div>
       `;
     }
@@ -1005,7 +1006,7 @@
         <div class="onboarding-card">
           <div class="onboarding-icon"><img src="logo.png" alt="Memorable" style="width:64px;height:64px;"></div>
           <h2>Welcome to Memorable</h2>
-          <p>Get started by creating your seed files. These tell Claude who you are and how to talk to you.</p>
+          <p>Get started by creating your <span title="Files that define who you are (user.md) and how the agent should behave (agent.md).">seed files</span>. These tell Claude who you are and how to talk to you.</p>
           <div class="onboarding-actions">
             <button class="btn btn-primary" onclick="window.memorableApp.navigateTo('configure')">Create Seeds</button>
             <button class="btn" onclick="window.memorableApp.navigateTo('settings')">Configure Settings</button>
@@ -1041,7 +1042,7 @@
               <span class="stat-dot ${daemonRunning ? 'stat-dot-active' : 'stat-dot-inactive'}"></span>
               ${daemonRunning ? 'Active' : 'Inactive'}
             </div>
-            <div class="stat-label">Daemon</div>
+            <div class="stat-label" title="Background process that watches sessions and auto-generates notes.">Daemon</div>
           </div>
         </div>
 
@@ -1109,8 +1110,8 @@
       apiFetch('/api/notes/tags'),
       apiFetch('/api/machines'),
     ]);
-    notesState.tags = (tagsData && tagsData.tags) || [];
-    notesState.machines = (machinesData && machinesData.machines) || [];
+    notesState.tags = Array.isArray(tagsData && tagsData.tags) ? tagsData.tags : [];
+    notesState.machines = Array.isArray(machinesData && machinesData.machines) ? machinesData.machines : [];
 
     // Fetch first page of notes
     await fetchNotesPage(false);
@@ -1133,11 +1134,12 @@
     const data = await apiFetch('/api/notes?' + params);
     if (!data) return;
 
-    notesState.total = data.total;
+    const notes = Array.isArray(data.notes) ? data.notes : [];
+    notesState.total = Number.isFinite(data.total) ? data.total : notes.length;
     if (append) {
-      notesState.notes = notesState.notes.concat(data.notes);
+      notesState.notes = notesState.notes.concat(notes);
     } else {
-      notesState.notes = data.notes;
+      notesState.notes = notes;
     }
     notesState.offset = notesState.notes.length;
   }
@@ -1236,7 +1238,7 @@
         <div class="notes-empty">
           <div class="notes-empty-icon">&#128221;</div>
           <h3>${ns.search || ns.tag ? 'No notes match your filters' : 'No session notes yet'}</h3>
-          <p>${ns.search || ns.tag ? 'Try a different search term or tag.' : 'Notes will appear here as sessions are recorded by the daemon.'}</p>
+          <p>${ns.search || ns.tag ? 'Try a different search term or tag.' : 'Notes will appear here as sessions are recorded by the '}<span title="Background process that watches sessions and auto-generates notes.">daemon</span>.</p>
         </div>
       `;
     }
@@ -1266,7 +1268,7 @@
           <div class="notes-sort">
             <button class="notes-sort-btn ${ns.sort === 'date' ? 'active' : ''}" data-sort="date">Newest</button>
             <button class="notes-sort-btn ${ns.sort === 'date_asc' ? 'active' : ''}" data-sort="date_asc">Oldest</button>
-            <button class="notes-sort-btn ${ns.sort === 'salience' ? 'active' : ''}" data-sort="salience">Salience</button>
+            <button class="notes-sort-btn ${ns.sort === 'salience' ? 'active' : ''}" data-sort="salience" title="How relevant/important a note is. Higher salience notes are more likely to be loaded.">Salience</button>
           </div>
         </div>
         <div class="notes-list">
@@ -1417,7 +1419,7 @@
         <div class="notes-empty">
           <div class="notes-empty-icon">&#128203;</div>
           <h3>No working memory yet</h3>
-          <p>The now.md file will be created automatically by the daemon as sessions are processed.</p>
+          <p>The now.md file will be created automatically by the <span title="Background process that watches sessions and auto-generates notes.">daemon</span> as sessions are processed.</p>
         </div>
       `;
       return;
@@ -1443,8 +1445,8 @@
       apiFetch('/api/seeds'),
     ]);
 
-    const files = (filesData && filesData.files) ? filesData.files : [];
-    const seedFiles = (seedsData && seedsData.files) ? seedsData.files : {};
+    const files = Array.isArray(filesData && filesData.files) ? filesData.files : [];
+    const seedFiles = (seedsData && typeof seedsData.files === 'object' && seedsData.files) ? seedsData.files : {};
     const seedNames = Object.keys(seedFiles).filter(n => n !== 'now.md').sort();
 
     // Identity files section (seeds)
@@ -1799,7 +1801,7 @@
           <div class="settings-section">
             <div class="settings-section-header">
               <div class="settings-section-icon sand">&#9672;</div>
-              <h3>Daemon</h3>
+              <h3 title="Background process that watches sessions and auto-generates notes.">Daemon</h3>
             </div>
             <div class="settings-section-body">
               <div class="settings-row">
@@ -2194,8 +2196,8 @@
               <span class="file-meta-value">${formatTokens(tokens)}</span>
             </div>
             <div class="file-meta-item">
-              <span class="file-meta-label">Anchor Depth</span>
-              <select data-file-depth="${activeFile.id}" class="file-meta-value">
+              <span class="file-meta-label" title="How much detail to include when loading this document. Higher depth uses more tokens.">Anchor Depth</span>
+              <select data-file-depth="${activeFile.id}" class="file-meta-value" title="How much detail to include when loading this document. Higher depth uses more tokens.">
                 ${ANCHOR_DEPTHS.map(d => `<option value="${d.key}" ${(activeFile.anchorDepth || 'full') === d.key ? 'selected' : ''}>${d.label} &mdash; ${d.desc}</option>`).join('')}
               </select>
             </div>
@@ -2390,17 +2392,18 @@
     fetch('/api/budget')
       .then(r => r.json())
       .then(data => {
-        const total = data.used;
-        const maxTokens = data.budget;
+        const breakdown = Array.isArray(data && data.breakdown) ? data.breakdown : [];
+        const total = Number.isFinite(data && data.used) ? data.used : 0;
+        const maxTokens = Number.isFinite(data && data.budget) && data.budget > 0 ? data.budget : 1;
         const pct = (n) => Math.max(0, Math.min(100, (n / maxTokens) * 100));
         const expanded = state.tokenBudgetExpanded;
 
-        const seeds = data.breakdown.filter(b => b.type === 'seed');
-        const semantics = data.breakdown.filter(b => b.type === 'semantic');
+        const seeds = breakdown.filter(b => b && b.type === 'seed');
+        const semantics = breakdown.filter(b => b && b.type === 'semantic');
         const seedTokens = seeds.reduce((s, b) => s + b.tokens, 0);
         const semanticTokens = semantics.reduce((s, b) => s + b.tokens, 0);
 
-        const detailRows = data.breakdown.map(b => {
+        const detailRows = breakdown.map(b => {
           const icon = b.type === 'seed' ? '&#128203;' : '&#9875;';
           const depthLabel = b.type === 'semantic' && b.depth !== undefined
             ? `<span class="depth-badge">depth ${b.depth}</span>` : '';
@@ -2468,8 +2471,9 @@
   function renderSection(id, title, subtitle, colorClass, icon, body, emptyHint) {
     const enabled = state.enabledSections[id] !== false;
     const disabledClass = enabled ? '' : 'section-disabled';
+    const collapsedClass = state.collapsedSections[id] ? 'collapsed' : '';
     return `
-      <div class="section ${disabledClass}" id="section-${id}">
+      <div class="section ${disabledClass} ${collapsedClass}" id="section-${id}">
         <div class="section-header">
           <div class="section-header-left" onclick="window.seedApp.toggleSection('section-${id}')">
             <div class="section-icon ${colorClass}">${icon}</div>
@@ -3750,6 +3754,22 @@
     }
   }
 
+  function bindStorageSync() {
+    window.addEventListener('storage', (e) => {
+      if (e.key !== 'seedConfigurator' || !e.newValue) return;
+
+      try {
+        const parsed = JSON.parse(e.newValue);
+        deepMerge(state, parsed);
+        migrateState();
+        render();
+        showToast('Synced changes from another tab', '');
+      } catch (err) {
+        console.warn('Failed to sync storage event:', err);
+      }
+    });
+  }
+
   // ---- Migrate old state format ----
   // If someone loads with old format (cognitive as flat booleans, communication as flat booleans, etc.),
   // we migrate to the new arrays+active format.
@@ -3836,6 +3856,9 @@
     if (!state.enabledSections) {
       state.enabledSections = {};
     }
+    if (!state.collapsedSections || typeof state.collapsedSections !== 'object') {
+      state.collapsedSections = {};
+    }
     const allSections = ['identity', 'about', 'cognitive', 'values', 'communication', 'people', 'projects', 'user-custom', 'agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'];
     allSections.forEach(id => {
       if (state.enabledSections[id] === undefined) state.enabledSections[id] = true;
@@ -3867,6 +3890,9 @@
       const el = document.getElementById(id);
       if (el && !el.classList.contains('section-disabled')) {
         el.classList.toggle('collapsed');
+        const sectionId = id.startsWith('section-') ? id.slice('section-'.length) : id;
+        state.collapsedSections[sectionId] = el.classList.contains('collapsed');
+        debouncedSave();
       }
     },
 
@@ -3965,6 +3991,7 @@
   async function init() {
     loadFromLocalStorage();
     migrateState();
+    bindStorageSync();
     bindSidebarNav();
     render();
 
