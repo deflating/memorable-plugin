@@ -8,6 +8,7 @@ ceiling: the most recent notes are always included regardless of salience.
 """
 
 import json
+import hashlib
 import platform
 import re
 import sys
@@ -15,9 +16,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 BASE_DIR = Path.home() / ".memorable"
-SEEDS_DIR = BASE_DIR / "data" / "seeds"
-FILES_DIR = BASE_DIR / "data" / "files"
-CONFIG_PATH = BASE_DIR / "data" / "config.json"
+DATA_DIR = BASE_DIR / "data"
+SEEDS_DIR = DATA_DIR / "seeds"
+FILES_DIR = DATA_DIR / "files"
+CONFIG_PATH = DATA_DIR / "config.json"
+NOTE_USAGE_PATH = DATA_DIR / "note_usage.json"
+CURRENT_LOADED_NOTES_PATH = DATA_DIR / "current_loaded_notes.json"
 
 ANCHOR = "\u2693"
 _ANCHOR_RE = re.compile(ANCHOR + r"([0-3]\ufe0f\u20e3)?")
@@ -161,7 +165,7 @@ def collect_files(config: dict) -> list[str]:
     return paths
 
 
-def _effective_salience(entry: dict) -> float:
+def _effective_salience(entry: dict, usage_notes: dict | None = None) -> float:
     """Calculate effective salience with decay + density + actionability."""
     try:
         salience = float(entry.get("salience", 1.0))
@@ -190,7 +194,11 @@ def _effective_salience(entry: dict) -> float:
     density_mult = _information_density_multiplier(entry)
     actionability_mult = _actionability_multiplier(entry)
     context_mult = _time_machine_context_multiplier(entry)
-    return max(MIN_SALIENCE, base * density_mult * actionability_mult * context_mult)
+    reference_mult = _reference_effectiveness_multiplier(entry, usage_notes or {})
+    return max(
+        MIN_SALIENCE,
+        base * density_mult * actionability_mult * context_mult * reference_mult,
+    )
 
 
 def _note_text(entry: dict) -> str:
@@ -287,6 +295,121 @@ def _time_machine_context_multiplier(entry: dict) -> float:
     return 0.95 + hour_boost + machine_boost
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _note_key(entry: dict) -> str:
+    """Stable key used for tracking load/reference effectiveness."""
+    session = str(entry.get("session", "")).strip()
+    ts = _note_timestamp(entry)
+    if session:
+        return f"{session}|{ts}"
+    digest = hashlib.sha1(_note_text(entry).encode("utf-8")).hexdigest()[:12]
+    return f"{ts}|{digest}"
+
+
+def _load_note_usage() -> dict:
+    """Load note usage counters from disk."""
+    try:
+        if NOTE_USAGE_PATH.exists():
+            data = json.loads(NOTE_USAGE_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("notes"), dict):
+                return data
+    except Exception:
+        pass
+    return {"notes": {}}
+
+
+def _save_note_usage(data: dict):
+    """Persist note usage counters to disk (best effort)."""
+    try:
+        NOTE_USAGE_PATH.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _reference_effectiveness_multiplier(entry: dict, usage_notes: dict) -> float:
+    """Boost notes that are consistently referenced after being loaded."""
+    rec = usage_notes.get(_note_key(entry))
+    if not isinstance(rec, dict):
+        return 1.0
+
+    try:
+        loaded = int(rec.get("loaded_count", 0))
+    except (TypeError, ValueError):
+        loaded = 0
+    try:
+        referenced = int(rec.get("referenced_count", 0))
+    except (TypeError, ValueError):
+        referenced = 0
+
+    if loaded < 3:
+        return 1.0
+
+    ratio = 0.0 if loaded <= 0 else max(0.0, min(1.0, referenced / float(loaded)))
+    # 0.85x (rarely referenced) .. 1.25x (consistently referenced)
+    return 0.85 + (0.4 * ratio)
+
+
+def _record_loaded_notes(selected_entries: list[dict], usage_data: dict):
+    """Record which notes were loaded this session and increment load counts."""
+    usage_notes = usage_data.setdefault("notes", {})
+    now_iso = _utc_now_iso()
+    by_key = {}
+
+    for entry in selected_entries:
+        key = _note_key(entry)
+        session = str(entry.get("session", "")).strip()
+        tags = entry.get("topic_tags", [])
+        if not isinstance(tags, list):
+            tags = []
+        tags = [str(t).strip() for t in tags if str(t).strip()]
+
+        by_key[key] = {
+            "key": key,
+            "session": session,
+            "session_short": session[:8],
+            "tags": tags,
+        }
+
+        rec = usage_notes.setdefault(
+            key,
+            {
+                "loaded_count": 0,
+                "referenced_count": 0,
+                "first_loaded": now_iso,
+            },
+        )
+        rec["loaded_count"] = int(rec.get("loaded_count", 0)) + 1
+        rec["last_loaded"] = now_iso
+        rec["session"] = session
+        rec["session_short"] = session[:8]
+        rec["tags"] = tags
+        rec["timestamp"] = _note_timestamp(entry)
+
+    _save_note_usage(usage_data)
+
+    # Write currently loaded notes for UserPromptSubmit matching.
+    try:
+        CURRENT_LOADED_NOTES_PATH.write_text(
+            json.dumps(
+                {
+                    "updated_at": now_iso,
+                    "notes": list(by_key.values()),
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
 def _note_timestamp(entry: dict) -> str:
     """Get the best timestamp for recency sorting."""
     return entry.get("first_ts", entry.get("ts", ""))
@@ -317,6 +440,9 @@ def _select_notes(entries: list[dict]) -> list[tuple[float, dict]]:
     if not entries:
         return []
 
+    usage_data = _load_note_usage()
+    usage_notes = usage_data.get("notes", {})
+
     # Sort by timestamp descending to find most recent
     by_recency = sorted(entries, key=lambda e: _note_timestamp(e), reverse=True)
 
@@ -326,7 +452,7 @@ def _select_notes(entries: list[dict]) -> list[tuple[float, dict]]:
 
     # Score all remaining notes by salience
     remaining = [e for e in entries if e.get("session", "") not in recent_sessions]
-    scored_remaining = [(_effective_salience(e), e) for e in remaining]
+    scored_remaining = [(_effective_salience(e, usage_notes), e) for e in remaining]
     scored_remaining.sort(key=lambda x: x[0], reverse=True)
 
     # Fill remaining budget with highest-salience notes
@@ -334,11 +460,12 @@ def _select_notes(entries: list[dict]) -> list[tuple[float, dict]]:
     top_by_salience = scored_remaining[:budget]
 
     # Combine: recent notes (scored) + salience notes
-    result = [(_effective_salience(e), e) for e in recent]
+    result = [(_effective_salience(e, usage_notes), e) for e in recent]
     result.extend(top_by_salience)
 
     # Sort final list by salience descending for display
     result.sort(key=lambda x: x[0], reverse=True)
+    _record_loaded_notes([entry for _, entry in result], usage_data)
     return result
 
 
