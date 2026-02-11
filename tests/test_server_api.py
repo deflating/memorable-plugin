@@ -19,12 +19,16 @@ class ServerApiTests(unittest.TestCase):
     def setUp(self):
         self.orig_notes_dir = server_api.NOTES_DIR
         self.orig_files_dir = server_api.FILES_DIR
+        self.orig_sessions_dir = server_api.SESSIONS_DIR
+        self.orig_seeds_dir = server_api.SEEDS_DIR
         self.orig_note_usage_path = server_api.NOTE_USAGE_PATH
         self.orig_load_config = server_api.load_config
 
     def tearDown(self):
         server_api.NOTES_DIR = self.orig_notes_dir
         server_api.FILES_DIR = self.orig_files_dir
+        server_api.SESSIONS_DIR = self.orig_sessions_dir
+        server_api.SEEDS_DIR = self.orig_seeds_dir
         server_api.NOTE_USAGE_PATH = self.orig_note_usage_path
         server_api.load_config = self.orig_load_config
 
@@ -87,6 +91,45 @@ class ServerApiTests(unittest.TestCase):
         status, data = server_api.handle_post_file_upload(handler)
         self.assertEqual(400, status)
         self.assertEqual("INVALID_JSON_OBJECT", data["error"]["code"])
+
+    def test_handle_post_file_upload_rejects_negative_content_length(self):
+        handler = SimpleNamespace(
+            headers={"Content-Type": "application/json", "Content-Length": "-1"},
+            rfile=io.BytesIO(b"{}"),
+        )
+
+        status, data = server_api.handle_post_file_upload(handler)
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_CONTENT_LENGTH", data["error"]["code"])
+
+    def test_handle_post_file_upload_rejects_non_string_json_content(self):
+        body = b'{"filename":"x.md","content":123}'
+        handler = SimpleNamespace(
+            headers={
+                "Content-Type": "application/json",
+                "Content-Length": str(len(body)),
+            },
+            rfile=io.BytesIO(body),
+        )
+
+        status, data = server_api.handle_post_file_upload(handler)
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_UPLOAD_FIELDS_TYPE", data["error"]["code"])
+
+    def test_handle_post_seeds_rejects_non_string_content(self):
+        status, data = server_api.handle_post_seeds({"files": {"user.md": 123}})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_FILE_CONTENT", data["error"]["code"])
+
+    def test_handle_post_deploy_rejects_non_string_content(self):
+        status, data = server_api.handle_post_deploy({"files": {"user.md": 123}})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_FILE_CONTENT", data["error"]["code"])
+
+    def test_handle_post_process_rejects_non_string_content(self):
+        status, data = server_api.handle_post_process({"filename": "doc.md", "content": 123})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_CONTENT_TYPE", data["error"]["code"])
 
     def test_import_zip_rejects_unsafe_member_paths(self):
         payload = io.BytesIO()
@@ -162,6 +205,47 @@ class ServerApiTests(unittest.TestCase):
             self.assertEqual(200, status)
             self.assertEqual(1, data["total"])
             self.assertEqual("abcdef123456", data["notes"][0]["session"])
+
+    def test_handle_get_notes_negative_offset_is_clamped(self):
+        with tempfile.TemporaryDirectory() as td:
+            notes_dir = Path(td)
+            notes_file = notes_dir / "notes.jsonl"
+            rows = [
+                {"ts": "2026-01-01T00:00:00Z", "session": "a", "note": "alpha", "topic_tags": []},
+                {"ts": "2026-01-02T00:00:00Z", "session": "b", "note": "beta", "topic_tags": []},
+            ]
+            with notes_file.open("w", encoding="utf-8") as fh:
+                for row in rows:
+                    fh.write(json.dumps(row) + "\n")
+
+            server_api.NOTES_DIR = notes_dir
+            status, data = server_api.handle_get_notes({"offset": ["-9"]})
+            self.assertEqual(200, status)
+            self.assertEqual(2, data["total"])
+            self.assertEqual(2, len(data["notes"]))
+
+    def test_handle_get_status_file_count_ignores_internal_artifacts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            files_dir = root / "files"
+            notes_dir = root / "notes"
+            sessions_dir = root / "sessions"
+            seeds_dir = root / "seeds"
+            for d in (files_dir, notes_dir, sessions_dir, seeds_dir):
+                d.mkdir(parents=True, exist_ok=True)
+
+            (files_dir / "doc.md").write_text("hello", encoding="utf-8")
+            (files_dir / "doc.md.anchored").write_text("anchored", encoding="utf-8")
+            (files_dir / ".cache-doc-depth1.md").write_text("cache", encoding="utf-8")
+
+            server_api.FILES_DIR = files_dir
+            server_api.NOTES_DIR = notes_dir
+            server_api.SESSIONS_DIR = sessions_dir
+            server_api.SEEDS_DIR = seeds_dir
+
+            status, data = server_api.handle_get_status()
+            self.assertEqual(200, status)
+            self.assertEqual(1, data["file_count"])
 
 
 if __name__ == "__main__":

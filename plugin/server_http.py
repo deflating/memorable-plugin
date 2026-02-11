@@ -115,6 +115,15 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                     "Send a valid numeric Content-Length header.",
                 ),
             )
+        if length < 0:
+            return None, (
+                400,
+                error_response(
+                    "INVALID_CONTENT_LENGTH",
+                    "Invalid Content-Length header",
+                    "Send a non-negative Content-Length header.",
+                ),
+            )
         if length == 0:
             return {}, None
         if length > MAX_UPLOAD_SIZE:

@@ -1,9 +1,11 @@
 import http.client
+import io
 import json
 import sys
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_DIR = REPO_ROOT / "plugin"
@@ -74,6 +76,19 @@ class ServerHttpBodyValidationTests(unittest.TestCase):
         status, payload = self._get_json("/api/memory/insights")
         self.assertEqual(200, status)
         self.assertIn("tracked_notes", payload)
+
+    def test_read_body_rejects_negative_content_length(self):
+        handler = SimpleNamespace(
+            headers={"Content-Length": "-5"},
+            rfile=io.BytesIO(b""),
+        )
+
+        body, err = server_http.MemorableHandler.read_body(handler)
+        self.assertIsNone(body)
+        self.assertIsNotNone(err)
+        status, payload = err
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_CONTENT_LENGTH", payload["error"]["code"])
 
 
 if __name__ == "__main__":

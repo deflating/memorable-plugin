@@ -62,6 +62,11 @@ NOTE_USAGE_PATH = DATA_DIR / "note_usage.json"
 # -- Notes -----------------------------------------------------------------
 
 
+def _is_internal_context_artifact(filename: str) -> bool:
+    """Return True for internal helper files in the context directory."""
+    return filename.endswith(".anchored") or filename.startswith(".cache-")
+
+
 def _normalize_note(obj: dict) -> dict:
     """Map raw JSONL note fields to the shape the UI expects.
 
@@ -331,7 +336,10 @@ def handle_get_notes(query_params: dict):
     offset_str = query_params.get("offset", [None])[0]
     if offset_str:
         try:
-            notes = notes[int(offset_str):]
+            offset = int(offset_str)
+            if offset < 0:
+                offset = 0
+            notes = notes[offset:]
         except ValueError:
             pass
 
@@ -339,7 +347,10 @@ def handle_get_notes(query_params: dict):
     limit_str = query_params.get("limit", [None])[0]
     if limit_str:
         try:
-            notes = notes[:int(limit_str)]
+            limit = int(limit_str)
+            if limit < 0:
+                limit = 0
+            notes = notes[:limit]
         except ValueError:
             pass
 
@@ -472,6 +483,15 @@ def handle_post_seeds(body: dict):
     written = []
 
     for filename, content in files.items():
+        if not isinstance(filename, str):
+            continue
+        if not isinstance(content, str):
+            return 400, error_response(
+                "INVALID_FILE_CONTENT",
+                f"Content for {filename!r} must be text",
+                "Send UTF-8 string content for each seed file.",
+            )
+
         # Sanitize filename
         safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
         if not safe or not safe.endswith(".md"):
@@ -644,7 +664,11 @@ def handle_get_status():
     # File count
     file_count = 0
     if FILES_DIR.is_dir():
-        file_count = sum(1 for f in FILES_DIR.iterdir() if f.is_file())
+        file_count = sum(
+            1
+            for f in FILES_DIR.iterdir()
+            if f.is_file() and not _is_internal_context_artifact(f.name)
+        )
 
     return 200, {
         "total_notes": note_count,
@@ -807,7 +831,7 @@ def handle_get_files():
         if not f.is_file():
             continue
         # Skip internal helper artifacts.
-        if f.name.endswith(".anchored") or f.name.startswith(".cache-"):
+        if _is_internal_context_artifact(f.name):
             continue
         try:
             stat = f.stat()
@@ -873,6 +897,12 @@ def handle_post_file_upload(handler):
             "Invalid Content-Length header",
             "Send a valid numeric Content-Length header.",
         )
+    if length < 0:
+        return 400, error_response(
+            "INVALID_CONTENT_LENGTH",
+            "Invalid Content-Length header",
+            "Send a non-negative Content-Length header.",
+        )
 
     if "application/json" in content_type:
         if length == 0:
@@ -905,6 +935,13 @@ def handle_post_file_upload(handler):
 
         filename = body.get("filename", "")
         content = body.get("content", "")
+
+        if not isinstance(filename, str) or not isinstance(content, str):
+            return 400, error_response(
+                "INVALID_UPLOAD_FIELDS_TYPE",
+                "'filename' and 'content' must be strings",
+                "Send JSON with string values for both filename and content.",
+            )
 
         if not filename or not content:
             return 400, error_response(
@@ -1111,6 +1148,15 @@ def handle_post_deploy(body: dict):
     deployed_files = []
 
     for filename, content in files.items():
+        if not isinstance(filename, str):
+            continue
+        if not isinstance(content, str):
+            return 400, error_response(
+                "INVALID_FILE_CONTENT",
+                f"Content for {filename!r} must be text",
+                "Send UTF-8 string content for each seed file.",
+            )
+
         safe = "".join(
             c for c in filename if c.isalnum() or c in "-_."
         ).strip()
@@ -1160,6 +1206,19 @@ def handle_post_process(body: dict):
     content = body.get("content", "")
     filename = body.get("filename", "document.md")
     depth = body.get("anchor_depth", 3)
+
+    if not isinstance(content, str):
+        return 400, error_response(
+            "INVALID_CONTENT_TYPE",
+            "'content' must be a string",
+            "Send content as UTF-8 text.",
+        )
+    if not isinstance(filename, str):
+        return 400, error_response(
+            "INVALID_FILENAME_TYPE",
+            "'filename' must be a string",
+            "Send filename as a string.",
+        )
 
     if not content:
         return 400, error_response(
