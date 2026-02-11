@@ -74,9 +74,9 @@ svg { vertical-align: middle; flex-shrink: 0; }
   --transition-slow: 400ms ease;
 
   /* Typography */
-  --font-heading: 'Lora', Georgia, 'Times New Roman', serif;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --font-heading: 'New York', ui-serif, Georgia, 'Times New Roman', serif;
+  --font-body: 'Avenir Next', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
 
   /* Top Nav */
   --nav-height: 56px;
