@@ -16,7 +16,7 @@ import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse, unquote
 
@@ -1252,7 +1252,7 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
 def run(port: int = DEFAULT_PORT):
     ensure_dirs()
-    server = HTTPServer(("127.0.0.1", port), MemorableHandler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), MemorableHandler)
     print(f"Memorable running at http://localhost:{port}")
     print(f"Data directory: {DATA_DIR}")
     try:
