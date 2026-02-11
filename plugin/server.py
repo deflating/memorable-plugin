@@ -39,6 +39,7 @@ NOTES_DIR = DATA_DIR / "notes"
 SESSIONS_DIR = DATA_DIR / "sessions"
 FILES_DIR = DATA_DIR / "files"
 CONFIG_PATH = DATA_DIR / "config.json"
+AUDIT_LOG_PATH = DATA_DIR / "audit.log"
 
 UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
@@ -96,6 +97,21 @@ def save_config(config: dict):
 
 def estimate_tokens(text: str) -> int:
     return len(text) // CHARS_PER_TOKEN
+
+
+def append_audit(event: str, details: dict | None = None):
+    """Append a JSONL audit event. Best-effort only."""
+    try:
+        ensure_dirs()
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "event": event,
+            "details": details or {},
+        }
+        with AUDIT_LOG_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        pass
 
 
 # -- Notes -----------------------------------------------------------------
@@ -348,6 +364,7 @@ def handle_post_seeds(body: dict):
     if not written:
         return 400, {"error": "No valid .md files to write"}
 
+    append_audit("seeds.write", {"written": written, "count": len(written)})
     return 200, {"ok": True, "written": written}
 
 
@@ -384,6 +401,7 @@ def handle_post_settings(body: dict):
         config["data_dir"] = body["data_dir"]
 
     save_config(config)
+    append_audit("settings.update", {"changed_keys": sorted(list(body.keys()))})
     return 200, {"ok": True, "settings": config}
 
 
@@ -642,6 +660,10 @@ def handle_post_file_upload(handler):
 
         path = FILES_DIR / safe
         path.write_text(content, encoding="utf-8")
+        append_audit(
+            "files.upload",
+            {"filename": safe, "size_bytes": len(content), "mode": "json"},
+        )
 
         return 200, {
             "ok": True,
@@ -670,6 +692,10 @@ def handle_post_file_upload(handler):
 
         path = FILES_DIR / safe
         path.write_bytes(raw)
+        append_audit(
+            "files.upload",
+            {"filename": safe, "size_bytes": len(raw), "mode": "raw"},
+        )
 
         tokens = 0
         try:
@@ -695,6 +721,14 @@ def handle_process_file(filename: str):
         return 400, {"error": "Invalid filename"}
 
     result = _process_file(safe, force=True)
+    append_audit(
+        "files.process",
+        {
+            "filename": safe,
+            "status": result.get("status"),
+            "method": result.get("method"),
+        },
+    )
     return 200, result
 
 
@@ -767,6 +801,10 @@ def handle_put_file_depth(filename: str, body: dict):
 
     config["context_files"] = context_files
     save_config(config)
+    append_audit(
+        "files.depth.update",
+        {"filename": safe, "depth": depth, "enabled": enabled},
+    )
 
     return 200, {"ok": True, "filename": safe, "depth": depth, "enabled": enabled}
 
@@ -808,6 +846,10 @@ def handle_post_deploy(body: dict):
     if not deployed_files:
         return 400, {"error": "No valid .md files to deploy"}
 
+    append_audit(
+        "seeds.deploy",
+        {"deployed": deployed_files, "count": len(deployed_files)},
+    )
     return 200, {
         "ok": True,
         "deployed": deployed_files,
@@ -835,6 +877,14 @@ def handle_post_process(body: dict):
     )
     original_path = FILES_DIR / f"original_{safe_name}"
     original_path.write_text(content, encoding="utf-8")
+    append_audit(
+        "files.store_for_processing",
+        {
+            "filename": safe_name,
+            "tokens": estimate_tokens(content),
+            "anchor_depth": depth,
+        },
+    )
 
     return 200, {
         "ok": True,
@@ -985,12 +1035,17 @@ def handle_post_reset(body: dict):
     ensure_dirs()
 
     if failed:
+        append_audit(
+            "data.reset.failed",
+            {"removed": removed, "failed": failed},
+        )
         return 500, {
             "error": "Reset partially failed",
             "removed": removed,
             "failed": failed,
         }
 
+    append_audit("data.reset", {"removed_count": len(removed)})
     return 200, {"ok": True, "removed_count": len(removed)}
 
 
@@ -1205,8 +1260,10 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                         file_path.unlink()
                         # Also delete .anchored companion
                         anchored = FILES_DIR / (safe + ".anchored")
+                        anchored_deleted = False
                         if anchored.is_file():
                             anchored.unlink()
+                            anchored_deleted = True
                         # Remove from context_files config
                         config = load_config()
                         cf = config.get("context_files", [])
@@ -1214,6 +1271,10 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                             f for f in cf if f.get("filename") != safe
                         ]
                         save_config(config)
+                        append_audit(
+                            "files.delete",
+                            {"filename": safe, "anchored_deleted": anchored_deleted},
+                        )
                         return self.send_json(200, {"ok": True, "deleted": safe})
             return self.send_json(404, {"error": "File not found"})
 
