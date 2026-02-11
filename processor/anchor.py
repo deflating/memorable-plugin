@@ -424,7 +424,6 @@ def process_document_mechanical(text: str) -> str:
     Plus a generated ⚓0️⃣ fingerprint line.
     """
     lines = text.split("\n")
-    parts = []
 
     # Generate fingerprint (⚓0️⃣)
     first_heading = ""
@@ -439,61 +438,85 @@ def process_document_mechanical(text: str) -> str:
 
     tags = tags[:5]
     tag_str = ", ".join(tags) if tags else "untagged"
-    summary = first_heading or text.split("\n")[0].strip()[:80]
-    parts.append(f"{ANCHOR}{LEVEL_TAGS[0]} {tag_str} | {summary} {ANCHOR}\n")
+    first_nonblank = next((ln.strip() for ln in lines if ln.strip()), "")
+    summary = first_heading or first_nonblank[:80] or "No summary"
 
-    # Process the rest using heuristics
+    # First pass: assign a heuristic level to each line
+    annotated: list[AnnotatedLine] = []
     in_code_block = False
     after_heading = False
-    first_line = True
+    first_content_line = True
 
-    for line in lines:
+    for raw_line in lines:
+        line = raw_line.rstrip()
+
         if _is_code_fence(line):
             in_code_block = not in_code_block
-            parts.append(f"{ANCHOR}{LEVEL_TAGS[3]} {line} {ANCHOR} ")
+            annotated.append(AnnotatedLine(line, 3))
+            first_content_line = False
+            after_heading = False
             continue
+
         if in_code_block:
-            parts.append(f"{ANCHOR}{LEVEL_TAGS[3]} {line} {ANCHOR} ")
+            annotated.append(AnnotatedLine(line, 3))
             continue
+
         if _is_blank(line):
-            parts.append("\n")
+            annotated.append(AnnotatedLine("", 0))
             continue
 
         heading_level = _is_heading(line)
+        stripped = line.strip()
 
-        if heading_level == 1 or (first_line and heading_level == 0):
-            parts.append(f"{ANCHOR}{LEVEL_TAGS[1]} {line.strip()} ")
+        if heading_level == 1 or (first_content_line and heading_level == 0):
+            annotated.append(AnnotatedLine(stripped, 1))
             after_heading = True
-            first_line = False
+            first_content_line = False
             continue
 
-        first_line = False
+        first_content_line = False
 
         if heading_level >= 2:
-            # Close previous if needed
-            parts.append(f"{ANCHOR} {ANCHOR}{LEVEL_TAGS[1]} {line.strip()} ")
+            annotated.append(AnnotatedLine(stripped, 2))
             after_heading = True
             continue
 
         if after_heading:
-            parts.append(f"{line.strip()} ")
+            annotated.append(AnnotatedLine(stripped, 1))
             after_heading = False
             continue
 
-        if _has_bold(line):
-            parts.append(f"{ANCHOR}{LEVEL_TAGS[2]} {line.strip()} {ANCHOR} ")
+        if _has_bold(line) or _is_list_item(line):
+            annotated.append(AnnotatedLine(stripped, 2))
             continue
 
-        if _is_list_item(line):
-            parts.append(f"{ANCHOR}{LEVEL_TAGS[2]} {line.strip()} {ANCHOR} ")
+        annotated.append(AnnotatedLine(stripped, 3))
+
+    # Second pass: emit valid nested anchors using a level stack
+    parts = [f"{ANCHOR}{LEVEL_TAGS[0]} {tag_str}\n{summary} {ANCHOR}\n"]
+    open_levels: list[int] = []
+
+    def close_until(level: int):
+        while open_levels and open_levels[-1] > level:
+            open_levels.pop()
+            parts.append(f"{ANCHOR}\n")
+
+    for ann in annotated:
+        if ann.level == 0:
+            parts.append("\n")
             continue
 
-        parts.append(f"{ANCHOR}{LEVEL_TAGS[3]} {line.strip()} {ANCHOR} ")
+        close_until(ann.level)
+        if not open_levels or open_levels[-1] < ann.level:
+            parts.append(f"{ANCHOR}{LEVEL_TAGS[ann.level]} ")
+            open_levels.append(ann.level)
+        parts.append(f"{ann.text}\n")
 
-    # Close any open tags
-    parts.append(ANCHOR)
+    close_until(0)
 
-    return "".join(parts)
+    out = "".join(parts).strip() + "\n"
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out
 
 
 # -- High-level API --------------------------------------------------------
