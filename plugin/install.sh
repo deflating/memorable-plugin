@@ -31,8 +31,8 @@ if [ ! -f "$DATA_DIR/config.json" ]; then
     cat > "$DATA_DIR/config.json" << 'EOF'
 {
   "token_budget": 200000,
-  "port": 7777,
-  "llm": {
+  "server_port": 7777,
+  "llm_provider": {
     "endpoint": "",
     "api_key": "",
     "model": "deepseek-chat"
