@@ -808,6 +808,67 @@
     return result;
   }
 
+  function getKnownImportSections(fileType) {
+    if (fileType === 'user') {
+      return ['About', 'Cognitive Style', 'Values', 'Communication Preferences', 'People', 'Projects'];
+    }
+    return ['Character Traits', 'Behaviors', 'Avoid', 'When User Is Low', 'Technical Style'];
+  }
+
+  function collectSectionTitles(md) {
+    const sections = splitMarkdownSections(md || '');
+    const titles = new Map();
+    Object.keys(sections).forEach((key) => {
+      if (!key || key.startsWith('_')) return;
+      const clean = key.trim();
+      if (!clean) return;
+      const normalized = clean.toLowerCase();
+      if (!titles.has(normalized)) {
+        titles.set(normalized, clean);
+      }
+    });
+    return titles;
+  }
+
+  function buildImportDiff(md, fileType) {
+    const currentMd = fileType === 'user' ? generateUserMarkdown() : generateAgentMarkdown();
+    const current = collectSectionTitles(currentMd);
+    const incoming = collectSectionTitles(md);
+    const known = new Set(getKnownImportSections(fileType).map(s => s.toLowerCase()));
+
+    const replacedTitles = [];
+    const addedTitles = [];
+    const removedTitles = [];
+
+    incoming.forEach((title, normalized) => {
+      if (current.has(normalized)) replacedTitles.push(title);
+      else addedTitles.push(title);
+    });
+
+    current.forEach((title, normalized) => {
+      if (!incoming.has(normalized)) removedTitles.push(title);
+    });
+
+    const newCustomTitles = addedTitles.filter(title => !known.has(title.toLowerCase()));
+
+    const byName = (a, b) => a.localeCompare(b);
+    replacedTitles.sort(byName);
+    addedTitles.sort(byName);
+    removedTitles.sort(byName);
+    newCustomTitles.sort(byName);
+
+    return {
+      replacedCount: replacedTitles.length,
+      addedCount: addedTitles.length,
+      removedCount: removedTitles.length,
+      newCustomCount: newCustomTitles.length,
+      replacedTitles,
+      addedTitles,
+      removedTitles,
+      newCustomTitles
+    };
+  }
+
   // ---- Label Formatters ----
   function getTraitDescription(key, val) {
     const descs = {
@@ -3413,6 +3474,9 @@
                 <input type="file" id="import-file-input" accept=".md,.txt,.markdown">
               </div>
             </div>
+            <div class="import-preview" id="import-preview">
+              <div class="import-preview-empty">Paste or upload markdown to preview what will change.</div>
+            </div>
           </div>
           <div class="modal-footer">
             <button class="btn" id="import-cancel-btn">Cancel</button>
@@ -3423,6 +3487,63 @@
     `;
 
     let activeTab = 'paste';
+    const pasteArea = document.getElementById('import-paste-area');
+    const preview = document.getElementById('import-preview');
+
+    function renderPreviewList(titles, emptyText) {
+      if (!titles.length) {
+        return `<p class="import-preview-empty-list">${emptyText}</p>`;
+      }
+      const shown = titles.slice(0, 5);
+      const remaining = titles.length - shown.length;
+      return `
+        <ul class="import-preview-list">
+          ${shown.map(title => `<li>${esc(title)}</li>`).join('')}
+          ${remaining > 0 ? `<li>+${remaining} more</li>` : ''}
+        </ul>
+      `;
+    }
+
+    function updatePreview() {
+      const md = pasteArea.value.trim();
+      if (!md) {
+        preview.innerHTML = '<div class="import-preview-empty">Paste or upload markdown to preview what will change.</div>';
+        return;
+      }
+
+      const diff = buildImportDiff(md, fileType);
+      preview.innerHTML = `
+        <div class="import-preview-header">Import preview</div>
+        <p class="import-preview-summary">
+          This import will replace ${diff.replacedCount} section${diff.replacedCount === 1 ? '' : 's'}
+          and add ${diff.newCustomCount} new custom section${diff.newCustomCount === 1 ? '' : 's'}.
+        </p>
+        <div class="import-preview-metrics">
+          <div class="import-preview-metric">
+            <span class="metric-value">${diff.replacedCount}</span>
+            <span class="metric-label">Replaced</span>
+          </div>
+          <div class="import-preview-metric">
+            <span class="metric-value">${diff.addedCount}</span>
+            <span class="metric-label">Added</span>
+          </div>
+          <div class="import-preview-metric">
+            <span class="metric-value">${diff.removedCount}</span>
+            <span class="metric-label">Missing from import</span>
+          </div>
+        </div>
+        <div class="import-preview-columns">
+          <div class="import-preview-column">
+            <h4>Added sections</h4>
+            ${renderPreviewList(diff.addedTitles, 'No new sections.')}
+          </div>
+          <div class="import-preview-column">
+            <h4>Missing from import</h4>
+            ${renderPreviewList(diff.removedTitles, 'No current sections are missing.')}
+          </div>
+        </div>
+      `;
+    }
 
     // Tab switching
     modalContainer.querySelectorAll('.import-tab').forEach(tab => {
@@ -3456,16 +3577,20 @@
     function readImportFile(file) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        document.getElementById('import-paste-area').value = e.target.result;
+        pasteArea.value = e.target.result;
         // Switch to paste tab to show content
         modalContainer.querySelectorAll('.import-tab').forEach(t => t.classList.remove('active'));
         modalContainer.querySelector('[data-import-tab="paste"]').classList.add('active');
         document.getElementById('import-tab-paste').style.display = '';
         document.getElementById('import-tab-upload').style.display = 'none';
+        updatePreview();
         showToast('File loaded. Review and click Import.', '');
       };
       reader.readAsText(file);
     }
+
+    pasteArea.addEventListener('input', updatePreview);
+    updatePreview();
 
     // Close
     const closeModal = () => { modalContainer.innerHTML = ''; };
@@ -3477,7 +3602,7 @@
 
     // Confirm import
     document.getElementById('import-confirm-btn').addEventListener('click', () => {
-      const md = document.getElementById('import-paste-area').value.trim();
+      const md = pasteArea.value.trim();
       if (!md) {
         showToast('Nothing to import. Paste or upload a markdown file first.', '');
         return;
