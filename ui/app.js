@@ -1088,8 +1088,8 @@
       apiFetch('/api/notes/tags'),
       apiFetch('/api/machines'),
     ]);
-    notesState.tags = (tagsData && tagsData.tags) || [];
-    notesState.machines = (machinesData && machinesData.machines) || [];
+    notesState.tags = Array.isArray(tagsData && tagsData.tags) ? tagsData.tags : [];
+    notesState.machines = Array.isArray(machinesData && machinesData.machines) ? machinesData.machines : [];
 
     // Fetch first page of notes
     await fetchNotesPage(false);
@@ -1112,11 +1112,12 @@
     const data = await apiFetch('/api/notes?' + params);
     if (!data) return;
 
-    notesState.total = data.total;
+    const notes = Array.isArray(data.notes) ? data.notes : [];
+    notesState.total = Number.isFinite(data.total) ? data.total : notes.length;
     if (append) {
-      notesState.notes = notesState.notes.concat(data.notes);
+      notesState.notes = notesState.notes.concat(notes);
     } else {
-      notesState.notes = data.notes;
+      notesState.notes = notes;
     }
     notesState.offset = notesState.notes.length;
   }
@@ -1422,8 +1423,8 @@
       apiFetch('/api/seeds'),
     ]);
 
-    const files = (filesData && filesData.files) ? filesData.files : [];
-    const seedFiles = (seedsData && seedsData.files) ? seedsData.files : {};
+    const files = Array.isArray(filesData && filesData.files) ? filesData.files : [];
+    const seedFiles = (seedsData && typeof seedsData.files === 'object' && seedsData.files) ? seedsData.files : {};
     const seedNames = Object.keys(seedFiles).filter(n => n !== 'now.md').sort();
 
     // Identity files section (seeds)
@@ -2369,17 +2370,18 @@
     fetch('/api/budget')
       .then(r => r.json())
       .then(data => {
-        const total = data.used;
-        const maxTokens = data.budget;
+        const breakdown = Array.isArray(data && data.breakdown) ? data.breakdown : [];
+        const total = Number.isFinite(data && data.used) ? data.used : 0;
+        const maxTokens = Number.isFinite(data && data.budget) && data.budget > 0 ? data.budget : 1;
         const pct = (n) => Math.max(0, Math.min(100, (n / maxTokens) * 100));
         const expanded = state.tokenBudgetExpanded;
 
-        const seeds = data.breakdown.filter(b => b.type === 'seed');
-        const semantics = data.breakdown.filter(b => b.type === 'semantic');
+        const seeds = breakdown.filter(b => b && b.type === 'seed');
+        const semantics = breakdown.filter(b => b && b.type === 'semantic');
         const seedTokens = seeds.reduce((s, b) => s + b.tokens, 0);
         const semanticTokens = semantics.reduce((s, b) => s + b.tokens, 0);
 
-        const detailRows = data.breakdown.map(b => {
+        const detailRows = breakdown.map(b => {
           const icon = b.type === 'seed' ? '&#128203;' : '&#9875;';
           const depthLabel = b.type === 'semantic' && b.depth !== undefined
             ? `<span class="depth-badge">depth ${b.depth}</span>` : '';
