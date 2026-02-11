@@ -1711,6 +1711,40 @@
     return `rgb(${r},${g},${b})`;
   }
 
+  function salienceLevel(salience) {
+    if (salience >= 1.5) return 'high';
+    if (salience >= 0.8) return 'mid';
+    return 'low';
+  }
+
+  function ageOpacity(dateStr) {
+    if (!dateStr) return 0.7;
+    const days = Math.max(0, (Date.now() - new Date(dateStr).getTime()) / 86400000);
+    return Math.max(0.7, 1 - days * 0.003);
+  }
+
+  function groupNotesByTime(notes) {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekStart = new Date(todayStart);
+    weekStart.setDate(weekStart.getDate() - todayStart.getDay());
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const groups = [
+      { key: 'today', label: 'Today', entries: [] },
+      { key: 'week', label: 'This Week', entries: [] },
+      { key: 'month', label: 'This Month', entries: [] },
+      { key: 'older', label: 'Older', entries: [] },
+    ];
+    notes.forEach((note, idx) => {
+      const d = note.date ? new Date(note.date) : new Date(0);
+      if (d >= todayStart) groups[0].entries.push({ note, idx });
+      else if (d >= weekStart) groups[1].entries.push({ note, idx });
+      else if (d >= monthStart) groups[2].entries.push({ note, idx });
+      else groups[3].entries.push({ note, idx });
+    });
+    return groups.filter(g => g.entries.length > 0);
+  }
+
   function truncateText(text, len) {
     if (!text) return '';
     // Strip markdown headings for summary display
@@ -1751,9 +1785,11 @@
     // Note cards
     let notesHtml = '';
     if (ns.notes.length > 0) {
-      notesHtml = ns.notes.map((note, idx) => {
+      const renderCard = (note, idx) => {
         const salience = note.salience || 0;
         const color = salienceColor(salience);
+        const sLevel = salienceLevel(salience);
+        const ageFade = ageOpacity(note.date);
         const isExpanded = ns.expandedIdx === idx;
 
         const visibleTags = (note.tags || []).slice(0, 4);
@@ -1817,7 +1853,7 @@
         `;
 
         return `
-          <div class="note-card${isExpanded ? ' expanded' : ''}${note.archived ? ' note-card-archived' : ''}${note.pinned ? ' note-card-pinned' : ''}" data-note-idx="${idx}">
+          <div class="note-card note-salience-${sLevel}${isExpanded ? ' expanded' : ''}${note.archived ? ' note-card-archived' : ''}${note.pinned ? ' note-card-pinned' : ''}" data-note-idx="${idx}" style="--age-factor:${ageFade.toFixed(2)}">
             <div class="note-card-header">
               <div class="note-card-salience-bar" style="background:${color}"></div>
               <div class="note-card-info">
@@ -1836,7 +1872,26 @@
             </div>
           </div>
         `;
-      }).join('');
+      };
+
+      if (ns.sort === 'date') {
+        const timeGroups = groupNotesByTime(ns.notes);
+        notesHtml = timeGroups.map(group => {
+          const cardsHtml = group.entries.map(({ note, idx }) => renderCard(note, idx)).join('');
+          return `
+            <div class="notes-time-group" data-time-group="${group.key}">
+              <div class="notes-time-group-header">
+                <span class="notes-time-group-dot"></span>
+                <span class="notes-time-group-label">${group.label}</span>
+                <span class="notes-time-group-count">${group.entries.length}</span>
+              </div>
+              <div class="notes-time-group-cards">${cardsHtml}</div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        notesHtml = ns.notes.map((note, idx) => renderCard(note, idx)).join('');
+      }
     } else {
       if (ns.fetchError) {
         notesHtml = `

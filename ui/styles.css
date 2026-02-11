@@ -1515,6 +1515,129 @@ p { color: var(--text-secondary); }
   font-size: 0.74rem;
 }
 
+/* ── Temporal depth: time groups & timeline spine ── */
+
+.notes-time-group {
+  position: relative;
+  padding-left: 20px;
+}
+
+.notes-time-group::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 28px;
+  bottom: 0;
+  width: 2px;
+  background: var(--border-light);
+  border-radius: 1px;
+}
+
+.notes-time-group:last-child::before {
+  bottom: 12px;
+}
+
+.notes-time-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 10px;
+  position: relative;
+}
+
+.notes-time-group-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--clay);
+  border: 2px solid var(--cream);
+  position: absolute;
+  left: -19px;
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.notes-time-group[data-time-group="today"] .notes-time-group-dot {
+  background: var(--terracotta);
+}
+
+.notes-time-group[data-time-group="week"] .notes-time-group-dot {
+  background: var(--ochre);
+}
+
+.notes-time-group[data-time-group="older"] .notes-time-group-dot {
+  background: var(--warm-gray);
+}
+
+.notes-time-group-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.notes-time-group-count {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.notes-time-group-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 8px;
+}
+
+/* ── Salience-driven visual weight ── */
+
+.note-card.note-salience-high {
+  border-color: var(--sand-dark);
+  box-shadow: var(--shadow-md);
+}
+
+.note-card.note-salience-high .note-card-header {
+  padding: 18px 22px;
+}
+
+.note-card.note-salience-high .note-card-summary {
+  font-size: 0.94rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.note-card.note-salience-mid .note-card-summary {
+  font-size: 0.88rem;
+}
+
+.note-card.note-salience-low {
+  box-shadow: none;
+}
+
+.note-card.note-salience-low .note-card-header {
+  padding: 12px 16px;
+}
+
+.note-card.note-salience-low .note-card-summary {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.note-card.note-salience-low .note-card-salience-bar {
+  width: 3px;
+}
+
+/* ── Age-based fade ── */
+
+.note-card {
+  opacity: var(--age-factor, 1);
+}
+
+.note-card:not(.note-card-archived):hover {
+  opacity: 1;
+}
+
 /* Empty state for notes */
 .notes-empty {
   text-align: center;
