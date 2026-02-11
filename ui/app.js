@@ -180,6 +180,7 @@
     settingsCache: null,      // cached settings from API
     statusCache: null,        // cached status from API
     serverConnected: false,   // whether server is reachable
+    onboardingStep: 1,        // dashboard onboarding wizard step
   };
 
   // Keep a markdown cache to track manual edits
@@ -956,6 +957,120 @@
   }
 
   // ---- Dashboard Page ----
+  function clampOnboardingStep(step) {
+    const n = parseInt(step, 10);
+    if (!Number.isFinite(n)) return 1;
+    return Math.min(5, Math.max(1, n));
+  }
+
+  function renderOnboardingWizard() {
+    const step = clampOnboardingStep(state.onboardingStep || 1);
+    const u = state.user;
+    const a = state.agent;
+    let body = '';
+
+    if (step === 1) {
+      body = `
+        <div class="wizard-step-fields">
+          <label>Name</label>
+          <input type="text" value="${esc(u.identity.name || '')}" placeholder="Your name" oninput="window.memorableApp.onboardingSetField('user.identity.name', this.value)">
+          <label>Pronouns</label>
+          <input type="text" value="${esc(u.identity.pronouns || '')}" placeholder="e.g. she/her, he/him, they/them" oninput="window.memorableApp.onboardingSetField('user.identity.pronouns', this.value)">
+        </div>
+      `;
+    } else if (step === 2) {
+      body = `
+        <div class="wizard-step-fields">
+          <label>About You</label>
+          <textarea rows="5" placeholder="Share a short background, your goals, and what context helps most." oninput="window.memorableApp.onboardingSetField('user.about', this.value)">${esc(u.about || '')}</textarea>
+        </div>
+      `;
+    } else if (step === 3) {
+      const values = Array.isArray(u.values) && u.values.length ? u.values : [{ higher: '', lower: '' }];
+      body = `
+        <div class="wizard-step-fields">
+          <label>Core Values</label>
+          <p class="wizard-step-hint">Set your preference pairs. Left side means "prefer more."</p>
+          <div class="wizard-values-list">
+            ${values.map((v, idx) => `
+              <div class="wizard-value-row">
+                <input type="text" value="${esc(v.higher || '')}" placeholder="More important" oninput="window.memorableApp.onboardingSetValue(${idx}, 'higher', this.value)">
+                <span>&gt;</span>
+                <input type="text" value="${esc(v.lower || '')}" placeholder="Less important" oninput="window.memorableApp.onboardingSetValue(${idx}, 'lower', this.value)">
+                <button class="btn btn-small btn-danger-ghost" onclick="window.memorableApp.onboardingRemoveValue(${idx})" ${values.length <= 1 ? 'disabled' : ''}>Remove</button>
+              </div>
+            `).join('')}
+          </div>
+          <button class="btn btn-small" onclick="window.memorableApp.onboardingAddValue()">Add pair</button>
+        </div>
+      `;
+    } else if (step === 4) {
+      const traitKeys = ['warmth', 'directness', 'humor', 'formality', 'verbosity'];
+      body = `
+        <div class="wizard-step-fields">
+          <label>Agent Personality</label>
+          <p class="wizard-step-hint">Tune core traits. You can refine these later in Configure.</p>
+          <div class="wizard-traits">
+            ${traitKeys.map((key) => {
+              const val = parseInt(a.traits[key] || 50, 10);
+              return `
+                <div class="wizard-trait-row">
+                  <div class="wizard-trait-head">
+                    <span>${esc(getTraitLabel(key))}</span>
+                    <span>${esc(getTraitDescription(key, val))}</span>
+                  </div>
+                  <input type="range" min="0" max="100" value="${val}" oninput="window.memorableApp.onboardingSetTrait('${key}', this.value)">
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    } else {
+      const valueLines = (u.values || [])
+        .filter(v => (v.higher || '').trim() || (v.lower || '').trim())
+        .map(v => `${v.higher || '...'} > ${v.lower || '...'}`);
+      body = `
+        <div class="wizard-step-fields wizard-review">
+          <h3>Review</h3>
+          <p><strong>Name:</strong> ${esc(u.identity.name || 'Not set')}</p>
+          <p><strong>Pronouns:</strong> ${esc(u.identity.pronouns || 'Not set')}</p>
+          <p><strong>About:</strong> ${esc((u.about || '').trim() || 'Not set')}</p>
+          <p><strong>Core values:</strong></p>
+          <ul>
+            ${valueLines.length ? valueLines.map(v => `<li>${esc(v)}</li>`).join('') : '<li>Not set</li>'}
+          </ul>
+          <p><strong>Agent traits:</strong> ${['warmth', 'directness', 'humor', 'formality', 'verbosity'].map(k => `${getTraitLabel(k)} ${a.traits[k] || 50}`).join(', ')}</p>
+          <p class="wizard-step-hint">Save now to generate starter ` + "`user.md`, `agent.md`, and `now.md`." + `</p>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="onboarding-card onboarding-wizard">
+        <div class="onboarding-icon"><img src="logo.png" alt="Memorable" style="width:64px;height:64px;"></div>
+        <h2>Welcome to Memorable</h2>
+        <div class="wizard-progress">
+          <span>Step ${step} of 5</span>
+          <div class="wizard-progress-track"><div class="wizard-progress-fill" style="width:${(step / 5) * 100}%"></div></div>
+        </div>
+        <div class="wizard-step-title">
+          ${step === 1 ? 'Name + Pronouns' : step === 2 ? 'About You' : step === 3 ? 'Core Values' : step === 4 ? 'Agent Personality' : 'Review + Save'}
+        </div>
+        ${body}
+        <div class="onboarding-actions wizard-actions">
+          <button class="btn" onclick="window.memorableApp.onboardingSkip()">Skip for now</button>
+          <div class="wizard-actions-right">
+            ${step > 1 ? '<button class="btn" onclick="window.memorableApp.onboardingPrev()">Back</button>' : ''}
+            ${step < 5
+              ? '<button class="btn btn-primary" onclick="window.memorableApp.onboardingNext()">Next</button>'
+              : '<button class="btn btn-primary" onclick="window.memorableApp.onboardingComplete()">Save & Open Configure</button>'}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderDashboard(container) {
     const status = state.statusCache;
     const totalNotes = status ? (status.total_notes || 0) : '\u2014';
@@ -1016,17 +1131,7 @@
     // Onboarding card (shown if no seeds exist)
     let onboardingHtml = '';
     if (!seedsExist) {
-      onboardingHtml = `
-        <div class="onboarding-card">
-          <div class="onboarding-icon"><img src="logo.png" alt="Memorable" style="width:64px;height:64px;"></div>
-          <h2>Welcome to Memorable</h2>
-          <p>Get started by creating your <span title="Files that define who you are (user.md) and how the agent should behave (agent.md).">seed files</span>. These tell Claude who you are and how to talk to you.</p>
-          <div class="onboarding-actions">
-            <button class="btn btn-primary" onclick="window.memorableApp.navigateTo('configure')">Create Seeds</button>
-            <button class="btn" onclick="window.memorableApp.navigateTo('settings')">Configure Settings</button>
-          </div>
-        </div>
-      `;
+      onboardingHtml = renderOnboardingWizard();
     }
 
     container.innerHTML = `
@@ -3957,6 +4062,7 @@
     if (state.settingsCache === undefined) state.settingsCache = null;
     if (state.statusCache === undefined) state.statusCache = null;
     if (state.serverConnected === undefined) state.serverConnected = false;
+    if (state.onboardingStep === undefined) state.onboardingStep = 1;
   }
 
   // ---- Public API ----
@@ -3988,6 +4094,91 @@
     retrySave() {
       setSaveState('saving');
       saveToLocalStorage();
+    },
+
+    onboardingSetField(path, value) {
+      const parts = String(path || '').split('.');
+      let ref = state;
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (!ref[parts[i]]) return;
+        ref = ref[parts[i]];
+      }
+      const key = parts[parts.length - 1];
+      ref[key] = value;
+      render();
+    },
+
+    onboardingSetValue(index, field, value) {
+      const i = parseInt(index, 10);
+      if (!Array.isArray(state.user.values) || !state.user.values[i]) return;
+      state.user.values[i][field] = value;
+      render();
+    },
+
+    onboardingAddValue() {
+      if (!Array.isArray(state.user.values)) state.user.values = [];
+      state.user.values.push({ higher: '', lower: '' });
+      render();
+    },
+
+    onboardingRemoveValue(index) {
+      const i = parseInt(index, 10);
+      if (!Array.isArray(state.user.values) || state.user.values.length <= 1) return;
+      state.user.values.splice(i, 1);
+      render();
+    },
+
+    onboardingSetTrait(key, value) {
+      const n = parseInt(value, 10);
+      if (!state.agent.traits || !Number.isFinite(n)) return;
+      state.agent.traits[key] = Math.max(0, Math.min(100, n));
+      render();
+    },
+
+    onboardingNext() {
+      state.onboardingStep = clampOnboardingStep((state.onboardingStep || 1) + 1);
+      render();
+    },
+
+    onboardingPrev() {
+      state.onboardingStep = clampOnboardingStep((state.onboardingStep || 1) - 1);
+      render();
+    },
+
+    onboardingSkip() {
+      const step = clampOnboardingStep(state.onboardingStep || 1);
+      if (step >= 5) {
+        state.activePage = 'configure';
+        syncNavHighlight();
+      } else {
+        state.onboardingStep = step + 1;
+      }
+      render();
+    },
+
+    async onboardingComplete() {
+      const files = {
+        'user.md': generateUserMarkdown(),
+        'agent.md': generateAgentMarkdown(),
+        'now.md': '# Current Context\n\n## Focus\n\n## Active Tasks\n\n## Blockers\n'
+      };
+      const result = await apiFetch('/api/seeds', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files })
+      });
+
+      if (result && result.ok) {
+        state.onboardingStep = 1;
+        if (state.statusCache) state.statusCache.seeds_present = true;
+        showToast('Onboarding complete. Seed files created.', 'success');
+      } else {
+        showToast('Saved locally; seed deployment failed (server offline?)', '');
+      }
+
+      state.activePage = 'configure';
+      syncNavHighlight();
+      render();
     },
 
     copyToClipboard(file) {
