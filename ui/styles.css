@@ -3275,6 +3275,68 @@ select {
   color: var(--terracotta-dark);
 }
 
+/* Spectrum pills (cognitive style) */
+.spectrum-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.spectrum-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.spectrum-label {
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.spectrum-pills {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  flex: 1;
+}
+
+.spectrum-pill {
+  flex: 1;
+  padding: 6px 8px;
+  border: none;
+  background: var(--warm-white);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: center;
+}
+
+.spectrum-pill:not(:last-child) {
+  border-right: 1px solid var(--border-light);
+}
+
+.spectrum-pill:hover {
+  background: var(--sand-light);
+  color: var(--text-secondary);
+}
+
+.spectrum-pill.active {
+  background: var(--terracotta-muted);
+  color: var(--terracotta-dark);
+  font-weight: 500;
+}
+
+.spectrum-pill[data-val="balanced"].active {
+  background: var(--sage-light);
+  color: var(--sage-dark);
+}
+
 /* Switch rows */
 .switch-row {
   display: flex;

@@ -18,6 +18,13 @@
     { key: 'bipolar', label: 'Bipolar' }
   ];
 
+  const DEFAULT_COGNITIVE_STYLE_DIMS = [
+    { key: 'thinking', label: 'Thinking', left: 'Structured', right: 'Exploratory' },
+    { key: 'abstraction', label: 'Abstraction', left: 'Concrete', right: 'Abstract' },
+    { key: 'focus', label: 'Focus', left: 'Detail-first', right: 'Big picture' },
+    { key: 'processing', label: 'Processing', left: 'Sequential', right: 'Parallel' }
+  ];
+
   const DEFAULT_COMMUNICATION_OPTIONS = [
     { key: 'beDirect', label: 'Be direct', desc: 'Don\'t soften or hedge unnecessarily' },
     { key: 'noSycophancy', label: 'No sycophancy', desc: 'Skip the "great question!" and "absolutely!"' },
@@ -71,23 +78,23 @@
   const PRESETS = {
     technical: {
       label: 'Technical / Coding',
-      userSections: ['identity', 'about', 'communication', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'traits', 'behaviors', 'avoid', 'tech-style', 'agent-custom']
+      userSections: ['identity', 'about', 'cogStyle', 'projects', 'user-custom'],
+      agentSections: ['agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'tech-style', 'agent-custom']
     },
     research: {
       label: 'Research / Academic',
-      userSections: ['identity', 'about', 'values', 'communication', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'traits', 'behaviors', 'avoid', 'agent-custom']
+      userSections: ['identity', 'about', 'cogStyle', 'values', 'interests', 'projects', 'user-custom'],
+      agentSections: ['agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'agent-custom']
     },
     personal: {
       label: 'Personal / Companion',
-      userSections: ['identity', 'about', 'cognitive', 'values', 'communication', 'people', 'user-custom'],
-      agentSections: ['agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'agent-custom']
+      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'user-custom'],
+      agentSections: ['agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'agent-custom']
     },
     custom: {
       label: 'Custom',
-      userSections: ['identity', 'about', 'cognitive', 'values', 'communication', 'people', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom']
+      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'],
+      agentSections: ['agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom']
     }
   };
 
@@ -116,8 +123,14 @@
       }
       case 'values':
         return u.values.length === 0 ? 'sketch' : u.values.length <= 2 ? 'forming' : 'substantial';
+      case 'cogStyle': {
+        const count = Object.keys(u.cognitiveStyle).filter(k => u.cognitiveStyle[k] && u.cognitiveStyle[k] !== 'balanced').length;
+        return count === 0 ? 'sketch' : count <= 2 ? 'forming' : 'substantial';
+      }
+      case 'interests':
+        return u.interests.length === 0 ? 'sketch' : u.interests.length <= 2 ? 'forming' : 'substantial';
       case 'communication': {
-        const count = Object.values(u.communicationActive).filter(Boolean).length;
+        const count = Object.values(a.communicationActive).filter(Boolean).length;
         return count === 0 ? 'sketch' : count <= 3 ? 'forming' : 'substantial';
       }
       case 'people':
@@ -192,8 +205,9 @@
     tokenBudgetExpanded: false,
     // Which sections are enabled (toggle on/off)
     enabledSections: {
-      'identity': true, 'about': true, 'cognitive': true, 'values': true,
-      'communication': true, 'people': true, 'projects': true, 'user-custom': true,
+      'identity': true, 'about': true, 'cognitive': true, 'cogStyle': true,
+      'values': true, 'interests': true, 'people': true, 'projects': true, 'user-custom': true,
+      'communication': true,
       'agent-name': true, 'traits': true, 'behaviors': true, 'avoid': true,
       'when-low': true, 'tech-style': true, 'agent-custom': true
     },
@@ -210,16 +224,18 @@
         { higher: 'Depth', lower: 'Breadth' },
         { higher: 'Clarity', lower: 'Reassurance' }
       ],
-      communicationOptions: DEFAULT_COMMUNICATION_OPTIONS.map(o => o.key),
-      communicationLabels: {},
-      communicationDescs: {},
-      communicationActive: {},
+      cognitiveStyle: {},  // key -> 'left' | 'balanced' | 'right'
+      interests: [],       // [{name: '', context: ''}]
       people: [],
       projects: [],
       customSections: []
     },
     agent: {
       name: '',
+      communicationOptions: DEFAULT_COMMUNICATION_OPTIONS.map(o => o.key),
+      communicationLabels: {},
+      communicationDescs: {},
+      communicationActive: {},
       traitOptions: DEFAULT_TRAIT_OPTIONS.map(o => o.key),
       traitLabels: {},
       traitEndpoints: {},
@@ -447,13 +463,13 @@
   function getCommLabel(key) {
     const def = DEFAULT_COMMUNICATION_OPTIONS.find(o => o.key === key);
     if (def) return def.label;
-    return state.user.communicationLabels[key] || key;
+    return state.agent.communicationLabels[key] || key;
   }
 
   function getCommDesc(key) {
     const def = DEFAULT_COMMUNICATION_OPTIONS.find(o => o.key === key);
     if (def) return def.desc;
-    return state.user.communicationDescs[key] || '';
+    return state.agent.communicationDescs[key] || '';
   }
 
   function getBehaviorLabel(key) {
@@ -629,9 +645,10 @@
 
   // Preview section heading → form section ID mapping
   const PREVIEW_TO_SECTION = {
-    'about': 'about', 'cognitive-style': 'cognitive', 'values': 'values',
-    'communication-preferences': 'communication', 'people': 'people',
-    'projects': 'projects', 'character-traits': 'traits', 'behaviors': 'behaviors',
+    'about': 'about', 'neurotype': 'cognitive', 'cognitive-style': 'cogStyle',
+    'values': 'values', 'interests': 'interests', 'people': 'people',
+    'projects': 'projects', 'communication-preferences': 'communication',
+    'character-traits': 'traits', 'behaviors': 'behaviors',
     'avoid': 'avoid', 'when-user-is-low': 'when-low', 'technical-style': 'tech-style',
   };
 
@@ -663,11 +680,25 @@
       md += `## About\n\n${u.about.trim()}\n\n`;
     }
 
-    // Cognitive style
+    // Neurotype
     if (sec['cognitive']) {
       const activeCog = u.cognitiveOptions.filter(k => u.cognitiveActive[k]).map(k => getCognitiveLabel(k));
       if (activeCog.length) {
-        md += `## Cognitive Style\n\n${activeCog.join(', ')}\n\n`;
+        md += `## Neurotype\n\n${activeCog.join(', ')}\n\n`;
+      }
+    }
+
+    // Cognitive Style
+    if (sec['cogStyle']) {
+      const dims = DEFAULT_COGNITIVE_STYLE_DIMS.filter(d => u.cognitiveStyle[d.key] && u.cognitiveStyle[d.key] !== 'balanced');
+      if (dims.length) {
+        md += '## Cognitive Style\n\n';
+        dims.forEach(d => {
+          const val = u.cognitiveStyle[d.key];
+          const label = val === 'left' ? d.left : d.right;
+          md += `- ${d.label}: ${label}\n`;
+        });
+        md += '\n';
       }
     }
 
@@ -683,13 +714,16 @@
       }
     }
 
-    // Communication
-    if (sec['communication']) {
-      const commPrefs = u.communicationOptions.filter(k => u.communicationActive[k]).map(k => getCommLabel(k));
-      if (commPrefs.length) {
-        md += '## Communication Preferences\n\n';
-        commPrefs.forEach(p => { md += `- ${p}\n`; });
-        md += '\n';
+    // Interests
+    if (sec['interests'] && u.interests.length) {
+      const filled = u.interests.filter(i => i.name.trim());
+      if (filled.length) {
+        md += '## Interests\n\n';
+        filled.forEach(i => {
+          md += `### ${i.name.trim()}\n`;
+          if (i.context.trim()) md += `${i.context.trim()}\n`;
+          md += '\n';
+        });
       }
     }
 
@@ -739,6 +773,16 @@
       md += `# ${a.name || 'Agent Profile'}\n\n`;
     } else {
       md += '# Agent Profile\n\n';
+    }
+
+    // Communication Preferences
+    if (sec['communication']) {
+      const commPrefs = a.communicationOptions.filter(k => a.communicationActive[k]).map(k => getCommLabel(k));
+      if (commPrefs.length) {
+        md += '## Communication Preferences\n\n';
+        commPrefs.forEach(p => { md += `- ${p}\n`; });
+        md += '\n';
+      }
     }
 
     // Character traits
@@ -812,8 +856,9 @@
     u.identity = { name: '', age: '', location: '', pronouns: '' };
     u.about = '';
     u.cognitiveActive = {};
+    u.cognitiveStyle = {};
     u.values = [];
-    u.communicationActive = {};
+    u.interests = [];
     u.people = [];
     u.projects = [];
     u.customSections = [];
@@ -839,23 +884,47 @@
       state.enabledSections['about'] = true;
     }
 
-    if (getSection(sections, 'Cognitive Style')) {
+    // Parse Neurotype (also accept old "Cognitive Style" heading for neurotype toggles)
+    const neurotypeSrc = getSection(sections, 'Neurotype') || getSection(sections, 'Cognitive Style');
+    if (neurotypeSrc) {
       state.enabledSections['cognitive'] = true;
-      const cogText = getSection(sections, 'Cognitive Style');
-      const items = cogText.split(',').map(s => s.trim()).filter(Boolean);
-      items.forEach(item => {
-        // Try to match to an existing option
-        const existing = u.cognitiveOptions.find(k => getCognitiveLabel(k).toLowerCase() === item.toLowerCase());
-        if (existing) {
-          u.cognitiveActive[existing] = true;
-        } else {
-          // Add as custom
-          const key = labelToKey(item);
-          if (!u.cognitiveOptions.includes(key)) {
-            u.cognitiveOptions.push(key);
-            u.cognitiveLabels[key] = item;
+      // Neurotype is comma-separated labels (not bullet list)
+      const items = neurotypeSrc.split(',').map(s => s.trim()).filter(Boolean);
+      // Only treat as neurotype if items look like toggle labels (no colon = not cognitive style dims)
+      const isToggleList = items.every(i => !i.includes(':'));
+      if (isToggleList) {
+        items.forEach(item => {
+          const existing = u.cognitiveOptions.find(k => getCognitiveLabel(k).toLowerCase() === item.toLowerCase());
+          if (existing) {
+            u.cognitiveActive[existing] = true;
+          } else {
+            const key = labelToKey(item);
+            if (!u.cognitiveOptions.includes(key)) {
+              u.cognitiveOptions.push(key);
+              u.cognitiveLabels[key] = item;
+            }
+            u.cognitiveActive[key] = true;
           }
-          u.cognitiveActive[key] = true;
+        });
+      }
+    }
+
+    // Parse Cognitive Style (spectrum dimensions)
+    // If we already consumed "Cognitive Style" as neurotype above, check for a separate one
+    const cogStyleSrc = getSection(sections, 'Neurotype') ? getSection(sections, 'Cognitive Style') : null;
+    if (cogStyleSrc) {
+      state.enabledSections['cogStyle'] = true;
+      const lines = cogStyleSrc.split('\n').filter(l => l.trim().startsWith('-'));
+      lines.forEach(line => {
+        const match = line.match(/-\s*(.+?):\s*(.+)/);
+        if (match) {
+          const dimLabel = match[1].trim();
+          const valLabel = match[2].trim();
+          const dim = DEFAULT_COGNITIVE_STYLE_DIMS.find(d => d.label.toLowerCase() === dimLabel.toLowerCase());
+          if (dim) {
+            if (valLabel.toLowerCase() === dim.left.toLowerCase()) u.cognitiveStyle[dim.key] = 'left';
+            else if (valLabel.toLowerCase() === dim.right.toLowerCase()) u.cognitiveStyle[dim.key] = 'right';
+          }
         }
       });
     }
@@ -874,24 +943,16 @@
       u.values = [{ higher: '', lower: '' }];
     }
 
-    if (getSection(sections, 'Communication Preferences')) {
-      state.enabledSections['communication'] = true;
-      const lines = getSection(sections, 'Communication Preferences').split('\n').filter(l => l.trim().startsWith('-'));
-      lines.forEach(line => {
-        const text = line.replace(/^-\s*/, '').trim();
-        if (!text) return;
-        const existing = u.communicationOptions.find(k => getCommLabel(k).toLowerCase() === text.toLowerCase());
-        if (existing) {
-          u.communicationActive[existing] = true;
-        } else {
-          const key = labelToKey(text);
-          if (!u.communicationOptions.includes(key)) {
-            u.communicationOptions.push(key);
-            u.communicationLabels[key] = text;
-            u.communicationDescs[key] = '';
-          }
-          u.communicationActive[key] = true;
-        }
+    // Interests
+    if (getSection(sections, 'Interests')) {
+      state.enabledSections['interests'] = true;
+      const intText = getSection(sections, 'Interests');
+      const intParts = intText.split(/^###\s+/m).filter(Boolean);
+      intParts.forEach(part => {
+        const lines = part.split('\n');
+        const name = lines[0].trim();
+        const context = lines.slice(1).join('\n').trim();
+        if (name) u.interests.push({ name, context });
       });
     }
 
@@ -929,7 +990,7 @@
       });
     }
 
-    const knownSections = ['about', 'cognitive style', 'values', 'communication preferences', 'people', 'projects'];
+    const knownSections = ['about', 'neurotype', 'cognitive style', 'values', 'interests', 'people', 'projects'];
     Object.entries(sections).forEach(([title, content]) => {
       if (title.startsWith('_')) return;
       if (knownSections.includes(title.toLowerCase())) return;
@@ -940,6 +1001,7 @@
   function parseAgentMarkdown(md) {
     const a = state.agent;
     a.name = '';
+    a.communicationActive = {};
     a.behaviorsActive = {};
     a.avoid = [];
     a.whenLowActive = {};
@@ -950,6 +1012,28 @@
 
     if (sections._title && sections._title !== 'Agent Profile') {
       a.name = sections._title;
+    }
+
+    // Communication Preferences
+    if (getSection(sections, 'Communication Preferences')) {
+      state.enabledSections['communication'] = true;
+      const lines = getSection(sections, 'Communication Preferences').split('\n').filter(l => l.trim().startsWith('-'));
+      lines.forEach(line => {
+        const text = line.replace(/^-\s*/, '').trim();
+        if (!text) return;
+        const existing = a.communicationOptions.find(k => getCommLabel(k).toLowerCase() === text.toLowerCase());
+        if (existing) {
+          a.communicationActive[existing] = true;
+        } else {
+          const key = labelToKey(text);
+          if (!a.communicationOptions.includes(key)) {
+            a.communicationOptions.push(key);
+            a.communicationLabels[key] = text;
+            a.communicationDescs[key] = '';
+          }
+          a.communicationActive[key] = true;
+        }
+      });
     }
 
     if (getSection(sections, 'Character Traits')) {
@@ -1048,7 +1132,7 @@
       });
     }
 
-    const knownSections = ['character traits', 'behaviors', 'avoid', 'when user is low', 'technical style'];
+    const knownSections = ['communication preferences', 'character traits', 'behaviors', 'avoid', 'when user is low', 'technical style'];
     Object.entries(sections).forEach(([title, content]) => {
       if (title.startsWith('_')) return;
       if (knownSections.includes(title.toLowerCase())) return;
@@ -4078,7 +4162,7 @@
         </div>
       `)}
 
-      ${renderSection('cognitive', 'Cognitive Style', 'Neurodivergence and cognitive differences', 'sand', '&#10024;', `
+      ${renderSection('cognitive', 'Neurotype', 'Neurodivergence and cognitive differences', 'sand', '&#10024;', `
         <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;">Select any that apply. This helps the agent adapt its communication style.</p>
         <div class="toggle-group" id="cognitive-toggles">
           ${u.cognitiveOptions.map(k => {
@@ -4098,6 +4182,24 @@
         </div>
       `)}
 
+      ${renderSection('cogStyle', 'Cognitive Style', 'How you think and process information', 'clay', '&#9881;', `
+        <div class="spectrum-group" id="cogstyle-spectrums">
+          ${DEFAULT_COGNITIVE_STYLE_DIMS.map(d => {
+            const val = u.cognitiveStyle[d.key] || 'balanced';
+            return `
+              <div class="spectrum-row">
+                <div class="spectrum-label">${d.label}</div>
+                <div class="spectrum-pills" data-cogstyle="${d.key}">
+                  <button class="spectrum-pill ${val === 'left' ? 'active' : ''}" data-val="left">${d.left}</button>
+                  <button class="spectrum-pill ${val === 'balanced' ? 'active' : ''}" data-val="balanced">Balanced</button>
+                  <button class="spectrum-pill ${val === 'right' ? 'active' : ''}" data-val="right">${d.right}</button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `)}
+
       ${renderSection('values', 'Values', 'Ranked preferences that guide responses', 'terracotta', '&#9878;', `
         <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;">What matters more? Left side is preferred over right side.</p>
         <div class="value-pairs" id="value-pairs">
@@ -4113,14 +4215,34 @@
         <button class="add-item-btn" id="add-value-btn">&#43; Add value pair</button>
       `)}
 
-      ${renderSection('communication', 'Communication Preferences', 'How the agent should talk to you', 'sage', '&#128172;', `
-        <div id="communication-switches">
-          ${u.communicationOptions.map(k => {
-            const isCustom = !isDefaultComm(k);
-            return renderSwitchRowWithRemove('user.communicationActive.' + k, getCommLabel(k), getCommDesc(k), !!u.communicationActive[k], isCustom ? k : null, 'comm');
-          }).join('')}
+      ${renderSection('interests', 'Interests', 'Things you care about', 'sage', '&#9733;', `
+        <div class="repeatable-list" id="interests-list" data-reorder-list="interests">
+          ${u.interests.length ? u.interests.map((item, i) => `
+            <div class="repeatable-item" data-reorder-item="${i}">
+              <div class="reorder-handle" data-reorder-handle>&#8942;&#8942;</div>
+              <div class="item-fields">
+                <div class="form-row">
+                  <div class="form-group" style="flex:1">
+                    <label>Interest</label>
+                    <input type="text" data-interest="${i}" data-field="name" value="${esc(item.name)}" placeholder="e.g. Woodworking, AI/ML, Cooking">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>Context</label>
+                  <textarea data-interest="${i}" data-field="context" rows="2" placeholder="Level, focus areas, what Claude should know...">${esc(item.context)}</textarea>
+                </div>
+              </div>
+              <button class="btn btn-icon btn-danger-ghost" data-remove-interest="${i}" title="Remove">&#10005;</button>
+            </div>
+          `).join('') : `
+            <div class="empty-state">
+              <div class="empty-state-icon">&#9733;</div>
+              <h3>No interests added yet</h3>
+              <p>Add things you care about so the agent knows when to go deeper or when to skim.</p>
+            </div>
+          `}
         </div>
-        <button class="add-item-btn" id="add-comm-btn" style="margin-top:12px;">&#43; Add custom preference...</button>
+        <button class="add-item-btn" id="add-interest-btn">&#43; Add interest</button>
       `)}
 
       ${renderSection('people', 'People', 'People the agent should know about', 'clay', '&#9824;', `
@@ -4182,6 +4304,16 @@
           <label>Agent Name</label>
           <input type="text" data-bind="agent.name" value="${esc(a.name)}" placeholder="e.g. Claude, Aria, Helper">
         </div>
+      `)}
+
+      ${renderSection('communication', 'Communication Preferences', 'How the agent should talk to you', 'sage', '&#128172;', `
+        <div id="communication-switches">
+          ${a.communicationOptions.map(k => {
+            const isCustom = !isDefaultComm(k);
+            return renderSwitchRowWithRemove('agent.communicationActive.' + k, getCommLabel(k), getCommDesc(k), !!a.communicationActive[k], isCustom ? k : null, 'comm');
+          }).join('')}
+        </div>
+        <button class="add-item-btn" id="add-comm-btn" style="margin-top:12px;">&#43; Add custom preference...</button>
       `)}
 
       ${renderSection('traits', 'Character Traits', 'Personality sliders', 'terracotta', '&#9734;', `
@@ -4467,13 +4599,13 @@
     if (!preset) return;
 
     // For user sections
-    const userSectionIds = ['identity', 'about', 'cognitive', 'values', 'communication', 'people', 'projects', 'user-custom'];
+    const userSectionIds = ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'];
     userSectionIds.forEach(id => {
       state.enabledSections[id] = preset.userSections.includes(id);
     });
 
     // For agent sections
-    const agentSectionIds = ['agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'];
+    const agentSectionIds = ['agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'];
     agentSectionIds.forEach(id => {
       state.enabledSections[id] = preset.agentSections.includes(id);
     });
@@ -4549,34 +4681,48 @@
       });
     }
 
-    // Add custom communication preference
-    const addCommBtn = document.getElementById('add-comm-btn');
-    if (addCommBtn) {
-      addCommBtn.addEventListener('click', () => {
-        showInlineAdd(addCommBtn, (label) => {
-          const key = labelToKey(label);
-          if (!state.user.communicationOptions.includes(key)) {
-            state.user.communicationOptions.push(key);
-            state.user.communicationLabels[key] = label;
-            state.user.communicationDescs[key] = '';
-            state.user.communicationActive[key] = true;
-          }
-          render();
+    // Cognitive Style spectrum pills
+    container.querySelectorAll('.spectrum-pills').forEach(group => {
+      group.querySelectorAll('.spectrum-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+          const dimKey = group.dataset.cogstyle;
+          const val = pill.dataset.val;
+          state.user.cognitiveStyle[dimKey] = val;
+          group.querySelectorAll('.spectrum-pill').forEach(p => p.classList.remove('active'));
+          pill.classList.add('active');
+          renderPreview();
+          debouncedSave();
         });
       });
-    }
+    });
 
-    // Remove custom communication options
-    container.querySelectorAll('[data-remove-switchrow][data-remove-type="comm"]').forEach(btn => {
+    // Interests
+    container.querySelectorAll('[data-interest]').forEach(el => {
+      const handler = () => {
+        const idx = parseInt(el.dataset.interest, 10);
+        const field = el.dataset.field;
+        state.user.interests[idx][field] = el.value;
+        renderPreview();
+        debouncedSave();
+      };
+      el.addEventListener('input', handler);
+    });
+
+    container.querySelectorAll('[data-remove-interest]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const key = btn.dataset.removeSwitchrow;
-        state.user.communicationOptions = state.user.communicationOptions.filter(k => k !== key);
-        delete state.user.communicationActive[key];
-        delete state.user.communicationLabels[key];
-        delete state.user.communicationDescs[key];
+        const idx = parseInt(btn.dataset.removeInterest, 10);
+        state.user.interests.splice(idx, 1);
         render();
       });
     });
+
+    const addInterestBtn = document.getElementById('add-interest-btn');
+    if (addInterestBtn) {
+      addInterestBtn.addEventListener('click', () => {
+        state.user.interests.push({ name: '', context: '' });
+        render();
+      });
+    }
 
     // People
     container.querySelectorAll('[data-person]').forEach(el => {
@@ -4639,6 +4785,34 @@
   }
 
   function bindAgentSpecificEvents(container) {
+    // Communication preferences
+    const addCommBtn = document.getElementById('add-comm-btn');
+    if (addCommBtn) {
+      addCommBtn.addEventListener('click', () => {
+        showInlineAdd(addCommBtn, (label) => {
+          const key = labelToKey(label);
+          if (!state.agent.communicationOptions.includes(key)) {
+            state.agent.communicationOptions.push(key);
+            state.agent.communicationLabels[key] = label;
+            state.agent.communicationDescs[key] = '';
+            state.agent.communicationActive[key] = true;
+          }
+          render();
+        });
+      });
+    }
+
+    container.querySelectorAll('[data-remove-switchrow][data-remove-type="comm"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.removeSwitchrow;
+        state.agent.communicationOptions = state.agent.communicationOptions.filter(k => k !== key);
+        delete state.agent.communicationActive[key];
+        delete state.agent.communicationLabels[key];
+        delete state.agent.communicationDescs[key];
+        render();
+      });
+    });
+
     // Behavior toggles
     container.querySelectorAll('[data-behavior]').forEach(el => {
       el.addEventListener('click', (e) => {
@@ -5437,18 +5611,40 @@
       delete u.cognitive;
     }
 
-    // Migrate old communication
+    // Migrate old communication (flat booleans)
     if (u.communication && typeof u.communication === 'object' && !u.communicationOptions) {
-      u.communicationOptions = DEFAULT_COMMUNICATION_OPTIONS.map(o => o.key);
-      u.communicationLabels = {};
-      u.communicationDescs = {};
-      u.communicationActive = {};
+      if (!a.communicationOptions) a.communicationOptions = DEFAULT_COMMUNICATION_OPTIONS.map(o => o.key);
+      if (!a.communicationLabels) a.communicationLabels = {};
+      if (!a.communicationDescs) a.communicationDescs = {};
+      if (!a.communicationActive) a.communicationActive = {};
       Object.entries(u.communication).forEach(([k, v]) => {
-        if (v) u.communicationActive[k] = true;
-        if (!u.communicationOptions.includes(k)) u.communicationOptions.push(k);
+        if (v) a.communicationActive[k] = true;
+        if (!a.communicationOptions.includes(k)) a.communicationOptions.push(k);
       });
       delete u.communication;
     }
+
+    // Migrate communication from user to agent (new format)
+    if (u.communicationOptions && !a.communicationOptions) {
+      a.communicationOptions = u.communicationOptions;
+      a.communicationLabels = u.communicationLabels || {};
+      a.communicationDescs = u.communicationDescs || {};
+      a.communicationActive = u.communicationActive || {};
+      delete u.communicationOptions;
+      delete u.communicationLabels;
+      delete u.communicationDescs;
+      delete u.communicationActive;
+    }
+
+    // Ensure new user fields exist
+    if (!u.cognitiveStyle) u.cognitiveStyle = {};
+    if (!Array.isArray(u.interests)) u.interests = [];
+
+    // Ensure agent communication exists
+    if (!a.communicationOptions) a.communicationOptions = DEFAULT_COMMUNICATION_OPTIONS.map(o => o.key);
+    if (!a.communicationLabels) a.communicationLabels = {};
+    if (!a.communicationDescs) a.communicationDescs = {};
+    if (!a.communicationActive) a.communicationActive = {};
 
     // Migrate old agent behaviors
     if (a.behaviors && typeof a.behaviors === 'object' && !a.behaviorOptions) {
@@ -5506,7 +5702,7 @@
     if (!state.collapsedSections || typeof state.collapsedSections !== 'object') {
       state.collapsedSections = {};
     }
-    const allSections = ['identity', 'about', 'cognitive', 'values', 'communication', 'people', 'projects', 'user-custom', 'agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'];
+    const allSections = ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom', 'agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'];
     allSections.forEach(id => {
       if (state.enabledSections[id] === undefined) state.enabledSections[id] = true;
     });
