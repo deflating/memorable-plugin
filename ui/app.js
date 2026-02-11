@@ -3728,6 +3728,22 @@
     }
   }
 
+  function bindStorageSync() {
+    window.addEventListener('storage', (e) => {
+      if (e.key !== 'seedConfigurator' || !e.newValue) return;
+
+      try {
+        const parsed = JSON.parse(e.newValue);
+        deepMerge(state, parsed);
+        migrateState();
+        render();
+        showToast('Synced changes from another tab', '');
+      } catch (err) {
+        console.warn('Failed to sync storage event:', err);
+      }
+    });
+  }
+
   // ---- Migrate old state format ----
   // If someone loads with old format (cognitive as flat booleans, communication as flat booleans, etc.),
   // we migrate to the new arrays+active format.
@@ -3944,6 +3960,7 @@
   async function init() {
     loadFromLocalStorage();
     migrateState();
+    bindStorageSync();
     bindSidebarNav();
     render();
 
