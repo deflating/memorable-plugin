@@ -1894,6 +1894,7 @@
     expandedIdx: null,
     actionBusy: false,
     loaded: false,
+    reviewMode: false,
   };
 
   async function loadNotes() {
@@ -2239,7 +2240,9 @@
       `;
     }
 
-    let insightsHtml = '';
+    // Build insights panel for review mode
+    let insightsPanelHtml = '';
+    let hasInsights = false;
     if (mi && typeof mi === 'object') {
       const tracked = Number(mi.tracked_notes || 0);
       const loaded = Number(mi.total_loaded || 0);
@@ -2247,6 +2250,7 @@
       const refRate = Math.max(0, Math.min(100, Math.round(Number(mi.reference_rate || 0) * 100)));
 
       if (tracked > 0) {
+        hasInsights = true;
         const top = Array.isArray(mi.top_referenced) ? mi.top_referenced : [];
         const low = Array.isArray(mi.high_load_low_reference) ? mi.high_load_low_reference : [];
         const suggestions = Array.isArray(mi.suggestions) ? mi.suggestions : [];
@@ -2271,60 +2275,50 @@
           `;
         }).join('');
 
-        insightsHtml = `
-          <div class="memory-insights-card collapsed" id="memory-insights-card">
-            <button type="button" class="memory-insights-toggle" id="memory-insights-toggle">
-              <div class="memory-insights-toggle-left">
-                <span class="memory-insights-chevron">&#9660;</span>
-                <h3>Memory Effectiveness</h3>
-              </div>
-              <span class="memory-insights-blurb">Tracks how often loaded notes get referenced in later sessions. Expand to see which notes are working and which might need tuning.</span>
-            </button>
-            <div class="memory-insights-body">
-              <div class="memory-insights-sub">How often loaded notes are referenced later. Click a row to filter notes by session.</div>
-              <div class="memory-insights-metrics">
-                <div class="memory-insights-metric">
-                  <span class="memory-insights-value">${loaded}</span>
-                  <span class="memory-insights-label">Loads</span>
-                </div>
-                <div class="memory-insights-metric">
-                  <span class="memory-insights-value">${referenced}</span>
-                  <span class="memory-insights-label">References</span>
-                </div>
-                <div class="memory-insights-metric">
-                  <span class="memory-insights-value">${refRate}%</span>
-                  <span class="memory-insights-label">Yield</span>
-                </div>
-              </div>
-              <div class="memory-insights-columns">
-                <div class="memory-insights-column">
-                  <h4>Top referenced</h4>
-                  ${topRows || '<p class="memory-insights-empty">No reference activity yet.</p>'}
-                </div>
-                <div class="memory-insights-column">
-                  <h4>High load, low yield</h4>
-                  ${lowRows || '<p class="memory-insights-empty">No low-yield notes detected.</p>'}
-                </div>
-              </div>
-              ${suggestions.length ? `
-                <div class="memory-insights-suggestions">
-                  ${suggestions.slice(0, 2).map(s => `<p>${esc(s)}</p>`).join('')}
-                </div>
-              ` : ''}
-            </div>
-          </div>
-        `;
-      } else {
-        insightsHtml = `
-          <div class="memory-insights-card">
-            <div class="memory-insights-header">
+        insightsPanelHtml = `
+          <div class="memory-insights-panel" id="memory-insights-panel">
+            <div class="memory-insights-panel-header">
               <h3>Memory Effectiveness</h3>
-              <span class="memory-insights-sub">Run a few sessions to collect usage data.</span>
+              <button type="button" class="memory-insights-close" id="memory-insights-close" title="Close">&times;</button>
             </div>
+            <div class="memory-insights-sub">How often loaded notes are referenced later. Click a row to filter notes by session.</div>
+            <div class="memory-insights-metrics">
+              <div class="memory-insights-metric">
+                <span class="memory-insights-value">${loaded}</span>
+                <span class="memory-insights-label">Loads</span>
+              </div>
+              <div class="memory-insights-metric">
+                <span class="memory-insights-value">${referenced}</span>
+                <span class="memory-insights-label">References</span>
+              </div>
+              <div class="memory-insights-metric">
+                <span class="memory-insights-value">${refRate}%</span>
+                <span class="memory-insights-label">Yield</span>
+              </div>
+            </div>
+            <div class="memory-insights-columns">
+              <div class="memory-insights-column">
+                <h4>Top referenced</h4>
+                ${topRows || '<p class="memory-insights-empty">No reference activity yet.</p>'}
+              </div>
+              <div class="memory-insights-column">
+                <h4>High load, low yield</h4>
+                ${lowRows || '<p class="memory-insights-empty">No low-yield notes detected.</p>'}
+              </div>
+            </div>
+            ${suggestions.length ? `
+              <div class="memory-insights-suggestions">
+                ${suggestions.slice(0, 2).map(s => `<p>${esc(s)}</p>`).join('')}
+              </div>
+            ` : ''}
           </div>
         `;
       }
     }
+
+    const reviewBtnHtml = hasInsights
+      ? `<button type="button" class="notes-review-btn" id="notes-review-btn">${ns.reviewMode ? 'Close Review' : 'Review Effectiveness'}</button>`
+      : '';
 
     const sessionFilterHtml = ns.session ? `
       <div class="notes-active-filters">
@@ -2351,10 +2345,11 @@
       </div>
     ` : '';
 
-    container.innerHTML = `
-      <div class="notes-page">
+    const notesContentHtml = `
+      <div class="notes-main">
         <div class="notes-header-row">
           <span class="notes-count">${ns.total} note${ns.total !== 1 ? 's' : ''}</span>
+          ${reviewBtnHtml}
         </div>
         ${notesGuideHtml}
         ${machineTabsHtml}
@@ -2362,7 +2357,6 @@
           <svg class="notes-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input type="text" class="notes-search-input" id="notes-search-input" placeholder="Search notes\u2026" value="${esc(ns.search)}">
         </div>
-        ${insightsHtml}
         <div class="notes-toolbar">
           <div class="notes-sort">
             <button class="notes-sort-btn ${ns.sort === 'date' ? 'active' : ''}" data-sort="date">Newest</button>
@@ -2384,6 +2378,13 @@
           ${notesHtml}
         </div>
         ${loadMoreHtml}
+      </div>
+    `;
+
+    container.innerHTML = `
+      <div class="notes-page ${ns.reviewMode ? 'review-mode' : ''}">
+        ${ns.reviewMode ? insightsPanelHtml : ''}
+        ${notesContentHtml}
       </div>
     `;
 
@@ -2419,9 +2420,14 @@
       refreshNotes();
     });
 
-    bindById('memory-insights-toggle', 'click', () => {
-      const card = document.getElementById('memory-insights-card');
-      if (card) card.classList.toggle('collapsed');
+    bindById('notes-review-btn', 'click', () => {
+      ns.reviewMode = !ns.reviewMode;
+      renderNotesPage(container);
+    });
+
+    bindById('memory-insights-close', 'click', () => {
+      ns.reviewMode = false;
+      renderNotesPage(container);
     });
 
     bindAll(container, '.memory-insights-row-btn', 'click', (event, btn) => {
