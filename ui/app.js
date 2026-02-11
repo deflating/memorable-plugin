@@ -4005,6 +4005,27 @@
     });
     loadSettings();
 
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      const mod = e.metaKey || e.ctrlKey;
+
+      // Ctrl/Cmd+S: force save
+      if (mod && e.key === 's') {
+        e.preventDefault();
+        setSaveState('saving');
+        saveToLocalStorage();
+        return;
+      }
+
+      // Escape: close modal if open
+      if (e.key === 'Escape') {
+        const modalContainer = document.getElementById('modal-container');
+        if (modalContainer && modalContainer.innerHTML.trim()) {
+          modalContainer.innerHTML = '';
+        }
+      }
+    });
+
     // Periodic status check
     setInterval(checkServerStatus, 30000);
   }
