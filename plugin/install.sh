@@ -113,18 +113,26 @@ with open('$HOOKS_FILE', 'r') as f:
 
 memorable = json.loads('''$MEMORABLE_HOOKS''')
 
+def is_memorable_entry(entry):
+    hooks = entry.get('hooks', [])
+    for h in hooks:
+        cmd = h.get('command', '')
+        if not isinstance(cmd, str):
+            continue
+        # Match Memorable hooks even if plugin location changed since last install.
+        if 'hooks/scripts/session_start.py' in cmd or 'hooks/scripts/user_prompt.py' in cmd:
+            return True
+    return False
+
 # Merge each hook event: replace Memorable entries, keep everything else
 for event, entries in memorable.items():
     if event not in existing:
         existing[event] = entries
     else:
-        # Remove any previous Memorable hooks (identified by command path)
+        # Remove any previous Memorable hooks (including stale old install paths)
         cleaned = [
             e for e in existing[event]
-            if not any(
-                '$PLUGIN_DIR' in h.get('command', '')
-                for h in e.get('hooks', [])
-            )
+            if not is_memorable_entry(e)
         ]
         existing[event] = cleaned + entries
 
