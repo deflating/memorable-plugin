@@ -2388,8 +2388,13 @@ p { color: var(--text-secondary); }
 
 .seeds-preview-panel {
   position: sticky;
-  top: 24px;
+  top: calc(var(--nav-height) + 16px);
   min-width: 0;
+  align-self: start;
+  max-height: calc(100vh - var(--nav-height) - 32px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ============================================
@@ -3860,8 +3865,7 @@ input[type="range"]::-moz-range-thumb {
   padding: 24px;
   font-size: 0.88rem;
   line-height: 1.7;
-  overflow-y: auto;
-  max-height: calc(100vh - 240px);
+  flex: 1;
   scroll-behavior: smooth;
 }
 

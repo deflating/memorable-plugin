@@ -4000,7 +4000,7 @@
     const isUser = state.activeFile === 'user';
     return `
       <div class="preset-bar">
-        <div class="preset-bar-label">Use Case Preset</div>
+        <div class="preset-bar-label">Why do you use Claude?</div>
         <div class="preset-group">
           ${Object.entries(PRESETS).map(([key, preset]) => `
             <button class="preset-btn ${state.preset === key ? 'active' : ''}" data-preset="${key}">${preset.label}</button>
