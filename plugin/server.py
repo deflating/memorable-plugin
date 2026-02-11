@@ -42,6 +42,7 @@ UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
 CHARS_PER_TOKEN = 4
 DEFAULT_PORT = 7777
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 
 DEFAULT_CONFIG = {
     "llm_provider": {
@@ -337,7 +338,7 @@ def handle_post_seeds(body: dict):
             try:
                 shutil.copy2(path, bak)
             except Exception:
-                pass
+                return 500, {"error": f"Backup failed for {safe}, aborting write"}
 
         path.write_text(content, encoding="utf-8")
         written.append(safe)
@@ -542,6 +543,8 @@ def handle_post_file_upload(handler):
         length = int(handler.headers.get("Content-Length", 0))
         if length == 0:
             return 400, {"error": "Empty body"}
+        if length > MAX_UPLOAD_SIZE:
+            return 413, {"error": "Upload too large"}
         raw = handler.rfile.read(length)
         try:
             body = json.loads(raw)
@@ -576,6 +579,8 @@ def handle_post_file_upload(handler):
         length = int(handler.headers.get("Content-Length", 0))
         if length == 0:
             return 400, {"error": "Empty body"}
+        if length > MAX_UPLOAD_SIZE:
+            return 413, {"error": "Upload too large"}
 
         raw = handler.rfile.read(length)
 
@@ -786,7 +791,7 @@ def handle_post_deploy(body: dict):
             try:
                 shutil.copy2(path, bak)
             except Exception:
-                pass
+                return 500, {"error": f"Backup failed for {safe}, aborting write"}
 
         path.write_text(content, encoding="utf-8")
         deployed_files.append(safe)
@@ -880,7 +885,7 @@ def handle_get_budget():
             if raw_path.is_file():
                 if depth is not None and depth >= 0 and anchored_path.is_file():
                     anchored_text = anchored_path.read_text(encoding="utf-8")
-                    extracted = extract_at_depth(anchored_text, depth)
+                    extracted = _extract_at_depth(anchored_text, depth)
                     tokens = estimate_tokens(extracted)
                 else:
                     content = raw_path.read_text(encoding="utf-8")
@@ -948,20 +953,18 @@ class MemorableHandler(SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Filename")
         self.end_headers()
 
     def read_body(self) -> dict:
         length = int(self.headers.get("Content-Length", 0))
         if length == 0:
+            return {}
+        if length > MAX_UPLOAD_SIZE:
             return {}
         raw = self.rfile.read(length)
         try:
@@ -1020,10 +1023,6 @@ class MemorableHandler(SimpleHTTPRequestHandler):
             status, data = handle_preview_file(filename, query_params)
             return self.send_json(status, data)
 
-        if path == "/api/config":
-            status, data = handle_get_config()
-            return self.send_json(status, data)
-
         if path == "/api/budget":
             status, data = handle_get_budget()
             return self.send_json(status, data)
@@ -1054,10 +1053,6 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/settings":
             status, data = handle_post_settings(body)
-            return self.send_json(status, data)
-
-        if path == "/api/config":
-            status, data = handle_post_config(body)
             return self.send_json(status, data)
 
         if path == "/api/deploy":
@@ -1148,7 +1143,6 @@ class MemorableHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(data)
 
@@ -1158,7 +1152,7 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
 def run(port: int = DEFAULT_PORT):
     ensure_dirs()
-    server = HTTPServer(("0.0.0.0", port), MemorableHandler)
+    server = HTTPServer(("127.0.0.1", port), MemorableHandler)
     print(f"Memorable running at http://localhost:{port}")
     print(f"Data directory: {DATA_DIR}")
     try:

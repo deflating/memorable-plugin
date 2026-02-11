@@ -513,14 +513,14 @@
       if (proMatch) u.identity.pronouns = proMatch[1].trim();
     }
 
-    if (sections['About']) {
-      u.about = sections['About'].trim();
+    if (getSection(sections, 'About')) {
+      u.about = getSection(sections, 'About').trim();
       state.enabledSections['about'] = true;
     }
 
-    if (sections['Cognitive Style']) {
+    if (getSection(sections, 'Cognitive Style')) {
       state.enabledSections['cognitive'] = true;
-      const cogText = sections['Cognitive Style'];
+      const cogText = getSection(sections, 'Cognitive Style');
       const items = cogText.split(',').map(s => s.trim()).filter(Boolean);
       items.forEach(item => {
         // Try to match to an existing option
@@ -539,9 +539,9 @@
       });
     }
 
-    if (sections['Values']) {
+    if (getSection(sections, 'Values')) {
       state.enabledSections['values'] = true;
-      const lines = sections['Values'].split('\n').filter(l => l.trim().startsWith('-'));
+      const lines = getSection(sections, 'Values').split('\n').filter(l => l.trim().startsWith('-'));
       lines.forEach(line => {
         const match = line.match(/-\s*(.+?)\s*>\s*(.+)/);
         if (match) {
@@ -553,9 +553,9 @@
       u.values = [{ higher: '', lower: '' }];
     }
 
-    if (sections['Communication Preferences']) {
+    if (getSection(sections, 'Communication Preferences')) {
       state.enabledSections['communication'] = true;
-      const lines = sections['Communication Preferences'].split('\n').filter(l => l.trim().startsWith('-'));
+      const lines = getSection(sections, 'Communication Preferences').split('\n').filter(l => l.trim().startsWith('-'));
       lines.forEach(line => {
         const text = line.replace(/^-\s*/, '').trim();
         if (!text) return;
@@ -574,9 +574,9 @@
       });
     }
 
-    if (sections['People']) {
+    if (getSection(sections, 'People')) {
       state.enabledSections['people'] = true;
-      const peopleText = sections['People'];
+      const peopleText = getSection(sections, 'People');
       const peopleParts = peopleText.split(/^###\s+/m).filter(Boolean);
       peopleParts.forEach(part => {
         const lines = part.split('\n');
@@ -591,9 +591,9 @@
       });
     }
 
-    if (sections['Projects']) {
+    if (getSection(sections, 'Projects')) {
       state.enabledSections['projects'] = true;
-      const projText = sections['Projects'];
+      const projText = getSection(sections, 'Projects');
       const projParts = projText.split(/^###\s+/m).filter(Boolean);
       projParts.forEach(part => {
         const lines = part.split('\n');
@@ -631,11 +631,11 @@
       a.name = sections._title;
     }
 
-    if (sections['Character Traits']) {
+    if (getSection(sections, 'Character Traits')) {
       state.enabledSections['traits'] = true;
       // Reset all traits to 50, then override
       a.traitOptions.forEach(k => { a.traits[k] = 50; });
-      const lines = sections['Character Traits'].split('\n').filter(l => l.trim().startsWith('-'));
+      const lines = getSection(sections, 'Character Traits').split('\n').filter(l => l.trim().startsWith('-'));
       lines.forEach(line => {
         const match = line.match(/\*\*(.+?):\*\*.*?\((\d+)\/100\)/);
         if (match) {
@@ -657,9 +657,9 @@
       });
     }
 
-    if (sections['Behaviors']) {
+    if (getSection(sections, 'Behaviors')) {
       state.enabledSections['behaviors'] = true;
-      const lines = sections['Behaviors'].split('\n').filter(l => l.trim().startsWith('-'));
+      const lines = getSection(sections, 'Behaviors').split('\n').filter(l => l.trim().startsWith('-'));
       lines.forEach(line => {
         const text = line.replace(/^-\s*/, '').trim();
         if (!text) return;
@@ -677,17 +677,17 @@
       });
     }
 
-    if (sections['Avoid']) {
+    if (getSection(sections, 'Avoid')) {
       state.enabledSections['avoid'] = true;
-      a.avoid = sections['Avoid'].split('\n')
+      a.avoid = getSection(sections, 'Avoid').split('\n')
         .filter(l => l.trim().startsWith('-'))
         .map(l => l.replace(/^-\s*/, '').trim())
         .filter(Boolean);
     }
 
-    if (sections['When User Is Low']) {
+    if (getSection(sections, 'When User Is Low')) {
       state.enabledSections['when-low'] = true;
-      const lines = sections['When User Is Low'].split('\n').filter(l => l.trim().startsWith('-'));
+      const lines = getSection(sections, 'When User Is Low').split('\n').filter(l => l.trim().startsWith('-'));
       lines.forEach(line => {
         const text = line.replace(/^-\s*/, '').trim();
         if (!text) return;
@@ -706,9 +706,9 @@
       });
     }
 
-    if (sections['Technical Style']) {
+    if (getSection(sections, 'Technical Style')) {
       state.enabledSections['tech-style'] = true;
-      const lines = sections['Technical Style'].split('\n').filter(l => l.trim().startsWith('-'));
+      const lines = getSection(sections, 'Technical Style').split('\n').filter(l => l.trim().startsWith('-'));
       lines.forEach(line => {
         const text = line.replace(/^-\s*/, '').trim();
         if (!text) return;
@@ -733,6 +733,16 @@
       if (knownSections.includes(title)) return;
       a.customSections.push({ title, content: content.trim() });
     });
+  }
+
+
+  function getSection(sections, name) {
+    if (sections[name] !== undefined) return sections[name];
+    const lower = name.toLowerCase();
+    for (const key of Object.keys(sections)) {
+      if (key.toLowerCase() === lower) return sections[key];
+    }
+    return undefined;
   }
 
   function splitMarkdownSections(md) {
@@ -915,7 +925,7 @@
     const totalNotes = status ? (status.total_notes || 0) : '\u2014';
     const totalSessions = status ? (status.total_sessions || 0) : '\u2014';
     const daemonRunning = status ? status.daemon_running : false;
-    const seedsExist = status ? status.seeds_exist : true;
+    const seedsExist = status ? status.seeds_present : true;
 
     // Get recent notes (up to 5)
     const recentNotes = state.notesCache.slice(0, 5);
@@ -1694,14 +1704,14 @@
   // ---- Settings Page ----
   async function loadSettings() {
     const data = await apiFetch('/api/settings');
-    if (data) {
-      state.settingsCache = data;
+    if (data && data.settings) {
+      state.settingsCache = data.settings;
     }
   }
 
   function renderSettingsPage(container) {
     const s = state.settingsCache || {};
-    const llm = s.llm || {};
+    const llm = s.llm_provider || {};
 
     container.innerHTML = `
       <div class="settings-page">
@@ -1816,7 +1826,7 @@
                   <div class="settings-row-desc">Port for the web UI server</div>
                 </div>
                 <div class="settings-row-control">
-                  <input type="number" id="settings-port" value="${s.port || 7777}" min="1024" max="65535">
+                  <input type="number" id="settings-port" value="${s.server_port || 7777}" min="1024" max="65535">
                 </div>
               </div>
             </div>
@@ -1890,7 +1900,7 @@
     if (saveBtn) {
       saveBtn.addEventListener('click', async () => {
         const settings = {
-          llm: {
+          llm_provider: {
             endpoint: document.getElementById('settings-llm-endpoint').value,
             api_key: document.getElementById('settings-llm-apikey').value,
             model: document.getElementById('settings-llm-model').value
@@ -1900,7 +1910,7 @@
             enabled: document.getElementById('settings-daemon-enabled').checked,
             idle_threshold: parseInt(document.getElementById('settings-idle-threshold').value)
           },
-          port: parseInt(document.getElementById('settings-port').value)
+          server_port: parseInt(document.getElementById('settings-port').value)
         };
         const result = await apiFetch('/api/settings', {
           method: 'POST',
@@ -3662,7 +3672,7 @@
     try {
       localStorage.setItem('seedConfigurator', JSON.stringify(state));
     } catch (e) {
-      // Silently fail
+      showToast('Failed to save locally: storage quota exceeded', 'error');
     }
   }
 
