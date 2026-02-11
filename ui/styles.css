@@ -3027,6 +3027,17 @@ input[type="range"]::-moz-range-thumb {
   align-items: center;
 }
 
+.history-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-controls .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* ============================================
    Save indicator
    ============================================ */

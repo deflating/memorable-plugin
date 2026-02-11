@@ -170,6 +170,131 @@
 
   // Keep a markdown cache to track manual edits
   let markdownCache = { user: '', agent: '' };
+  const CONFIG_HISTORY_LIMIT = 100;
+  const configHistory = {
+    undo: [],
+    redo: [],
+    current: null,
+    applying: false
+  };
+
+  function cloneJson(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function buildConfigSnapshot() {
+    return JSON.stringify({
+      activeFile: state.activeFile,
+      activeView: state.activeView,
+      markdownSubMode: state.markdownSubMode,
+      preset: state.preset,
+      enabledSections: state.enabledSections,
+      collapsedSections: state.collapsedSections,
+      user: state.user,
+      agent: state.agent
+    });
+  }
+
+  function applyConfigSnapshot(serialized) {
+    const next = JSON.parse(serialized);
+    state.activeFile = next.activeFile || 'user';
+    state.activeView = next.activeView || 'form';
+    state.markdownSubMode = next.markdownSubMode || 'plain';
+    state.preset = next.preset || 'custom';
+    state.enabledSections = next.enabledSections ? cloneJson(next.enabledSections) : {};
+    state.collapsedSections = next.collapsedSections ? cloneJson(next.collapsedSections) : {};
+    if (next.user) state.user = cloneJson(next.user);
+    if (next.agent) state.agent = cloneJson(next.agent);
+    migrateState();
+  }
+
+  function updateHistoryControls() {
+    const undoBtn = document.getElementById('seed-undo-btn');
+    const redoBtn = document.getElementById('seed-redo-btn');
+    if (undoBtn) {
+      undoBtn.disabled = configHistory.undo.length === 0;
+    }
+    if (redoBtn) {
+      redoBtn.disabled = configHistory.redo.length === 0;
+    }
+  }
+
+  function resetConfigHistory() {
+    configHistory.undo = [];
+    configHistory.redo = [];
+    configHistory.current = buildConfigSnapshot();
+    updateHistoryControls();
+  }
+
+  function recordConfigHistory() {
+    if (configHistory.applying) return;
+    const current = buildConfigSnapshot();
+    if (configHistory.current === null) {
+      configHistory.current = current;
+      updateHistoryControls();
+      return;
+    }
+    if (current === configHistory.current) {
+      updateHistoryControls();
+      return;
+    }
+
+    configHistory.undo.push(configHistory.current);
+    if (configHistory.undo.length > CONFIG_HISTORY_LIMIT) {
+      configHistory.undo.shift();
+    }
+    configHistory.current = current;
+    configHistory.redo = [];
+    updateHistoryControls();
+  }
+
+  function undoConfigChange() {
+    if (!configHistory.undo.length) return false;
+    const previous = configHistory.undo.pop();
+    const current = buildConfigSnapshot();
+    configHistory.redo.push(current);
+    if (configHistory.redo.length > CONFIG_HISTORY_LIMIT) {
+      configHistory.redo.shift();
+    }
+    configHistory.current = previous;
+    configHistory.applying = true;
+    try {
+      applyConfigSnapshot(previous);
+      render();
+    } finally {
+      configHistory.applying = false;
+    }
+    updateHistoryControls();
+    return true;
+  }
+
+  function redoConfigChange() {
+    if (!configHistory.redo.length) return false;
+    const next = configHistory.redo.pop();
+    const current = buildConfigSnapshot();
+    configHistory.undo.push(current);
+    if (configHistory.undo.length > CONFIG_HISTORY_LIMIT) {
+      configHistory.undo.shift();
+    }
+    configHistory.current = next;
+    configHistory.applying = true;
+    try {
+      applyConfigSnapshot(next);
+      render();
+    } finally {
+      configHistory.applying = false;
+    }
+    updateHistoryControls();
+    return true;
+  }
+
+  function isEditableTarget(target) {
+    if (!target) return false;
+    if (target.isContentEditable) return true;
+    const tag = target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    return !!target.closest('[contenteditable="true"]');
+  }
 
   // ---- Helper: get label for any option key ----
   function getCognitiveLabel(key) {
@@ -934,9 +1059,11 @@
 
   // ---- Main Render (page router) ----
   function render() {
+    recordConfigHistory();
     renderTokenBudget();
     renderPage();
     saveToLocalStorage();
+    updateHistoryControls();
   }
 
   function renderPage() {
@@ -2137,6 +2264,10 @@
       </div>
       <div class="action-buttons">
         <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
+        <div class="history-controls">
+          <button class="btn btn-small" id="seed-undo-btn" title="Undo (Cmd/Ctrl+Z)">Undo</button>
+          <button class="btn btn-small" id="seed-redo-btn" title="Redo (Cmd/Ctrl+Shift+Z / Ctrl+Y)">Redo</button>
+        </div>
         <button class="btn" onclick="window.memorableApp.showImportModal()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           Import
@@ -2161,6 +2292,24 @@
         saveToLocalStorage();
       });
     });
+
+    const undoBtn = document.getElementById('seed-undo-btn');
+    const redoBtn = document.getElementById('seed-redo-btn');
+    if (undoBtn) {
+      undoBtn.addEventListener('click', () => {
+        if (!window.memorableApp.undo()) {
+          showToast('Nothing to undo', '');
+        }
+      });
+    }
+    if (redoBtn) {
+      redoBtn.addEventListener('click', () => {
+        if (!window.memorableApp.redo()) {
+          showToast('Nothing to redo', '');
+        }
+      });
+    }
+    updateHistoryControls();
   }
 
   function renderSeedsContent() {
@@ -3887,6 +4036,7 @@
         const parsed = JSON.parse(e.newValue);
         deepMerge(state, parsed);
         migrateState();
+        resetConfigHistory();
         render();
         showToast('Synced changes from another tab', '');
       } catch (err) {
@@ -4040,6 +4190,14 @@
       saveToLocalStorage();
     },
 
+    undo() {
+      return undoConfigChange();
+    },
+
+    redo() {
+      return redoConfigChange();
+    },
+
     copyToClipboard(file) {
       const md = file === 'user' ? generateUserMarkdown() : generateAgentMarkdown();
       navigator.clipboard.writeText(md).then(() => {
@@ -4116,6 +4274,7 @@
   async function init() {
     loadFromLocalStorage();
     migrateState();
+    resetConfigHistory();
     bindStorageSync();
     bindSidebarNav();
     render();
@@ -4140,6 +4299,21 @@
         setSaveState('saving');
         saveToLocalStorage();
         return;
+      }
+
+      // Configure page history shortcuts (outside text inputs)
+      if (state.activePage === 'configure' && mod && !isEditableTarget(e.target)) {
+        const key = e.key.toLowerCase();
+        if (key === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          if (!undoConfigChange()) showToast('Nothing to undo', '');
+          return;
+        }
+        if (key === 'y' || (key === 'z' && e.shiftKey)) {
+          e.preventDefault();
+          if (!redoConfigChange()) showToast('Nothing to redo', '');
+          return;
+        }
       }
 
       // Escape: close modal if open
