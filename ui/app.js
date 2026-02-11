@@ -185,6 +185,131 @@
 
   // Keep a markdown cache to track manual edits
   let markdownCache = { user: '', agent: '' };
+  const CONFIG_HISTORY_LIMIT = 100;
+  const configHistory = {
+    undo: [],
+    redo: [],
+    current: null,
+    applying: false
+  };
+
+  function cloneJson(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function buildConfigSnapshot() {
+    return JSON.stringify({
+      activeFile: state.activeFile,
+      activeView: state.activeView,
+      markdownSubMode: state.markdownSubMode,
+      preset: state.preset,
+      enabledSections: state.enabledSections,
+      collapsedSections: state.collapsedSections,
+      user: state.user,
+      agent: state.agent
+    });
+  }
+
+  function applyConfigSnapshot(serialized) {
+    const next = JSON.parse(serialized);
+    state.activeFile = next.activeFile || 'user';
+    state.activeView = next.activeView || 'form';
+    state.markdownSubMode = next.markdownSubMode || 'plain';
+    state.preset = next.preset || 'custom';
+    state.enabledSections = next.enabledSections ? cloneJson(next.enabledSections) : {};
+    state.collapsedSections = next.collapsedSections ? cloneJson(next.collapsedSections) : {};
+    if (next.user) state.user = cloneJson(next.user);
+    if (next.agent) state.agent = cloneJson(next.agent);
+    migrateState();
+  }
+
+  function updateHistoryControls() {
+    const undoBtn = document.getElementById('seed-undo-btn');
+    const redoBtn = document.getElementById('seed-redo-btn');
+    if (undoBtn) {
+      undoBtn.disabled = configHistory.undo.length === 0;
+    }
+    if (redoBtn) {
+      redoBtn.disabled = configHistory.redo.length === 0;
+    }
+  }
+
+  function resetConfigHistory() {
+    configHistory.undo = [];
+    configHistory.redo = [];
+    configHistory.current = buildConfigSnapshot();
+    updateHistoryControls();
+  }
+
+  function recordConfigHistory() {
+    if (configHistory.applying) return;
+    const current = buildConfigSnapshot();
+    if (configHistory.current === null) {
+      configHistory.current = current;
+      updateHistoryControls();
+      return;
+    }
+    if (current === configHistory.current) {
+      updateHistoryControls();
+      return;
+    }
+
+    configHistory.undo.push(configHistory.current);
+    if (configHistory.undo.length > CONFIG_HISTORY_LIMIT) {
+      configHistory.undo.shift();
+    }
+    configHistory.current = current;
+    configHistory.redo = [];
+    updateHistoryControls();
+  }
+
+  function undoConfigChange() {
+    if (!configHistory.undo.length) return false;
+    const previous = configHistory.undo.pop();
+    const current = buildConfigSnapshot();
+    configHistory.redo.push(current);
+    if (configHistory.redo.length > CONFIG_HISTORY_LIMIT) {
+      configHistory.redo.shift();
+    }
+    configHistory.current = previous;
+    configHistory.applying = true;
+    try {
+      applyConfigSnapshot(previous);
+      render();
+    } finally {
+      configHistory.applying = false;
+    }
+    updateHistoryControls();
+    return true;
+  }
+
+  function redoConfigChange() {
+    if (!configHistory.redo.length) return false;
+    const next = configHistory.redo.pop();
+    const current = buildConfigSnapshot();
+    configHistory.undo.push(current);
+    if (configHistory.undo.length > CONFIG_HISTORY_LIMIT) {
+      configHistory.undo.shift();
+    }
+    configHistory.current = next;
+    configHistory.applying = true;
+    try {
+      applyConfigSnapshot(next);
+      render();
+    } finally {
+      configHistory.applying = false;
+    }
+    updateHistoryControls();
+    return true;
+  }
+
+  function isEditableTarget(target) {
+    if (!target) return false;
+    if (target.isContentEditable) return true;
+    const tag = target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    return !!target.closest('[contenteditable="true"]');
+  }
 
   // ---- Helper: get label for any option key ----
   function getCognitiveLabel(key) {
@@ -823,6 +948,67 @@
     return result;
   }
 
+  function getKnownImportSections(fileType) {
+    if (fileType === 'user') {
+      return ['About', 'Cognitive Style', 'Values', 'Communication Preferences', 'People', 'Projects'];
+    }
+    return ['Character Traits', 'Behaviors', 'Avoid', 'When User Is Low', 'Technical Style'];
+  }
+
+  function collectSectionTitles(md) {
+    const sections = splitMarkdownSections(md || '');
+    const titles = new Map();
+    Object.keys(sections).forEach((key) => {
+      if (!key || key.startsWith('_')) return;
+      const clean = key.trim();
+      if (!clean) return;
+      const normalized = clean.toLowerCase();
+      if (!titles.has(normalized)) {
+        titles.set(normalized, clean);
+      }
+    });
+    return titles;
+  }
+
+  function buildImportDiff(md, fileType) {
+    const currentMd = fileType === 'user' ? generateUserMarkdown() : generateAgentMarkdown();
+    const current = collectSectionTitles(currentMd);
+    const incoming = collectSectionTitles(md);
+    const known = new Set(getKnownImportSections(fileType).map(s => s.toLowerCase()));
+
+    const replacedTitles = [];
+    const addedTitles = [];
+    const removedTitles = [];
+
+    incoming.forEach((title, normalized) => {
+      if (current.has(normalized)) replacedTitles.push(title);
+      else addedTitles.push(title);
+    });
+
+    current.forEach((title, normalized) => {
+      if (!incoming.has(normalized)) removedTitles.push(title);
+    });
+
+    const newCustomTitles = addedTitles.filter(title => !known.has(title.toLowerCase()));
+
+    const byName = (a, b) => a.localeCompare(b);
+    replacedTitles.sort(byName);
+    addedTitles.sort(byName);
+    removedTitles.sort(byName);
+    newCustomTitles.sort(byName);
+
+    return {
+      replacedCount: replacedTitles.length,
+      addedCount: addedTitles.length,
+      removedCount: removedTitles.length,
+      newCustomCount: newCustomTitles.length,
+      replacedTitles,
+      addedTitles,
+      removedTitles,
+      newCustomTitles
+    };
+  }
+
   // ---- Label Formatters ----
   function getTraitDescription(key, val) {
     const descs = {
@@ -888,9 +1074,11 @@
 
   // ---- Main Render (page router) ----
   function render() {
+    recordConfigHistory();
     renderTokenBudget();
     renderPage();
     saveToLocalStorage();
+    updateHistoryControls();
   }
 
   function renderPage() {
@@ -2256,6 +2444,10 @@
       </div>
       <div class="action-buttons">
         <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
+        <div class="history-controls">
+          <button class="btn btn-small" id="seed-undo-btn" title="Undo (Cmd/Ctrl+Z)">Undo</button>
+          <button class="btn btn-small" id="seed-redo-btn" title="Redo (Cmd/Ctrl+Shift+Z / Ctrl+Y)">Redo</button>
+        </div>
         <button class="btn" onclick="window.memorableApp.showImportModal()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           Import
@@ -2280,6 +2472,24 @@
         saveToLocalStorage();
       });
     });
+
+    const undoBtn = document.getElementById('seed-undo-btn');
+    const redoBtn = document.getElementById('seed-redo-btn');
+    if (undoBtn) {
+      undoBtn.addEventListener('click', () => {
+        if (!window.memorableApp.undo()) {
+          showToast('Nothing to undo', '');
+        }
+      });
+    }
+    if (redoBtn) {
+      redoBtn.addEventListener('click', () => {
+        if (!window.memorableApp.redo()) {
+          showToast('Nothing to redo', '');
+        }
+      });
+    }
+    updateHistoryControls();
   }
 
   function renderSeedsContent() {
@@ -2758,7 +2968,7 @@
       `)}
 
       ${renderSection('people', 'People', 'People the agent should know about', 'clay', '&#9824;', `
-        <div class="repeatable-list" id="people-list">
+        <div class="repeatable-list" id="people-list" data-reorder-list="people">
           ${u.people.length ? u.people.map((p, i) => renderPersonItem(p, i)).join('') : `
             <div class="empty-state">
               <div class="empty-state-icon">&#128101;</div>
@@ -2771,7 +2981,7 @@
       `)}
 
       ${renderSection('projects', 'Projects', 'Active projects and their context', 'sand', '&#128193;', `
-        <div class="repeatable-list" id="projects-list">
+        <div class="repeatable-list" id="projects-list" data-reorder-list="projects">
           ${u.projects.length ? u.projects.map((p, i) => renderProjectItem(p, i)).join('') : `
             <div class="empty-state">
               <div class="empty-state-icon">&#128194;</div>
@@ -2784,7 +2994,7 @@
       `)}
 
       ${renderSection('user-custom', 'Custom Sections', 'Add your own sections', 'terracotta', '&#43;', `
-        <div class="custom-sections" id="user-custom-sections">
+        <div class="custom-sections" id="user-custom-sections" data-reorder-list="user-custom">
           ${u.customSections.length ? u.customSections.map((s, i) => renderCustomSectionItem(s, i, 'user')).join('') : `
             <div class="empty-state">
               <div class="empty-state-icon">&#9997;</div>
@@ -2801,6 +3011,7 @@
     bindUserSpecificEvents(container);
     bindPresetEvents(container);
     bindSectionToggleEvents(container);
+    bindReorderEvents(container);
   }
 
   // ---- Agent Form ----
@@ -2878,7 +3089,7 @@
       `)}
 
       ${renderSection('agent-custom', 'Custom Sections', 'Add your own sections', 'sage', '&#43;', `
-        <div class="custom-sections" id="agent-custom-sections">
+        <div class="custom-sections" id="agent-custom-sections" data-reorder-list="agent-custom">
           ${a.customSections.length ? a.customSections.map((s, i) => renderCustomSectionItem(s, i, 'agent')).join('') : `
             <div class="empty-state">
               <div class="empty-state-icon">&#9997;</div>
@@ -2895,6 +3106,7 @@
     bindAgentSpecificEvents(container);
     bindPresetEvents(container);
     bindSectionToggleEvents(container);
+    bindReorderEvents(container);
   }
 
   // ---- Partial Renderers ----
@@ -2953,9 +3165,12 @@
 
   function renderPersonItem(p, i) {
     return `
-      <div class="repeatable-item" data-person-index="${i}">
+      <div class="repeatable-item reorder-item" draggable="true" data-reorder-group="people" data-reorder-index="${i}" data-person-index="${i}">
         <div class="repeatable-item-header">
-          <strong style="font-size:0.88rem;">${p.name || 'New person'}</strong>
+          <div class="repeatable-item-title">
+            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">&#8942;&#8942;</span>
+            <strong style="font-size:0.88rem;">${p.name || 'New person'}</strong>
+          </div>
           <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-person="${i}" title="Remove">&#10005;</button>
         </div>
         <div class="repeatable-item-fields">
@@ -2990,9 +3205,12 @@
     `).join('');
 
     return `
-      <div class="repeatable-item" data-project-index="${i}">
+      <div class="repeatable-item reorder-item" draggable="true" data-reorder-group="projects" data-reorder-index="${i}" data-project-index="${i}">
         <div class="repeatable-item-header">
-          <strong style="font-size:0.88rem;">${p.name || 'New project'}</strong>
+          <div class="repeatable-item-title">
+            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">&#8942;&#8942;</span>
+            <strong style="font-size:0.88rem;">${p.name || 'New project'}</strong>
+          </div>
           <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-project="${i}" title="Remove">&#10005;</button>
         </div>
         <div class="repeatable-item-fields">
@@ -3034,10 +3252,14 @@
   }
 
   function renderCustomSectionItem(s, i, type) {
+    const group = type === 'user' ? 'user-custom' : 'agent-custom';
     return `
-      <div class="custom-section-item" data-custom-index="${i}" data-custom-type="${type}">
+      <div class="custom-section-item reorder-item" draggable="true" data-reorder-group="${group}" data-reorder-index="${i}" data-custom-index="${i}" data-custom-type="${type}">
         <div class="repeatable-item-header">
-          <strong style="font-size:0.88rem;">${s.title || 'New section'}</strong>
+          <div class="repeatable-item-title">
+            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">&#8942;&#8942;</span>
+            <strong style="font-size:0.88rem;">${s.title || 'New section'}</strong>
+          </div>
           <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-custom="${i}" data-custom-type="${type}" title="Remove">&#10005;</button>
         </div>
         <div class="form-group">
@@ -3523,6 +3745,107 @@
     }
   }
 
+  function getReorderTargetArray(group) {
+    if (group === 'people') return state.user.people;
+    if (group === 'projects') return state.user.projects;
+    if (group === 'user-custom') return state.user.customSections;
+    if (group === 'agent-custom') return state.agent.customSections;
+    return null;
+  }
+
+  function moveArrayItem(arr, from, to) {
+    if (!arr || from === to || from < 0 || to < 0) return;
+    if (from >= arr.length || to > arr.length) return;
+    const [item] = arr.splice(from, 1);
+    if (item === undefined) return;
+    arr.splice(to, 0, item);
+  }
+
+  function bindReorderEvents(container) {
+    const dragState = { group: null, fromIndex: -1 };
+
+    function clearDragClasses() {
+      container.querySelectorAll('.reorder-item.dragging, .reorder-item.drag-over').forEach(el => {
+        el.classList.remove('dragging', 'drag-over');
+      });
+    }
+
+    container.querySelectorAll('.reorder-item[data-reorder-group]').forEach(item => {
+      item.addEventListener('dragstart', (e) => {
+        if (!e.target.closest('.drag-handle')) {
+          e.preventDefault();
+          return;
+        }
+
+        dragState.group = item.dataset.reorderGroup;
+        dragState.fromIndex = parseInt(item.dataset.reorderIndex, 10);
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', `${dragState.group}:${dragState.fromIndex}`);
+      });
+
+      item.addEventListener('dragover', (e) => {
+        const targetGroup = item.dataset.reorderGroup;
+        if (!dragState.group || dragState.group !== targetGroup) return;
+        e.preventDefault();
+        item.classList.add('drag-over');
+        e.dataTransfer.dropEffect = 'move';
+      });
+
+      item.addEventListener('dragleave', () => {
+        item.classList.remove('drag-over');
+      });
+
+      item.addEventListener('drop', (e) => {
+        const targetGroup = item.dataset.reorderGroup;
+        if (!dragState.group || dragState.group !== targetGroup) return;
+        e.preventDefault();
+        item.classList.remove('drag-over');
+
+        const toIndexRaw = parseInt(item.dataset.reorderIndex, 10);
+        const rect = item.getBoundingClientRect();
+        const dropAfter = e.clientY > rect.top + (rect.height / 2);
+        let toIndex = dropAfter ? toIndexRaw + 1 : toIndexRaw;
+        if (dragState.fromIndex < toIndex) toIndex -= 1;
+
+        const arr = getReorderTargetArray(targetGroup);
+        if (!arr) return;
+        moveArrayItem(arr, dragState.fromIndex, toIndex);
+        dragState.group = null;
+        dragState.fromIndex = -1;
+        render();
+      });
+
+      item.addEventListener('dragend', () => {
+        dragState.group = null;
+        dragState.fromIndex = -1;
+        clearDragClasses();
+      });
+    });
+
+    container.querySelectorAll('[data-reorder-list]').forEach(list => {
+      list.addEventListener('dragover', (e) => {
+        const listGroup = list.dataset.reorderList;
+        if (!dragState.group || dragState.group !== listGroup) return;
+        if (e.target.closest('.reorder-item')) return;
+        e.preventDefault();
+      });
+
+      list.addEventListener('drop', (e) => {
+        const listGroup = list.dataset.reorderList;
+        if (!dragState.group || dragState.group !== listGroup) return;
+        if (e.target.closest('.reorder-item')) return;
+        e.preventDefault();
+        const arr = getReorderTargetArray(listGroup);
+        if (!arr) return;
+        moveArrayItem(arr, dragState.fromIndex, arr.length - 1);
+        dragState.group = null;
+        dragState.fromIndex = -1;
+        render();
+      });
+    });
+  }
+
   // ---- Inline Add (for toggle groups) ----
   function showInlineAdd(targetEl, onConfirm) {
     // Check if form already showing
@@ -3593,6 +3916,9 @@
                 <input type="file" id="import-file-input" accept=".md,.txt,.markdown">
               </div>
             </div>
+            <div class="import-preview" id="import-preview">
+              <div class="import-preview-empty">Paste or upload markdown to preview what will change.</div>
+            </div>
           </div>
           <div class="modal-footer">
             <button class="btn" id="import-cancel-btn">Cancel</button>
@@ -3603,6 +3929,63 @@
     `;
 
     let activeTab = 'paste';
+    const pasteArea = document.getElementById('import-paste-area');
+    const preview = document.getElementById('import-preview');
+
+    function renderPreviewList(titles, emptyText) {
+      if (!titles.length) {
+        return `<p class="import-preview-empty-list">${emptyText}</p>`;
+      }
+      const shown = titles.slice(0, 5);
+      const remaining = titles.length - shown.length;
+      return `
+        <ul class="import-preview-list">
+          ${shown.map(title => `<li>${esc(title)}</li>`).join('')}
+          ${remaining > 0 ? `<li>+${remaining} more</li>` : ''}
+        </ul>
+      `;
+    }
+
+    function updatePreview() {
+      const md = pasteArea.value.trim();
+      if (!md) {
+        preview.innerHTML = '<div class="import-preview-empty">Paste or upload markdown to preview what will change.</div>';
+        return;
+      }
+
+      const diff = buildImportDiff(md, fileType);
+      preview.innerHTML = `
+        <div class="import-preview-header">Import preview</div>
+        <p class="import-preview-summary">
+          This import will replace ${diff.replacedCount} section${diff.replacedCount === 1 ? '' : 's'}
+          and add ${diff.newCustomCount} new custom section${diff.newCustomCount === 1 ? '' : 's'}.
+        </p>
+        <div class="import-preview-metrics">
+          <div class="import-preview-metric">
+            <span class="metric-value">${diff.replacedCount}</span>
+            <span class="metric-label">Replaced</span>
+          </div>
+          <div class="import-preview-metric">
+            <span class="metric-value">${diff.addedCount}</span>
+            <span class="metric-label">Added</span>
+          </div>
+          <div class="import-preview-metric">
+            <span class="metric-value">${diff.removedCount}</span>
+            <span class="metric-label">Missing from import</span>
+          </div>
+        </div>
+        <div class="import-preview-columns">
+          <div class="import-preview-column">
+            <h4>Added sections</h4>
+            ${renderPreviewList(diff.addedTitles, 'No new sections.')}
+          </div>
+          <div class="import-preview-column">
+            <h4>Missing from import</h4>
+            ${renderPreviewList(diff.removedTitles, 'No current sections are missing.')}
+          </div>
+        </div>
+      `;
+    }
 
     // Tab switching
     modalContainer.querySelectorAll('.import-tab').forEach(tab => {
@@ -3636,16 +4019,20 @@
     function readImportFile(file) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        document.getElementById('import-paste-area').value = e.target.result;
+        pasteArea.value = e.target.result;
         // Switch to paste tab to show content
         modalContainer.querySelectorAll('.import-tab').forEach(t => t.classList.remove('active'));
         modalContainer.querySelector('[data-import-tab="paste"]').classList.add('active');
         document.getElementById('import-tab-paste').style.display = '';
         document.getElementById('import-tab-upload').style.display = 'none';
+        updatePreview();
         showToast('File loaded. Review and click Import.', '');
       };
       reader.readAsText(file);
     }
+
+    pasteArea.addEventListener('input', updatePreview);
+    updatePreview();
 
     // Close
     const closeModal = () => { modalContainer.innerHTML = ''; };
@@ -3657,7 +4044,7 @@
 
     // Confirm import
     document.getElementById('import-confirm-btn').addEventListener('click', () => {
-      const md = document.getElementById('import-paste-area').value.trim();
+      const md = pasteArea.value.trim();
       if (!md) {
         showToast('Nothing to import. Paste or upload a markdown file first.', '');
         return;
@@ -3942,6 +4329,7 @@
         const parsed = JSON.parse(e.newValue);
         deepMerge(state, parsed);
         migrateState();
+        resetConfigHistory();
         render();
         showToast('Synced changes from another tab', '');
       } catch (err) {
@@ -4181,6 +4569,14 @@
       render();
     },
 
+    undo() {
+      return undoConfigChange();
+    },
+
+    redo() {
+      return redoConfigChange();
+    },
+
     copyToClipboard(file) {
       const md = file === 'user' ? generateUserMarkdown() : generateAgentMarkdown();
       navigator.clipboard.writeText(md).then(() => {
@@ -4257,6 +4653,7 @@
   async function init() {
     loadFromLocalStorage();
     migrateState();
+    resetConfigHistory();
     bindStorageSync();
     bindSidebarNav();
     render();
@@ -4281,6 +4678,21 @@
         setSaveState('saving');
         saveToLocalStorage();
         return;
+      }
+
+      // Configure page history shortcuts (outside text inputs)
+      if (state.activePage === 'configure' && mod && !isEditableTarget(e.target)) {
+        const key = e.key.toLowerCase();
+        if (key === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          if (!undoConfigChange()) showToast('Nothing to undo', '');
+          return;
+        }
+        if (key === 'y' || (key === 'z' && e.shiftKey)) {
+          e.preventDefault();
+          if (!redoConfigChange()) showToast('Nothing to redo', '');
+          return;
+        }
       }
 
       // Escape: close modal if open
