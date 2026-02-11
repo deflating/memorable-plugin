@@ -2330,16 +2330,25 @@
           ${resetFiltersHtml}
         </div>
         ${sessionFilterHtml}
+        ${ns.reviewMode ? `
+        <div class="notes-review-split">
+          <div class="notes-review-list">
+            <div class="notes-list">${notesHtml}</div>
+            ${loadMoreHtml}
+          </div>
+          ${insightsPanelHtml}
+        </div>
+        ` : `
         <div class="notes-list">
           ${notesHtml}
         </div>
         ${loadMoreHtml}
+        `}
       </div>
     `;
 
     container.innerHTML = `
       <div class="notes-page ${ns.reviewMode ? 'review-mode' : ''}">
-        ${ns.reviewMode ? insightsPanelHtml : ''}
         ${notesContentHtml}
       </div>
     `;
@@ -2456,7 +2465,7 @@
     });
 
     bindAll(container, '.note-card', 'click', (event, card) => {
-      if (event.target.closest('a')) return;
+      if (event.target.closest('a, button, .note-card-body')) return;
       const idx = Number.parseInt(card.dataset.noteIdx, 10);
       if (ns.expandedIdx === idx) {
         ns.expandedIdx = null;
@@ -3075,7 +3084,7 @@
     const providers = [
       { id: 'deepseek', name: 'DeepSeek', defaultModel: 'deepseek-chat', keyPlaceholder: 'sk-...' },
       { id: 'gemini', name: 'Gemini', defaultModel: 'gemini-2.5-flash', keyPlaceholder: 'AI...' },
-      { id: 'claude', name: 'Claude', defaultModel: 'claude-haiku-4-5-20251001', keyPlaceholder: 'sk-ant-...' },
+      { id: 'claude', name: 'Claude (API)', defaultModel: 'claude-haiku-4-5-20251001', keyPlaceholder: 'sk-ant-...' },
     ];
     const activeProvider = llm.provider || 'deepseek';
     return providers.map(p => {
@@ -3222,15 +3231,42 @@
             </div>
             <div class="settings-section-body">
               ${renderProviderCards(llm)}
+              <div class="provider-routing-section">
+                <div class="provider-routing-label">Per-task routing</div>
+                <div class="settings-row">
+                  <div class="settings-row-info">
+                    <div class="settings-row-label">Session Notes</div>
+                    <div class="settings-row-desc">Auto-generated summaries of each conversation</div>
+                  </div>
+                  <div class="settings-row-control">
+                    <select id="settings-route-session-notes">${routeSelect(routing.session_notes || 'deepseek')}</select>
+                  </div>
+                </div>
+                <div class="settings-row">
+                  <div class="settings-row-info">
+                    <div class="settings-row-label">Current Context (now.md)</div>
+                    <div class="settings-row-desc">Rolling summary of what's happening right now</div>
+                  </div>
+                  <div class="settings-row-control">
+                    <select id="settings-route-now-md">${routeSelect(routing.now_md || 'deepseek')}</select>
+                  </div>
+                </div>
+                <div class="settings-row">
+                  <div class="settings-row-info">
+                    <div class="settings-row-label">Imported Documents</div>
+                    <div class="settings-row-desc">Processing of uploaded files and anchors</div>
+                  </div>
+                  <div class="settings-row-control">
+                    <select id="settings-route-anchors">${routeSelect(routing.anchors || 'deepseek')}</select>
+                  </div>
+                </div>
+              </div>
+              <div style="display:none">
+                <input type="text" id="settings-claude-command" value="${esc(claudeCli.command || 'claude')}">
+                <input type="text" id="settings-claude-prompt-flag" value="${esc(claudeCli.prompt_flag || '-p')}">
+                <input type="text" id="settings-llm-endpoint" value="${esc(llm.endpoint || '')}">
+              </div>
             </div>
-          </div>
-          <div style="display:none"><!-- hidden routing/CLI fields for backward compat -->
-              <select id="settings-route-session-notes"><option value="${esc(routing.session_notes || 'deepseek')}" selected></option></select>
-              <select id="settings-route-now-md"><option value="${esc(routing.now_md || 'deepseek')}" selected></option></select>
-              <select id="settings-route-anchors"><option value="${esc(routing.anchors || 'deepseek')}" selected></option></select>
-              <input type="text" id="settings-claude-command" value="${esc(claudeCli.command || 'claude')}">
-              <input type="text" id="settings-claude-prompt-flag" value="${esc(claudeCli.prompt_flag || '-p')}">
-              <input type="text" id="settings-llm-endpoint" value="${esc(llm.endpoint || '')}">
           </div>
 
           <div class="settings-section">
@@ -3550,14 +3586,15 @@
     bindById('settings-save-btn', 'click', handleSettingsSave);
 
     // Provider card toggle/save
-    container.querySelectorAll('[data-toggle-provider]').forEach(el => {
+    const pageContainer = document.getElementById('page-container');
+    document.querySelectorAll('[data-toggle-provider]').forEach(el => {
       el.addEventListener('click', () => {
         const provider = el.dataset.toggleProvider;
         state._expandedProvider = state._expandedProvider === provider ? null : provider;
-        renderSettingsPage(container);
+        renderSettingsPage(pageContainer);
       });
     });
-    container.querySelectorAll('.provider-save-btn').forEach(el => {
+    document.querySelectorAll('.provider-save-btn').forEach(el => {
       el.addEventListener('click', async () => {
         const provider = el.dataset.provider;
         const card = el.closest('.provider-card');
@@ -3579,7 +3616,7 @@
             errorMessage: 'Failed to save provider',
           }
         );
-        renderSettingsPage(container);
+        renderSettingsPage(pageContainer);
       });
     });
     bindById('settings-export-btn', 'click', handleSettingsExport);
@@ -3964,7 +4001,7 @@
             const isCustom = !isDefaultCognitive(k);
             return `
               <div class="toggle-item ${active ? 'active' : ''}" data-cognitive="${k}">
-                <span class="toggle-check">${active ? '${ICON.check}' : ''}</span>
+                <span class="toggle-check">${active ? ICON.check : ''}</span>
                 ${getCognitiveLabel(k)}
                 ${isCustom ? `<button class="toggle-remove" data-remove-cognitive="${k}" title="Remove">${ICON.x}</button>` : ''}
               </div>
@@ -4133,7 +4170,7 @@
             const isCustom = !isDefaultBehavior(k);
             return `
               <div class="toggle-item ${active ? 'active' : ''}" data-behavior="${k}">
-                <span class="toggle-check">${active ? '${ICON.check}' : ''}</span>
+                <span class="toggle-check">${active ? ICON.check : ''}</span>
                 ${getBehaviorLabel(k)}
                 ${isCustom ? `<button class="toggle-remove" data-remove-behavior="${k}" title="Remove">${ICON.x}</button>` : ''}
               </div>
@@ -4405,7 +4442,7 @@
         const key = el.dataset.cognitive;
         state.user.cognitiveActive[key] = !state.user.cognitiveActive[key];
         el.classList.toggle('active');
-        el.querySelector('.toggle-check').innerHTML = state.user.cognitiveActive[key] ? '${ICON.check}' : '';
+        el.querySelector('.toggle-check').innerHTML = state.user.cognitiveActive[key] ? ICON.check : '';
         renderPreview();
         debouncedSave();
       });
@@ -4632,7 +4669,7 @@
         const key = el.dataset.behavior;
         state.agent.behaviorsActive[key] = !state.agent.behaviorsActive[key];
         el.classList.toggle('active');
-        el.querySelector('.toggle-check').innerHTML = state.agent.behaviorsActive[key] ? '${ICON.check}' : '';
+        el.querySelector('.toggle-check').innerHTML = state.agent.behaviorsActive[key] ? ICON.check : '';
         renderPreview();
         debouncedSave();
       });
