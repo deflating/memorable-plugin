@@ -8,6 +8,7 @@ ceiling: the most recent notes are always included regardless of salience.
 """
 
 import json
+import platform
 import re
 import sys
 from datetime import datetime, timezone
@@ -33,6 +34,7 @@ DECAY_FACTOR = 0.97
 MIN_SALIENCE = 0.05
 MAX_SALIENT_NOTES = 8
 RECENCY_CEILING = 3  # Always include this many most-recent notes
+CURRENT_MACHINE = platform.node().split(".")[0].strip().lower()
 
 
 def load_config() -> dict:
@@ -187,7 +189,8 @@ def _effective_salience(entry: dict) -> float:
     base = max(MIN_SALIENCE, decayed)
     density_mult = _information_density_multiplier(entry)
     actionability_mult = _actionability_multiplier(entry)
-    return max(MIN_SALIENCE, base * density_mult * actionability_mult)
+    context_mult = _time_machine_context_multiplier(entry)
+    return max(MIN_SALIENCE, base * density_mult * actionability_mult * context_mult)
 
 
 def _note_text(entry: dict) -> str:
@@ -248,6 +251,40 @@ def _actionability_multiplier(entry: dict) -> float:
     score = max(0.0, min(1.0, score))
     # 1.00x .. 1.35x
     return 1.0 + (0.35 * score)
+
+
+def _time_machine_context_multiplier(entry: dict) -> float:
+    """Boost notes matching current machine and time-of-day usage patterns."""
+    now = datetime.now(timezone.utc)
+
+    ts = _note_timestamp(entry)
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        dt = None
+
+    # Hour proximity boost: notes near current hour are more likely relevant.
+    hour_boost = 0.0
+    if dt:
+        note_hour = dt.astimezone(timezone.utc).hour
+        now_hour = now.hour
+        delta = min((now_hour - note_hour) % 24, (note_hour - now_hour) % 24)
+        # 0h -> 1.0, 6h -> 0.0, >=6h clamped
+        closeness = max(0.0, (6.0 - float(delta)) / 6.0)
+        hour_boost = 0.15 * closeness
+
+    # Machine match boost: prioritize notes from same machine.
+    machine_boost = 0.0
+    raw_machine = str(entry.get("machine", "")).strip().lower()
+    if raw_machine and CURRENT_MACHINE:
+        note_machine = raw_machine.split(".")[0]
+        if note_machine == CURRENT_MACHINE:
+            machine_boost = 0.12
+
+    # 0.95x floor for mismatched context, up to ~1.27x for strong match.
+    return 0.95 + hour_boost + machine_boost
 
 
 def _note_timestamp(entry: dict) -> str:
