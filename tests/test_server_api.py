@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,7 +25,9 @@ class ServerApiTests(unittest.TestCase):
         self.orig_sessions_dir = server_api.SESSIONS_DIR
         self.orig_seeds_dir = server_api.SEEDS_DIR
         self.orig_note_usage_path = server_api.NOTE_USAGE_PATH
+        self.orig_reliability_metrics_path = server_api.RELIABILITY_METRICS_PATH
         self.orig_load_config = server_api.load_config
+        self.orig_save_config = server_api.save_config
 
     def tearDown(self):
         server_api.DATA_DIR = self.orig_data_dir
@@ -33,7 +36,9 @@ class ServerApiTests(unittest.TestCase):
         server_api.SESSIONS_DIR = self.orig_sessions_dir
         server_api.SEEDS_DIR = self.orig_seeds_dir
         server_api.NOTE_USAGE_PATH = self.orig_note_usage_path
+        server_api.RELIABILITY_METRICS_PATH = self.orig_reliability_metrics_path
         server_api.load_config = self.orig_load_config
+        server_api.save_config = self.orig_save_config
 
     def test_load_all_notes_survives_non_string_note_rows(self):
         with tempfile.TemporaryDirectory() as td:
@@ -134,6 +139,60 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(400, status)
         self.assertEqual("INVALID_CONTENT_TYPE", data["error"]["code"])
 
+    def test_handle_post_settings_rejects_unknown_key(self):
+        status, data = server_api.handle_post_settings({"mystery": 1})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_SETTINGS_KEY", data["error"]["code"])
+
+    def test_handle_post_settings_rejects_invalid_types(self):
+        status, data = server_api.handle_post_settings({"token_budget": "200000"})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_TOKEN_BUDGET", data["error"]["code"])
+
+        status, data = server_api.handle_post_settings({"daemon": {"enabled": "true"}})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_DAEMON_ENABLED", data["error"]["code"])
+
+        status, data = server_api.handle_post_settings({"llm_provider": {"model": 123}})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_LLM_PROVIDER_MODEL", data["error"]["code"])
+
+    def test_handle_post_settings_rejects_invalid_ranges(self):
+        status, data = server_api.handle_post_settings({"server_port": 70000})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_SERVER_PORT", data["error"]["code"])
+
+        status, data = server_api.handle_post_settings({"daemon": {"idle_threshold": 0}})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_DAEMON_IDLE_THRESHOLD", data["error"]["code"])
+
+    def test_handle_post_settings_applies_valid_patch(self):
+        captured = {}
+        existing = {
+            "llm_provider": {"endpoint": "https://api.deepseek.com/v1", "api_key": "", "model": "deepseek-chat"},
+            "token_budget": 200000,
+            "daemon": {"enabled": False, "idle_threshold": 300},
+            "server_port": 7777,
+            "context_files": [],
+        }
+        server_api.load_config = lambda: dict(existing)
+        server_api.save_config = lambda config: captured.setdefault("config", config)
+
+        status, data = server_api.handle_post_settings(
+            {
+                "token_budget": 123456,
+                "daemon": {"enabled": True, "idle_threshold": 120},
+                "llm_provider": {"model": "deepseek-reasoner"},
+            }
+        )
+        self.assertEqual(200, status)
+        self.assertTrue(data["ok"])
+        self.assertIn("config", captured)
+        self.assertEqual(123456, captured["config"]["token_budget"])
+        self.assertTrue(captured["config"]["daemon"]["enabled"])
+        self.assertEqual(120, captured["config"]["daemon"]["idle_threshold"])
+        self.assertEqual("deepseek-reasoner", captured["config"]["llm_provider"]["model"])
+
     def test_import_zip_rejects_unsafe_member_paths(self):
         payload = io.BytesIO()
         with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -180,6 +239,78 @@ class ServerApiTests(unittest.TestCase):
             self.assertEqual(2, data["low_effectiveness_count"])
             self.assertEqual("sess-b2", data["top_referenced"][0]["session"])
             self.assertEqual("sess-a1", data["high_load_low_reference"][0]["session"])
+
+    def test_handle_get_metrics_summarizes_local_counters(self):
+        now = datetime.now(timezone.utc)
+        today_iso = now.isoformat().replace("+00:00", "Z")
+        yesterday_iso = (now - timedelta(days=1)).isoformat().replace("+00:00", "Z")
+        old_incident = (now - timedelta(days=9)).isoformat().replace("+00:00", "Z")
+        recent_incident = (now - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            notes_dir = root / "notes"
+            notes_dir.mkdir(parents=True, exist_ok=True)
+            notes_file = notes_dir / "session_notes.jsonl"
+            rows = [
+                {"ts": today_iso, "note": "today", "topic_tags": []},
+                {"ts": yesterday_iso, "note": "yesterday", "topic_tags": []},
+                {
+                    "ts": today_iso,
+                    "note": "weekly synthesis",
+                    "topic_tags": [],
+                    "synthesis_level": "weekly",
+                },
+            ]
+            with notes_file.open("w", encoding="utf-8") as fh:
+                for row in rows:
+                    fh.write(json.dumps(row) + "\n")
+
+            metrics_path = root / "reliability_metrics.json"
+            metrics_path.write_text(
+                json.dumps(
+                    {
+                        "import": {"success": 3, "failure": 1},
+                        "export": {"success": 2, "failure": 4},
+                        "lag_incidents": [
+                            {"ts": old_incident, "source_ts": "old", "lag_seconds": 7200},
+                            {"ts": recent_incident, "source_ts": "recent", "lag_seconds": 1800},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            server_api.NOTES_DIR = notes_dir
+            server_api.RELIABILITY_METRICS_PATH = metrics_path
+            status, data = server_api.handle_get_metrics()
+            self.assertEqual(200, status)
+            self.assertEqual(1, data["notes_generated_today"])
+            self.assertEqual(7, len(data["notes_generated_last_7_days"]))
+            self.assertEqual(2, data["lag_incidents_total"])
+            self.assertEqual(1, data["lag_incidents_7d"])
+            self.assertEqual(3, data["import"]["success"])
+            self.assertEqual(1, data["import"]["failure"])
+            self.assertEqual(2, data["export"]["success"])
+            self.assertEqual(4, data["export"]["failure"])
+
+    def test_handle_get_export_updates_reliability_counters(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            data_dir = root / "data"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            (data_dir / "note_usage.json").write_text("{}", encoding="utf-8")
+
+            server_api.DATA_DIR = data_dir
+            server_api.RELIABILITY_METRICS_PATH = data_dir / "reliability_metrics.json"
+
+            status, data = server_api.handle_get_export()
+            self.assertEqual(200, status)
+            self.assertIn("payload", data)
+
+            metrics = json.loads(server_api.RELIABILITY_METRICS_PATH.read_text(encoding="utf-8"))
+            self.assertEqual(1, metrics["export"]["success"])
+            self.assertEqual(0, metrics["export"]["failure"])
 
     def test_handle_get_notes_filters_by_session_prefix(self):
         with tempfile.TemporaryDirectory() as td:
@@ -415,6 +546,7 @@ class ServerApiTests(unittest.TestCase):
             server_api.NOTES_DIR = notes_dir
             server_api.SESSIONS_DIR = sessions_dir
             server_api.SEEDS_DIR = seeds_dir
+            server_api.RELIABILITY_METRICS_PATH = root / "reliability_metrics.json"
             server_api.load_config = lambda: {
                 "daemon": {"enabled": True, "idle_threshold": 60}
             }
@@ -425,6 +557,40 @@ class ServerApiTests(unittest.TestCase):
             self.assertIn("notes_lagging", data["daemon_health"]["issues"])
             self.assertIsNotNone(data["daemon_lag_seconds"])
             self.assertGreater(data["daemon_lag_seconds"], data["daemon_health"]["lag_threshold_seconds"])
+
+            status, data = server_api.handle_get_status()
+            self.assertEqual(200, status)
+
+            metrics_status, metrics_data = server_api.handle_get_metrics()
+            self.assertEqual(200, metrics_status)
+            self.assertEqual(1, metrics_data["lag_incidents_total"])
+
+    def test_handle_put_file_depth_rejects_invalid_depth_and_enabled(self):
+        status, data = server_api.handle_put_file_depth("doc.md", {"depth": "banana", "enabled": True})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_DEPTH", data["error"]["code"])
+
+        status, data = server_api.handle_put_file_depth("doc.md", {"depth": 9, "enabled": True})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_DEPTH", data["error"]["code"])
+
+        status, data = server_api.handle_put_file_depth("doc.md", {"depth": 2, "enabled": "true"})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_ENABLED", data["error"]["code"])
+
+    def test_handle_put_file_depth_normalizes_broken_context_files_config(self):
+        captured = {}
+        server_api.load_config = lambda: {"context_files": {"bad": "shape"}}
+        server_api.save_config = lambda config: captured.setdefault("config", config)
+
+        status, data = server_api.handle_put_file_depth("doc.md", {"depth": 2, "enabled": True})
+        self.assertEqual(200, status)
+        self.assertTrue(data["ok"])
+        self.assertIn("config", captured)
+        self.assertEqual(
+            [{"filename": "doc.md", "depth": 2, "enabled": True}],
+            captured["config"]["context_files"],
+        )
 
 
 if __name__ == "__main__":

@@ -179,6 +179,16 @@ class SessionStartSelectionTests(unittest.TestCase):
         self.assertGreater(pinned, normal)
         self.assertEqual(session_start.MIN_SALIENCE, archived)
 
+    def test_collect_files_ignores_invalid_context_files_shape(self):
+        config = {"context_files": {"invalid": "shape"}}
+        files = session_start.collect_files(config)
+        self.assertIsInstance(files, list)
+
+    def test_parse_context_depth_clamps_invalid_values(self):
+        self.assertEqual(2, session_start.parse_context_depth("2", -1))
+        self.assertEqual(-1, session_start.parse_context_depth("banana", -1))
+        self.assertEqual(-1, session_start.parse_context_depth(9, -1))
+
 
 if __name__ == "__main__":
     unittest.main()

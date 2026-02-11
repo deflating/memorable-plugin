@@ -11,6 +11,7 @@ from server_api import (
     handle_get_files,
     handle_get_health,
     handle_get_memory_insights,
+    handle_get_metrics,
     handle_get_machines,
     handle_get_notes,
     handle_get_notes_tags,
@@ -180,6 +181,10 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/memory/insights":
             status, data = handle_get_memory_insights()
+            return self.send_json(status, data)
+
+        if path == "/api/metrics":
+            status, data = handle_get_metrics()
             return self.send_json(status, data)
 
         if path == "/api/sessions":

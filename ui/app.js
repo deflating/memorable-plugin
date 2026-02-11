@@ -246,6 +246,7 @@
     notesCache: [],           // cached session notes from API
     settingsCache: null,      // cached settings from API
     statusCache: null,        // cached status from API
+    metricsCache: null,       // cached local reliability metrics from API
     serverConnected: false,   // whether server is reachable
     onboardingStep: 1,        // dashboard onboarding wizard step
     seedSync: {
@@ -1211,18 +1212,101 @@
     });
   }
 
+  async function withPendingButton(button, pendingLabel, task) {
+    if (!button) return task();
+    const previousLabel = button.textContent;
+    const previousDisabled = button.disabled;
+    button.disabled = true;
+    if (pendingLabel) button.textContent = pendingLabel;
+    try {
+      return await task();
+    } finally {
+      button.disabled = previousDisabled;
+      button.textContent = previousLabel;
+    }
+  }
+
+  async function runMutationAction(request, config = {}) {
+    const {
+      isSuccess = (result) => !!result,
+      onSuccess = null,
+      successMessage = '',
+      failureMessage = 'Action failed',
+      errorMessage = 'Action failed',
+    } = config;
+    try {
+      const result = await request();
+      if (!isSuccess(result)) {
+        if (failureMessage) {
+          showToast(
+            typeof failureMessage === 'function' ? failureMessage(result) : failureMessage,
+            'error'
+          );
+        }
+        return { ok: false, result };
+      }
+      if (typeof onSuccess === 'function') {
+        await onSuccess(result);
+      }
+      if (successMessage) {
+        showToast(
+          typeof successMessage === 'function' ? successMessage(result) : successMessage,
+          'success'
+        );
+      }
+      return { ok: true, result };
+    } catch (err) {
+      console.warn('Mutation action failed:', err);
+      if (errorMessage) {
+        showToast(
+          typeof errorMessage === 'function' ? errorMessage(err) : errorMessage,
+          'error'
+        );
+      }
+      return { ok: false, error: err };
+    }
+  }
+
+  async function readJsonSafely(resp) {
+    try {
+      return await resp.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  }
+
   // ---- Server Status ----
   async function checkServerStatus() {
     try {
-      const resp = await fetch('/api/status');
-      if (resp.ok) {
+      const [statusResp, metricsResp] = await Promise.all([
+        fetch('/api/status'),
+        fetch('/api/metrics'),
+      ]);
+      if (statusResp.ok) {
         state.serverConnected = true;
-        state.statusCache = await resp.json();
+        state.statusCache = await statusResp.json();
       } else {
         state.serverConnected = false;
       }
+      if (metricsResp.ok) {
+        state.metricsCache = await metricsResp.json();
+      } else if (!state.serverConnected) {
+        state.metricsCache = null;
+      }
     } catch (e) {
       state.serverConnected = false;
+      state.metricsCache = null;
     }
     updateSidebarStatus();
     if (state.activePage === 'dashboard' || state.activePage === 'settings') {
@@ -1434,6 +1518,9 @@
 
   function renderDashboard(container) {
     const status = state.statusCache;
+    const metrics = state.metricsCache && typeof state.metricsCache === 'object'
+      ? state.metricsCache
+      : null;
     const totalNotes = status ? (status.total_notes || 0) : '\u2014';
     const totalNotesCount = status ? Number(status.total_notes || 0) : 0;
     const totalSessions = status ? (status.total_sessions || 0) : '\u2014';
@@ -1452,6 +1539,19 @@
       : null;
     const lastNoteDate = status ? status.last_note_date : '';
     const lastTranscriptDate = status ? status.last_transcript_date : '';
+    const notesToday = metrics ? Number(metrics.notes_generated_today || 0) : null;
+    const notesLast7 = metrics && Array.isArray(metrics.notes_generated_last_7_days)
+      ? metrics.notes_generated_last_7_days.reduce((sum, row) => {
+        const count = Number(row && row.count);
+        return sum + (Number.isFinite(count) ? count : 0);
+      }, 0)
+      : null;
+    const lagIncidents7d = metrics ? Number(metrics.lag_incidents_7d || 0) : null;
+    const importSuccess = metrics ? Number(((metrics.import || {}).success || 0)) : null;
+    const importFailure = metrics ? Number(((metrics.import || {}).failure || 0)) : null;
+    const exportSuccess = metrics ? Number(((metrics.export || {}).success || 0)) : null;
+    const exportFailure = metrics ? Number(((metrics.export || {}).failure || 0)) : null;
+    const lastLagIncidentAt = metrics ? metrics.last_lag_incident_at : null;
 
     // Get recent notes (up to 5)
     const recentNotes = state.notesCache.slice(0, 5);
@@ -1588,6 +1688,34 @@
       return noteText;
     })();
 
+    const reliabilityMetricsHtml = metrics ? `
+      <div class="dashboard-section">
+        <div class="dashboard-section-header">
+          <h2>Reliability Metrics</h2>
+        </div>
+        <div class="dashboard-stats">
+          <div class="stat-card">
+            <div class="stat-value">${notesToday}</div>
+            <div class="stat-label">Notes Today</div>
+            <div class="stat-card-sub">Last 7 days: ${notesLast7}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${lagIncidents7d}</div>
+            <div class="stat-label">Lag Incidents (7d)</div>
+            <div class="stat-card-sub">${esc(lastLagIncidentAt ? `Last ${formatRelativeTime(lastLagIncidentAt)}` : 'No incidents logged')}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${importSuccess} / ${importFailure}</div>
+            <div class="stat-label">Imports (ok/fail)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value">${exportSuccess} / ${exportFailure}</div>
+            <div class="stat-label">Exports (ok/fail)</div>
+          </div>
+        </div>
+      </div>
+    ` : '';
+
     container.innerHTML = `
       <div class="dashboard-page">
         <div class="page-header">
@@ -1621,6 +1749,8 @@
             <div class="stat-card-sub">${esc(daemonStatSub)}</div>
           </div>
         </div>
+
+        ${reliabilityMetricsHtml}
 
         ${lastSessionHtml}
 
@@ -2543,11 +2673,12 @@
       </div>
     `;
 
-    // --- Event bindings ---
+    bindSemanticMemoryEvents(container);
+  }
 
-    // Upload zone
-    const dropzone = document.getElementById('semantic-dropzone');
-    const fileInput = document.getElementById('semantic-file-input');
+  function bindSemanticMemoryEvents(container) {
+    const dropzone = container.querySelector('#semantic-dropzone');
+    const fileInput = container.querySelector('#semantic-file-input');
 
     if (dropzone && fileInput) {
       dropzone.addEventListener('click', () => fileInput.click());
@@ -2569,138 +2700,124 @@
       });
     }
 
-    const uploadFirstBtn = container.querySelector('#semantic-upload-first-btn');
-    if (uploadFirstBtn && fileInput) {
-      uploadFirstBtn.addEventListener('click', () => fileInput.click());
+    bindById('semantic-upload-first-btn', 'click', () => {
+      if (fileInput) fileInput.click();
+    });
+
+    bindAll(container, '.file-process-btn', 'click', async (e, btn) => {
+      e.stopPropagation();
+      const filename = btn.dataset.filename;
+      await withPendingButton(btn, 'Processing...', async () => {
+        const outcome = await runMutationAction(
+          () => apiFetch(`/api/files/${encodeURIComponent(filename)}/process`, { method: 'POST' }),
+          {
+            isSuccess: (result) => !!result && result.status === 'ok',
+            successMessage: (result) => `Anchored ${filename} (${result.method})`,
+            failureMessage: (result) => `Processing issue: ${(result && result.error) || 'unknown'}`,
+            errorMessage: (err) => `Processing failed: ${err.message}`,
+          }
+        );
+        if (outcome.ok) await renderSemanticMemory(container);
+      });
+    });
+
+    bindAll(container, '.file-depth-select', 'change', async (e, select) => {
+      e.stopPropagation();
+      const filename = select.dataset.filename;
+      const depth = parseInt(select.value, 10);
+      const enabledToggle = container.querySelector(`.file-enabled-toggle[data-filename="${filename}"]`);
+      const enabled = enabledToggle ? enabledToggle.checked : false;
+      await runMutationAction(
+        () => apiFetch(`/api/files/${encodeURIComponent(filename)}/depth`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depth, enabled }),
+        }),
+        {
+          successMessage: 'Depth updated',
+          failureMessage: 'Could not update depth',
+        }
+      );
+    });
+
+    bindAll(container, '.file-enabled-toggle', 'change', async (e, toggle) => {
+      e.stopPropagation();
+      const filename = toggle.dataset.filename;
+      const enabled = toggle.checked;
+      const depthSelect = container.querySelector(`.file-depth-select[data-filename="${filename}"]`);
+      const depth = depthSelect ? parseInt(depthSelect.value, 10) : -1;
+      await runMutationAction(
+        () => apiFetch(`/api/files/${encodeURIComponent(filename)}/depth`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depth, enabled }),
+        }),
+        {
+          successMessage: enabled ? 'Will load at session start' : 'Disabled',
+          failureMessage: 'Could not update load setting',
+        }
+      );
+    });
+
+    bindAll(container, '.file-delete-btn', 'click', async (e, btn) => {
+      e.stopPropagation();
+      const filename = btn.dataset.filename;
+      if (!confirm('Delete ' + filename + '?')) return;
+      const outcome = await runMutationAction(
+        () => apiFetch(`/api/files/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
+        {
+          successMessage: `Deleted ${filename}`,
+          failureMessage: 'Delete failed',
+        }
+      );
+      if (outcome.ok) await renderSemanticMemory(container);
+    });
+
+    bindAll(container, '.file-card', 'click', async (e, card) => {
+      if (e.target.closest('.file-card-actions') || e.target.closest('.file-depth-info')) return;
+      await toggleSemanticFilePreview(container, card);
+    });
+  }
+
+  async function toggleSemanticFilePreview(container, card) {
+    const filename = card.dataset.filename;
+    const bodyId = 'file-body-' + filename.replace(/\./g, '-');
+    const bodyEl = document.getElementById(bodyId);
+    if (!bodyEl) return;
+
+    const wasExpanded = card.classList.contains('expanded');
+    container.querySelectorAll('.file-card.expanded').forEach((openCard) => {
+      if (openCard !== card) openCard.classList.remove('expanded');
+    });
+
+    if (wasExpanded) {
+      card.classList.remove('expanded');
+      return;
     }
 
-    // Process buttons
-    container.querySelectorAll('.file-process-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const filename = btn.dataset.filename;
-        btn.textContent = 'Processing...';
-        btn.disabled = true;
-        try {
-          const result = await apiFetch(`/api/files/${encodeURIComponent(filename)}/process`, {
-            method: 'POST',
-          });
-          if (result && result.status === 'ok') {
-            showToast(`Anchored ${filename} (${result.method})`, 'success');
-          } else {
-            showToast(`Processing issue: ${result && result.error || 'unknown'}`, 'error');
-          }
-          renderSemanticMemory(container);
-        } catch (err) {
-          showToast('Processing failed: ' + err.message, 'error');
-          btn.textContent = 'Process';
-          btn.disabled = false;
-        }
-      });
-    });
+    card.classList.add('expanded');
+    bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Loading preview...</div>';
 
-    // Depth selectors
-    container.querySelectorAll('.file-depth-select').forEach(sel => {
-      sel.addEventListener('change', async (e) => {
-        e.stopPropagation();
-        const filename = sel.dataset.filename;
-        const depth = parseInt(sel.value);
-        const enabledToggle = container.querySelector(`.file-enabled-toggle[data-filename="${filename}"]`);
-        const enabled = enabledToggle ? enabledToggle.checked : false;
-        await apiFetch(`/api/files/${encodeURIComponent(filename)}/depth`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ depth, enabled }),
-        });
-        showToast('Depth updated', 'success');
-      });
-    });
+    const isAnchored = card.classList.contains('file-card-anchored');
+    const previewUrl = isAnchored
+      ? `/api/files/${encodeURIComponent(filename)}/preview?raw=true`
+      : `/api/files/${encodeURIComponent(filename)}/preview?depth=-1`;
 
-    // Enabled toggles
-    container.querySelectorAll('.file-enabled-toggle').forEach(toggle => {
-      toggle.addEventListener('change', async (e) => {
-        e.stopPropagation();
-        const filename = toggle.dataset.filename;
-        const enabled = toggle.checked;
-        const depthSel = container.querySelector(`.file-depth-select[data-filename="${filename}"]`);
-        const depth = depthSel ? parseInt(depthSel.value) : -1;
-        await apiFetch(`/api/files/${encodeURIComponent(filename)}/depth`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ depth, enabled }),
-        });
-        showToast(enabled ? 'Will load at session start' : 'Disabled', 'success');
-      });
-    });
+    const data = await apiFetch(previewUrl);
+    if (data === null) {
+      bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Preview failed</div>';
+      return;
+    }
+    if (!data.content) {
+      bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">No content</div>';
+      return;
+    }
 
-    // Delete buttons
-    container.querySelectorAll('.file-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const filename = btn.dataset.filename;
-        if (!confirm('Delete ' + filename + '?')) return;
-        try {
-          await apiFetch(`/api/files/${encodeURIComponent(filename)}`, {
-            method: 'DELETE',
-          });
-          showToast('Deleted ' + filename, 'success');
-          renderSemanticMemory(container);
-        } catch (err) {
-          showToast('Delete failed', 'error');
-        }
-      });
-    });
-
-    // Click to expand/preview
-    container.querySelectorAll('.file-card').forEach(card => {
-      card.addEventListener('click', async (e) => {
-        // Don't toggle if clicking buttons/controls
-        if (e.target.closest('.file-card-actions') || e.target.closest('.file-depth-info')) return;
-
-        const filename = card.dataset.filename;
-        const bodyId = 'file-body-' + filename.replace(/\./g, '-');
-        const bodyEl = document.getElementById(bodyId);
-        if (!bodyEl) return;
-
-        const wasExpanded = card.classList.contains('expanded');
-
-        // Collapse all others
-        container.querySelectorAll('.file-card.expanded').forEach(c => {
-          if (c !== card) {
-            c.classList.remove('expanded');
-          }
-        });
-
-        if (wasExpanded) {
-          card.classList.remove('expanded');
-          return;
-        }
-
-        card.classList.add('expanded');
-        bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Loading preview...</div>';
-
-        // Show raw anchored content (with ⚓ tags) if anchored, otherwise raw file
-        const isAnchored = card.classList.contains('file-card-anchored');
-        const previewUrl = isAnchored
-          ? `/api/files/${encodeURIComponent(filename)}/preview?raw=true`
-          : `/api/files/${encodeURIComponent(filename)}/preview?depth=-1`;
-
-        try {
-          const data = await apiFetch(previewUrl);
-          if (data && data.content) {
-            const isRaw = isAnchored && data.depth === 'raw';
-            bodyEl.innerHTML = `
-              <div class="file-preview-content ${isRaw ? 'file-preview-raw' : 'rendered-md'}">${isRaw ? esc(data.content) : markdownToHtml(data.content)}</div>
-              <div class="file-preview-meta">${data.tokens} tokens${isRaw ? ' (anchored)' : ''}</div>
-            `;
-          } else {
-            bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">No content</div>';
-          }
-        } catch (err) {
-          bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Preview failed</div>';
-        }
-      });
-    });
+    const isRaw = isAnchored && data.depth === 'raw';
+    bodyEl.innerHTML = `
+      <div class="file-preview-content ${isRaw ? 'file-preview-raw' : 'rendered-md'}">${isRaw ? esc(data.content) : markdownToHtml(data.content)}</div>
+      <div class="file-preview-meta">${data.tokens} tokens${isRaw ? ' (anchored)' : ''}</div>
+    `;
   }
 
   function uploadSemanticFileWithProgress(file, onProgress) {
@@ -3143,196 +3260,193 @@
         </div>
       </div>
     `;
+    bindSettingsPageEvents();
+  }
 
-    // Theme toggle
-    const themeToggle = document.getElementById('theme-toggle');
-    if (themeToggle) {
-      const current = localStorage.getItem('memorable-theme') || 'auto';
-      themeToggle.querySelector(`[data-theme="${current}"]`).classList.add('active');
-      themeToggle.addEventListener('click', (e) => {
-        const btn = e.target.closest('.theme-toggle-btn');
-        if (!btn) return;
-        themeToggle.querySelectorAll('.theme-toggle-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        localStorage.setItem('memorable-theme', btn.dataset.theme);
-        applyTheme();
-      });
-    }
+  function getInputValue(id) {
+    const el = document.getElementById(id);
+    return el ? el.value : '';
+  }
 
-    const retryStatusBtn = document.getElementById('settings-retry-status-btn');
-    if (retryStatusBtn) {
-      retryStatusBtn.addEventListener('click', async () => {
-        await Promise.all([checkServerStatus(), loadSettings()]);
-        showToast('Status refreshed', 'success');
-      });
-    }
+  function getCheckboxValue(id) {
+    const el = document.getElementById(id);
+    return !!(el && el.checked);
+  }
 
-    // Token budget slider
-    const budgetSlider = document.getElementById('settings-token-budget');
-    if (budgetSlider) {
-      budgetSlider.addEventListener('input', () => {
-        document.getElementById('token-budget-display').textContent = formatTokens(parseInt(budgetSlider.value)) + ' tokens';
-      });
-    }
+  function buildSettingsPayload() {
+    return {
+      llm_provider: {
+        endpoint: getInputValue('settings-llm-endpoint'),
+        api_key: getInputValue('settings-llm-apikey'),
+        model: getInputValue('settings-llm-model'),
+      },
+      token_budget: parseInt(getInputValue('settings-token-budget'), 10),
+      daemon: {
+        enabled: getCheckboxValue('settings-daemon-enabled'),
+        idle_threshold: parseInt(getInputValue('settings-idle-threshold'), 10),
+      },
+      server_port: parseInt(getInputValue('settings-port'), 10),
+    };
+  }
 
-    // Save
-    const saveBtn = document.getElementById('settings-save-btn');
-    if (saveBtn) {
-      saveBtn.addEventListener('click', async () => {
-        const settings = {
-          llm_provider: {
-            endpoint: document.getElementById('settings-llm-endpoint').value,
-            api_key: document.getElementById('settings-llm-apikey').value,
-            model: document.getElementById('settings-llm-model').value
-          },
-          token_budget: parseInt(document.getElementById('settings-token-budget').value),
-          daemon: {
-            enabled: document.getElementById('settings-daemon-enabled').checked,
-            idle_threshold: parseInt(document.getElementById('settings-idle-threshold').value)
-          },
-          server_port: parseInt(document.getElementById('settings-port').value)
-        };
-        const result = await apiFetch('/api/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(settings)
-        });
-        if (result) {
-          state.settingsCache = { ...state.settingsCache, ...settings };
-          showToast('Settings saved', 'success');
-        } else {
-          showToast('Failed to save settings (server offline?)', '');
-        }
-      });
-    }
-
-    // Export
-    const exportBtn = document.getElementById('settings-export-btn');
-    if (exportBtn) {
-      exportBtn.addEventListener('click', async () => {
-        try {
-          const resp = await fetch('/api/export');
-          if (!resp.ok) throw new Error(`Export failed (${resp.status})`);
-          const blob = await resp.blob();
-          const cd = resp.headers.get('Content-Disposition') || '';
-          const match = cd.match(/filename="([^"]+)"/i);
-          const filename = match ? match[1] : 'memorable-export.zip';
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          showToast('Data exported as ZIP', 'success');
-        } catch (err) {
-          console.warn('Export failed:', err);
-          // Fallback: export local state snapshot as JSON
-          const blob = new Blob([JSON.stringify(state, null, 2)], {
-            type: 'application/json'
-          });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'memorable-export.json';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          showToast('Exported local data (server offline)', '');
-        }
-      });
-    }
-
-    // Import
-    const importBtn = document.getElementById('settings-import-btn');
-    const importInput = document.getElementById('settings-import-input');
-    if (importBtn && importInput) {
-      importBtn.addEventListener('click', () => importInput.click());
-      importInput.addEventListener('change', async () => {
-        const file = importInput.files && importInput.files[0];
-        importInput.value = '';
-        if (!file) return;
-
-        const proceed = confirm(
-          `Import data from "${file.name}"? This will replace your current local data.`
-        );
-        if (!proceed) return;
-
-        const token = prompt('Type IMPORT to confirm restore.');
-        if (token === null) return;
-        if (token.trim() !== 'IMPORT') {
-          showToast('Import canceled (token mismatch)', '');
-          return;
-        }
-
-        try {
-          const resp = await fetch('/api/import', {
-            method: 'POST',
-            headers: {
-              'Content-Type': file.type || 'application/zip',
-              'X-Confirmation-Token': token.trim(),
-              'X-Filename': file.name
-            },
-            body: file
-          });
-
-          let data = null;
-          try {
-            data = await resp.json();
-          } catch (_) {
-            data = null;
-          }
-
-          if (!resp.ok) {
-            const msg = (data && data.error && data.error.message)
-              ? data.error.message
-              : `Import failed (${resp.status})`;
-            throw new Error(msg);
-          }
-
-          localStorage.removeItem('seedConfigurator');
-          const restored = data && typeof data.restored_files === 'number'
-            ? data.restored_files
-            : 0;
-          showToast(`Imported ${restored} files`, 'success');
-          location.reload();
-        } catch (err) {
-          console.warn('Import failed:', err);
-          showToast(`Import failed: ${err.message}`, 'error');
-        }
-      });
-    }
-
-    // Reset
-    const resetBtn = document.getElementById('settings-reset-btn');
-    if (resetBtn) {
-      resetBtn.addEventListener('click', async () => {
-        if (confirm('Reset ALL data? This cannot be undone.')) {
-          const token = prompt('Type RESET to confirm permanent deletion.');
-          if (token === null) return;
-          if (token.trim() !== 'RESET') {
-            showToast('Reset canceled (token mismatch)', '');
+  async function handleSettingsSave() {
+    const settings = buildSettingsPayload();
+    await runMutationAction(
+      () => apiFetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      }),
+      {
+        onSuccess: (result) => {
+          if (result.settings) {
+            state.settingsCache = result.settings;
             return;
           }
+          state.settingsCache = { ...state.settingsCache, ...settings };
+        },
+        successMessage: 'Settings saved',
+        failureMessage: 'Failed to save settings (server offline?)',
+      }
+    );
+  }
 
-          const result = await apiFetch('/api/reset', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ confirmation_token: token.trim() })
-          });
-
-          if (result && result.ok) {
-            localStorage.removeItem('seedConfigurator');
-            showToast('All data reset', 'success');
-            location.reload();
-          } else {
-            showToast('Reset failed', '');
-          }
-        }
+  async function handleSettingsExport() {
+    try {
+      const resp = await fetch('/api/export');
+      if (!resp.ok) throw new Error(`Export failed (${resp.status})`);
+      const blob = await resp.blob();
+      const cd = resp.headers.get('Content-Disposition') || '';
+      const match = cd.match(/filename="([^"]+)"/i);
+      const filename = match ? match[1] : 'memorable-export.zip';
+      triggerDownload(blob, filename);
+      showToast('Data exported as ZIP', 'success');
+    } catch (err) {
+      console.warn('Export failed:', err);
+      const fallbackBlob = new Blob([JSON.stringify(state, null, 2)], {
+        type: 'application/json',
       });
+      triggerDownload(fallbackBlob, 'memorable-export.json');
+      showToast('Exported local data (server offline)', '');
     }
+  }
+
+  async function handleSettingsImportChange(event) {
+    const input = event.target;
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+
+    const proceed = confirm(
+      `Import data from "${file.name}"? This will replace your current local data.`
+    );
+    if (!proceed) return;
+
+    const token = prompt('Type IMPORT to confirm restore.');
+    if (token === null) return;
+    if (token.trim() !== 'IMPORT') {
+      showToast('Import canceled (token mismatch)', '');
+      return;
+    }
+
+    try {
+      const resp = await fetch('/api/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': file.type || 'application/zip',
+          'X-Confirmation-Token': token.trim(),
+          'X-Filename': file.name,
+        },
+        body: file,
+      });
+
+      const data = await readJsonSafely(resp);
+      if (!resp.ok) {
+        const message = data && data.error && data.error.message
+          ? data.error.message
+          : `Import failed (${resp.status})`;
+        throw new Error(message);
+      }
+
+      localStorage.removeItem('seedConfigurator');
+      const restored = data && typeof data.restored_files === 'number'
+        ? data.restored_files
+        : 0;
+      showToast(`Imported ${restored} files`, 'success');
+      location.reload();
+    } catch (err) {
+      console.warn('Import failed:', err);
+      showToast(`Import failed: ${err.message}`, 'error');
+    }
+  }
+
+  async function handleSettingsReset() {
+    if (!confirm('Reset ALL data? This cannot be undone.')) return;
+
+    const token = prompt('Type RESET to confirm permanent deletion.');
+    if (token === null) return;
+    if (token.trim() !== 'RESET') {
+      showToast('Reset canceled (token mismatch)', '');
+      return;
+    }
+
+    const outcome = await runMutationAction(
+      () => apiFetch('/api/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmation_token: token.trim() }),
+      }),
+      {
+        isSuccess: (result) => !!result && result.ok === true,
+        successMessage: 'All data reset',
+        failureMessage: 'Reset failed',
+      }
+    );
+    if (!outcome.ok) return;
+    localStorage.removeItem('seedConfigurator');
+    location.reload();
+  }
+
+  function bindSettingsThemeToggle() {
+    const themeToggle = document.getElementById('theme-toggle');
+    if (!themeToggle) return;
+    const current = localStorage.getItem('memorable-theme') || 'auto';
+    const activeBtn = themeToggle.querySelector(`[data-theme="${current}"]`);
+    if (activeBtn) activeBtn.classList.add('active');
+    themeToggle.addEventListener('click', (e) => {
+      const btn = e.target.closest('.theme-toggle-btn');
+      if (!btn) return;
+      themeToggle.querySelectorAll('.theme-toggle-btn').forEach((toggleBtn) => {
+        toggleBtn.classList.remove('active');
+      });
+      btn.classList.add('active');
+      localStorage.setItem('memorable-theme', btn.dataset.theme);
+      applyTheme();
+    });
+  }
+
+  function bindSettingsPageEvents() {
+    bindSettingsThemeToggle();
+
+    bindById('settings-retry-status-btn', 'click', async () => {
+      await Promise.all([checkServerStatus(), loadSettings()]);
+      showToast('Status refreshed', 'success');
+    });
+
+    bindById('settings-token-budget', 'input', (event) => {
+      const value = parseInt(event.target.value, 10);
+      const display = document.getElementById('token-budget-display');
+      if (display) display.textContent = `${formatTokens(value)} tokens`;
+    });
+
+    bindById('settings-save-btn', 'click', handleSettingsSave);
+    bindById('settings-export-btn', 'click', handleSettingsExport);
+    bindById('settings-import-btn', 'click', () => {
+      const fileInput = document.getElementById('settings-import-input');
+      if (fileInput) fileInput.click();
+    });
+    bindById('settings-import-input', 'change', handleSettingsImportChange);
+    bindById('settings-reset-btn', 'click', handleSettingsReset);
   }
 
   // ---- Seeds Page ----

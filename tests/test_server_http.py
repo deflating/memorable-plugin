@@ -77,6 +77,13 @@ class ServerHttpBodyValidationTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertIn("tracked_notes", payload)
 
+    def test_metrics_route_returns_200(self):
+        status, payload = self._get_json("/api/metrics")
+        self.assertEqual(200, status)
+        self.assertIn("notes_generated_today", payload)
+        self.assertIn("import", payload)
+        self.assertIn("export", payload)
+
     def test_read_body_rejects_negative_content_length(self):
         handler = SimpleNamespace(
             headers={"Content-Length": "-5"},

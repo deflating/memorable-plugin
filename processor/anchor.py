@@ -26,7 +26,6 @@ from pathlib import Path
 DATA_DIR = Path.home() / ".memorable" / "data"
 FILES_DIR = DATA_DIR / "files"
 LLM_CONFIG_PATH = DATA_DIR / "config.json"
-LEGACY_LLM_CONFIG_PATH = Path.home() / ".memorable" / "config.json"
 ERROR_LOG = Path.home() / ".memorable" / "hook-errors.log"
 
 CHARS_PER_TOKEN = 4
@@ -111,12 +110,6 @@ def _load_llm_config() -> dict:
             return json.loads(LLM_CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
         pass
-    # Backward compatibility for older installs
-    try:
-        if LEGACY_LLM_CONFIG_PATH.exists():
-            return json.loads(LEGACY_LLM_CONFIG_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        pass
     return {}
 
 
@@ -192,20 +185,25 @@ def _resolve_provider(llm_cfg: dict) -> str:
     return "deepseek"
 
 
+def _read_llm_provider_config(cfg: dict) -> dict:
+    llm_cfg = cfg.get("llm_provider")
+    if llm_cfg is None:
+        raise ValueError(
+            "Invalid config schema: missing 'llm_provider' in "
+            "~/.memorable/data/config.json."
+        )
+    if not isinstance(llm_cfg, dict):
+        raise ValueError(
+            "Invalid config schema: 'llm_provider' must be an object in "
+            "~/.memorable/data/config.json."
+        )
+    return llm_cfg
+
+
 def call_llm(prompt: str, max_tokens: int = 4096) -> str:
     """Call the configured LLM provider using current config schema."""
     cfg = _load_llm_config()
-
-    # Current schema: llm_provider {endpoint, api_key, model}
-    llm_cfg = cfg.get("llm_provider", {})
-    # Backward compatibility schemas
-    if not isinstance(llm_cfg, dict) or not llm_cfg:
-        llm_cfg = cfg.get("llm", {})
-    if not isinstance(llm_cfg, dict) or not llm_cfg:
-        llm_cfg = cfg.get("summarizer", {})
-
-    if not isinstance(llm_cfg, dict):
-        llm_cfg = {}
+    llm_cfg = _read_llm_provider_config(cfg)
 
     provider = _resolve_provider(llm_cfg)
     model = llm_cfg.get("model")
@@ -558,6 +556,7 @@ def process_file(filename: str, force: bool = False) -> dict:
                 "tokens_by_depth": None, "error": f"Read error: {e}"}
 
     method = "llm"
+    llm_error = None
     try:
         anchored = process_document_llm(text, filename)
         if not validate_anchored(anchored):
@@ -565,6 +564,7 @@ def process_file(filename: str, force: bool = False) -> dict:
         anchored = _repair_anchored(anchored)
     except Exception as e:
         log_error(f"LLM failed for {filename}: {e}")
+        llm_error = str(e)
         method = "mechanical"
         try:
             anchored = process_document_mechanical(text)
@@ -587,7 +587,7 @@ def process_file(filename: str, force: bool = False) -> dict:
         "status": "ok",
         "method": method,
         "tokens_by_depth": tokens_by_depth,
-        "error": None,
+        "error": llm_error if method == "mechanical" else None,
     }
 
 

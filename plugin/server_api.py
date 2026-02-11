@@ -17,7 +17,7 @@ import shutil
 import time
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse, unquote
@@ -58,9 +58,117 @@ MAX_IMPORT_SIZE = 100 * 1024 * 1024
 MAX_IMPORT_FILES = 5000
 MAX_IMPORT_UNCOMPRESSED = 300 * 1024 * 1024
 NOTE_USAGE_PATH = DATA_DIR / "note_usage.json"
+RELIABILITY_METRICS_PATH = DATA_DIR / "reliability_metrics.json"
 NOTE_SALIENCE_STEP = 0.25
 NOTE_SALIENCE_MIN = 0.0
 NOTE_SALIENCE_MAX = 3.0
+METRICS_RETENTION_LIMIT = 500
+
+
+def default_reliability_metrics() -> dict:
+    return {
+        "import": {"success": 0, "failure": 0},
+        "export": {"success": 0, "failure": 0},
+        "lag_incidents": [],
+    }
+
+
+def clean_counter(value) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def clean_lag_incidents(value) -> list[dict]:
+    if not isinstance(value, list):
+        return []
+    cleaned = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        ts = str(item.get("ts", "")).strip()
+        source_ts = str(item.get("source_ts", "")).strip()
+        lag_seconds = item.get("lag_seconds")
+        lag_seconds = clean_counter(lag_seconds) if lag_seconds is not None else None
+        if not ts:
+            continue
+        cleaned.append(
+            {
+                "ts": ts,
+                "source_ts": source_ts,
+                "lag_seconds": lag_seconds,
+            }
+        )
+    return cleaned[-METRICS_RETENTION_LIMIT:]
+
+
+def load_reliability_metrics() -> dict:
+    metrics = default_reliability_metrics()
+    try:
+        if not RELIABILITY_METRICS_PATH.exists():
+            return metrics
+        raw = json.loads(RELIABILITY_METRICS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return metrics
+
+    if not isinstance(raw, dict):
+        return metrics
+
+    import_raw = raw.get("import", {})
+    export_raw = raw.get("export", {})
+    metrics["import"]["success"] = clean_counter(
+        import_raw.get("success", 0) if isinstance(import_raw, dict) else 0
+    )
+    metrics["import"]["failure"] = clean_counter(
+        import_raw.get("failure", 0) if isinstance(import_raw, dict) else 0
+    )
+    metrics["export"]["success"] = clean_counter(
+        export_raw.get("success", 0) if isinstance(export_raw, dict) else 0
+    )
+    metrics["export"]["failure"] = clean_counter(
+        export_raw.get("failure", 0) if isinstance(export_raw, dict) else 0
+    )
+    metrics["lag_incidents"] = clean_lag_incidents(raw.get("lag_incidents", []))
+    return metrics
+
+
+def save_reliability_metrics(metrics: dict):
+    try:
+        RELIABILITY_METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(
+            RELIABILITY_METRICS_PATH,
+            json.dumps(metrics, ensure_ascii=False, indent=2) + "\n",
+        )
+    except Exception:
+        pass
+
+
+def increment_reliability_metric(operation: str, outcome: str):
+    if operation not in {"import", "export"}:
+        return
+    if outcome not in {"success", "failure"}:
+        return
+    metrics = load_reliability_metrics()
+    metrics[operation][outcome] = clean_counter(metrics[operation].get(outcome, 0)) + 1
+    save_reliability_metrics(metrics)
+
+
+def record_lag_incident(last_transcript_dt: datetime, lag_seconds: int | None):
+    source_ts = last_transcript_dt.astimezone(timezone.utc).isoformat()
+    metrics = load_reliability_metrics()
+    incidents = clean_lag_incidents(metrics.get("lag_incidents", []))
+    if any(str(item.get("source_ts", "")) == source_ts for item in incidents):
+        return
+    incidents.append(
+        {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "source_ts": source_ts,
+            "lag_seconds": clean_counter(lag_seconds) if lag_seconds is not None else None,
+        }
+    )
+    metrics["lag_incidents"] = incidents[-METRICS_RETENTION_LIMIT:]
+    save_reliability_metrics(metrics)
 
 
 # -- Notes -----------------------------------------------------------------
@@ -736,31 +844,164 @@ def handle_get_settings():
     return 200, {"settings": config}
 
 
-def handle_post_settings(body: dict):
-    """POST /api/settings — update config. Merges with existing."""
-    config = load_config()
+def settings_error_code(field_name: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", field_name).strip("_").upper()
+    return f"INVALID_{normalized}" if normalized else "INVALID_SETTINGS"
 
-    # Update top-level fields
-    for key in ("token_budget", "server_port"):
-        if key in body:
-            config[key] = body[key]
 
-    # Update nested objects
-    if "llm_provider" in body and isinstance(body["llm_provider"], dict):
-        if "llm_provider" not in config:
-            config["llm_provider"] = {}
-        config["llm_provider"].update(body["llm_provider"])
+def parse_int_setting(value, field_name: str, minimum: int, maximum: int):
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None, error_response(
+            settings_error_code(field_name),
+            f"Invalid {field_name}",
+            f"Send {field_name} as an integer between {minimum} and {maximum}.",
+        )
+    if value < minimum or value > maximum:
+        return None, error_response(
+            settings_error_code(field_name),
+            f"Invalid {field_name}",
+            f"Send {field_name} between {minimum} and {maximum}.",
+        )
+    return value, None
 
-    if "daemon" in body and isinstance(body["daemon"], dict):
-        if "daemon" not in config:
-            config["daemon"] = {}
-        config["daemon"].update(body["daemon"])
+
+def parse_string_setting(value, field_name: str):
+    if not isinstance(value, str):
+        return None, error_response(
+            settings_error_code(field_name),
+            f"Invalid {field_name}",
+            f"Send {field_name} as a string.",
+        )
+    return value, None
+
+
+def parse_llm_provider_patch(raw):
+    if not isinstance(raw, dict):
+        return None, error_response(
+            "INVALID_LLM_PROVIDER",
+            "Invalid llm_provider",
+            "Send llm_provider as an object.",
+        )
+    allowed = {"endpoint", "api_key", "model", "provider"}
+    patch = {}
+    for key, value in raw.items():
+        if key not in allowed:
+            return None, error_response(
+                "INVALID_LLM_PROVIDER_KEY",
+                f"Invalid llm_provider field: {key}",
+                "Allowed llm_provider fields: endpoint, api_key, model, provider.",
+            )
+        parsed, err = parse_string_setting(value, f"llm_provider.{key}")
+        if err:
+            return None, err
+        patch[key] = parsed
+    return patch, None
+
+
+def parse_daemon_patch(raw):
+    if not isinstance(raw, dict):
+        return None, error_response(
+            "INVALID_DAEMON",
+            "Invalid daemon settings",
+            "Send daemon as an object.",
+        )
+    patch = {}
+    for key, value in raw.items():
+        if key == "enabled":
+            if not isinstance(value, bool):
+                return None, error_response(
+                    "INVALID_DAEMON_ENABLED",
+                    "Invalid daemon.enabled",
+                    "Send daemon.enabled as true or false.",
+                )
+            patch[key] = value
+            continue
+        if key == "idle_threshold":
+            parsed, err = parse_int_setting(value, "daemon_idle_threshold", 1, 86400)
+            if err:
+                return None, err
+            patch[key] = parsed
+            continue
+        return None, error_response(
+            "INVALID_DAEMON_KEY",
+            f"Invalid daemon field: {key}",
+            "Allowed daemon fields: enabled, idle_threshold.",
+        )
+    return patch, None
+
+
+def parse_settings_patch(body: dict):
+    allowed_keys = {"llm_provider", "token_budget", "daemon", "server_port", "data_dir"}
+    patch = {}
+    for key in body.keys():
+        if key not in allowed_keys:
+            return None, error_response(
+                "INVALID_SETTINGS_KEY",
+                f"Invalid settings field: {key}",
+                "Allowed fields: llm_provider, token_budget, daemon, server_port, data_dir.",
+            )
+
+    if "token_budget" in body:
+        parsed, err = parse_int_setting(body["token_budget"], "token_budget", 1, 10_000_000)
+        if err:
+            return None, err
+        patch["token_budget"] = parsed
+
+    if "server_port" in body:
+        parsed, err = parse_int_setting(body["server_port"], "server_port", 1, 65535)
+        if err:
+            return None, err
+        patch["server_port"] = parsed
 
     if "data_dir" in body:
-        config["data_dir"] = body["data_dir"]
+        parsed, err = parse_string_setting(body["data_dir"], "data_dir")
+        if err:
+            return None, err
+        patch["data_dir"] = parsed
+
+    if "llm_provider" in body:
+        parsed, err = parse_llm_provider_patch(body["llm_provider"])
+        if err:
+            return None, err
+        patch["llm_provider"] = parsed
+
+    if "daemon" in body:
+        parsed, err = parse_daemon_patch(body["daemon"])
+        if err:
+            return None, err
+        patch["daemon"] = parsed
+
+    return patch, None
+
+
+def handle_post_settings(body: dict):
+    """POST /api/settings — validate and merge config updates."""
+    patch, err = parse_settings_patch(body)
+    if err:
+        return 400, err
+
+    config = load_config()
+
+    for key in ("token_budget", "server_port", "data_dir"):
+        if key in patch:
+            config[key] = patch[key]
+
+    if "llm_provider" in patch:
+        llm_cfg = config.get("llm_provider", {})
+        if not isinstance(llm_cfg, dict):
+            llm_cfg = {}
+        llm_cfg.update(patch["llm_provider"])
+        config["llm_provider"] = llm_cfg
+
+    if "daemon" in patch:
+        daemon_cfg = config.get("daemon", {})
+        if not isinstance(daemon_cfg, dict):
+            daemon_cfg = {}
+        daemon_cfg.update(patch["daemon"])
+        config["daemon"] = daemon_cfg
 
     save_config(config)
-    append_audit("settings.update", {"changed_keys": sorted(list(body.keys()))})
+    append_audit("settings.update", {"changed_keys": sorted(list(patch.keys()))})
     return 200, {"ok": True, "settings": config}
 
 
@@ -974,6 +1215,11 @@ def handle_get_status():
         last_transcript_dt=last_transcript_dt,
         note_count=note_count,
     )
+    if (
+        "notes_lagging" in daemon_health.get("issues", [])
+        and last_transcript_dt is not None
+    ):
+        record_lag_incident(last_transcript_dt, daemon_health.get("lag_seconds"))
 
     # Total token estimate from seed files
     total_tokens = 0
@@ -1012,6 +1258,84 @@ def handle_get_status():
         "total_seed_tokens": total_tokens,
         "file_count": file_count,
         "data_dir": str(DATA_DIR),
+    }
+
+
+def note_generation_counts_by_day() -> dict[str, int]:
+    counts: dict[str, int] = {}
+    if not NOTES_DIR.is_dir():
+        return counts
+    for jsonl_path in NOTES_DIR.glob("*.jsonl"):
+        try:
+            with jsonl_path.open("r", encoding="utf-8") as fh:
+                for raw_line in fh:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(obj, dict):
+                        continue
+                    if str(obj.get("synthesis_level", "")).strip().lower() in {
+                        "weekly",
+                        "monthly",
+                    }:
+                        continue
+                    dt = parse_iso_timestamp(obj.get("ts") or obj.get("first_ts"))
+                    if not dt:
+                        continue
+                    key = dt.date().isoformat()
+                    counts[key] = counts.get(key, 0) + 1
+        except Exception:
+            continue
+    return counts
+
+
+def lag_incidents_last_days(incidents: list[dict], days: int) -> list[dict]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, days))
+    filtered = []
+    for incident in incidents:
+        if not isinstance(incident, dict):
+            continue
+        ts = parse_iso_timestamp(incident.get("ts"))
+        if not ts:
+            continue
+        if ts >= cutoff:
+            filtered.append(incident)
+    return filtered
+
+
+def handle_get_metrics():
+    """GET /api/metrics — local reliability counters and time-series summaries."""
+    metrics = load_reliability_metrics()
+    by_day = note_generation_counts_by_day()
+    today = datetime.now(timezone.utc).date()
+    last_7_days = []
+    for offset in range(6, -1, -1):
+        day = today - timedelta(days=offset)
+        day_key = day.isoformat()
+        last_7_days.append({"date": day_key, "count": by_day.get(day_key, 0)})
+
+    incidents = clean_lag_incidents(metrics.get("lag_incidents", []))
+    incidents_7d = lag_incidents_last_days(incidents, 7)
+    last_lag_at = incidents[-1]["ts"] if incidents else None
+
+    return 200, {
+        "notes_generated_today": by_day.get(today.isoformat(), 0),
+        "notes_generated_last_7_days": last_7_days,
+        "lag_incidents_total": len(incidents),
+        "lag_incidents_7d": len(incidents_7d),
+        "last_lag_incident_at": last_lag_at,
+        "import": {
+            "success": clean_counter(metrics.get("import", {}).get("success", 0)),
+            "failure": clean_counter(metrics.get("import", {}).get("failure", 0)),
+        },
+        "export": {
+            "success": clean_counter(metrics.get("export", {}).get("success", 0)),
+            "failure": clean_counter(metrics.get("export", {}).get("failure", 0)),
+        },
     }
 
 
@@ -1431,15 +1755,40 @@ def handle_put_file_depth(filename: str, body: dict):
             "Use only alphanumeric characters, dash, underscore, and dot.",
         )
 
-    depth = body.get("depth", 1)
+    raw_depth = body.get("depth", 1)
+    try:
+        depth = int(raw_depth)
+    except (TypeError, ValueError):
+        return 400, error_response(
+            "INVALID_DEPTH",
+            "Invalid depth value",
+            "Send depth as one of: -1, 0, 1, 2, 3.",
+        )
+    if depth not in (-1, 0, 1, 2, 3):
+        return 400, error_response(
+            "INVALID_DEPTH",
+            "Invalid depth value",
+            "Send depth as one of: -1, 0, 1, 2, 3.",
+        )
+
     enabled = body.get("enabled", True)
+    if not isinstance(enabled, bool):
+        return 400, error_response(
+            "INVALID_ENABLED",
+            "Invalid enabled value",
+            "Send enabled as a boolean true/false.",
+        )
 
     config = load_config()
     context_files = config.get("context_files", [])
+    if not isinstance(context_files, list):
+        context_files = []
 
     # Update or insert
     found = False
     for cf in context_files:
+        if not isinstance(cf, dict):
+            continue
         if cf.get("filename") == safe:
             cf["depth"] = depth
             cf["enabled"] = enabled
@@ -1689,12 +2038,14 @@ def handle_get_export():
     try:
         payload = build_export_zip()
     except Exception:
+        increment_reliability_metric("export", "failure")
         return 500, error_response(
             "EXPORT_BUILD_FAILED",
             "Failed to build export archive",
             "Retry and check file permissions in the data directory.",
         )
 
+    increment_reliability_metric("export", "success")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
     filename = f"memorable-export-{stamp}.zip"
     return 200, {"filename": filename, "payload": payload}
@@ -1790,6 +2141,7 @@ def handle_post_import(handler):
     """POST /api/import — restore data from an exported ZIP archive."""
     token = str(handler.headers.get("X-Confirmation-Token", "")).strip()
     if token != IMPORT_CONFIRM_TOKEN:
+        increment_reliability_metric("import", "failure")
         return 400, error_response(
             "CONFIRMATION_TOKEN_MISMATCH",
             "Confirmation token mismatch",
@@ -1800,18 +2152,21 @@ def handle_post_import(handler):
     try:
         length = int(raw_length)
     except (TypeError, ValueError):
+        increment_reliability_metric("import", "failure")
         return 400, error_response(
             "INVALID_CONTENT_LENGTH",
             "Invalid Content-Length header",
             "Send a valid numeric Content-Length header.",
         )
     if length <= 0:
+        increment_reliability_metric("import", "failure")
         return 400, error_response(
             "EMPTY_BODY",
             "Empty body",
             "Upload a ZIP archive body.",
         )
     if length > MAX_IMPORT_SIZE:
+        increment_reliability_metric("import", "failure")
         return 413, error_response(
             "IMPORT_TOO_LARGE",
             "Import archive too large",
@@ -1822,18 +2177,21 @@ def handle_post_import(handler):
     try:
         restored_files = import_zip_payload(payload)
     except ValueError as e:
+        increment_reliability_metric("import", "failure")
         return 400, error_response(
             "INVALID_IMPORT_ARCHIVE",
             str(e),
             "Upload a valid Memorable export ZIP archive.",
         )
     except Exception:
+        increment_reliability_metric("import", "failure")
         return 500, error_response(
             "IMPORT_FAILED",
             "Failed to import archive",
             "Check file permissions and archive integrity, then retry.",
         )
 
+    increment_reliability_metric("import", "success")
     append_audit(
         "data.import",
         {

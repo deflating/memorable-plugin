@@ -449,6 +449,25 @@ Notes loading reads entire JSONL files into memory. For large note collections (
 **Type:** Bug | **Source:** Codex
 Mechanical fallback in `processor/anchor.py` doesn't produce well-nested anchor structures. Heading handling opens `⚓1️⃣` without predictable closes. If nesting semantics matter, the mechanical output should be valid.
 
+### #47 — Split `ui/app.js` into page modules
+**Type:** Architecture | **Source:** External Review
+`ui/app.js` is >5k lines and mixes page renderers, event binding, API calls, markdown parsing, and state transitions in one file. Keep the current no-framework approach, but split into focused modules (`settings`, `memories`, `configure`, shared `ui/actions` helpers) loaded in `index.html`.
+
+### #48 — Break up `session_start.py` by concern
+**Type:** Architecture | **Source:** External Review
+`plugin/hooks/scripts/session_start.py` handles selection, salience scoring, archiving, synthesis, and now.md generation in one script (>1k lines). Extract pure modules (`note_selection.py`, `note_maintenance.py`, `now_builder.py`) and keep `session_start.py` as orchestration.
+
+### #49 — Strict `/api/settings` payload validation
+**Type:** Robustness | **Source:** External Review
+`POST /api/settings` currently accepts loosely-typed values and unknown keys, which can persist malformed config (wrong types/ranges) and break downstream behavior.
+
+**Fix:** Validate and normalize all boundary fields in `handle_post_settings`:
+- top-level keys: `llm_provider`, `token_budget`, `daemon`, `server_port`, `data_dir`
+- enforce type/range for numeric fields (`token_budget`, `server_port`, `daemon.idle_threshold`)
+- enforce booleans for flags (`daemon.enabled`)
+- enforce string fields for `llm_provider` and `data_dir`
+- reject unknown keys with structured API errors.
+
 ---
 
 ## Explicitly Ignored

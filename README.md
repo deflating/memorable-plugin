@@ -12,9 +12,11 @@ Memorable gives Claude durable context across sessions using local files and hoo
 - Semantic docs can be anchored to multiple depth levels to control token cost.
 - An MCP tool can request deeper context on demand.
 
-All data stays on your machine under `~/.memorable/data/`.
+All local state is stored on your machine under `~/.memorable/data/`.
+If you enable semantic anchoring with an external LLM provider, document content sent for processing leaves your machine to that provider.
 
 Release history: see `CHANGELOG.md`.
+Contribution guide: see `CONTRIBUTING.md`.
 
 ## Quick Start
 

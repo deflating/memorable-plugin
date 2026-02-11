@@ -35,3 +35,6 @@ Initial release candidate with core local-memory workflow and reliability harden
 - Clamped negative notes pagination inputs (`offset`, `limit`)
 - Excluded internal artifacts (`.anchored`, `.cache-*`) from status file counts
 - Multiple endpoint/schema resiliency fixes from bug sweep tickets
+- Added strict schema/type/range validation for `POST /api/settings` payloads
+- Anchor processor now enforces canonical config schema/path (`~/.memorable/data/config.json` with `llm_provider`)
+- Added regression tests to prevent external font/CDN requests in the local UI
