@@ -19,6 +19,7 @@ from server_api import (
     handle_get_settings,
     handle_get_status,
     handle_post_deploy,
+    handle_post_import,
     handle_post_file_upload,
     handle_post_process,
     handle_post_reset,
@@ -223,6 +224,10 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/files/upload":
             status, data = handle_post_file_upload(self)
+            return self.send_json(status, data)
+
+        if path == "/api/import":
+            status, data = handle_post_import(self)
             return self.send_json(status, data)
 
         if path.startswith("/api/files/") and path.endswith("/process"):

@@ -2377,7 +2377,8 @@
                   <div class="settings-row-desc">Restore from a previous export</div>
                 </div>
                 <div class="settings-row-control">
-                  <button class="btn btn-small" disabled>Coming soon</button>
+                  <button class="btn btn-small" id="settings-import-btn">Import ZIP</button>
+                  <input type="file" id="settings-import-input" accept=".zip,application/zip" style="display:none">
                 </div>
               </div>
             </div>
@@ -2494,6 +2495,66 @@
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
           showToast('Exported local data (server offline)', '');
+        }
+      });
+    }
+
+    // Import
+    const importBtn = document.getElementById('settings-import-btn');
+    const importInput = document.getElementById('settings-import-input');
+    if (importBtn && importInput) {
+      importBtn.addEventListener('click', () => importInput.click());
+      importInput.addEventListener('change', async () => {
+        const file = importInput.files && importInput.files[0];
+        importInput.value = '';
+        if (!file) return;
+
+        const proceed = confirm(
+          `Import data from "${file.name}"? This will replace your current local data.`
+        );
+        if (!proceed) return;
+
+        const token = prompt('Type IMPORT to confirm restore.');
+        if (token === null) return;
+        if (token.trim() !== 'IMPORT') {
+          showToast('Import canceled (token mismatch)', '');
+          return;
+        }
+
+        try {
+          const resp = await fetch('/api/import', {
+            method: 'POST',
+            headers: {
+              'Content-Type': file.type || 'application/zip',
+              'X-Confirmation-Token': token.trim(),
+              'X-Filename': file.name
+            },
+            body: file
+          });
+
+          let data = null;
+          try {
+            data = await resp.json();
+          } catch (_) {
+            data = null;
+          }
+
+          if (!resp.ok) {
+            const msg = (data && data.error && data.error.message)
+              ? data.error.message
+              : `Import failed (${resp.status})`;
+            throw new Error(msg);
+          }
+
+          localStorage.removeItem('seedConfigurator');
+          const restored = data && typeof data.restored_files === 'number'
+            ? data.restored_files
+            : 0;
+          showToast(`Imported ${restored} files`, 'success');
+          location.reload();
+        } catch (err) {
+          console.warn('Import failed:', err);
+          showToast(`Import failed: ${err.message}`, 'error');
         }
       });
     }

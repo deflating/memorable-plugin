@@ -52,6 +52,11 @@ from server_storage import (
     save_config,
 )
 
+IMPORT_CONFIRM_TOKEN = "IMPORT"
+MAX_IMPORT_SIZE = 100 * 1024 * 1024
+MAX_IMPORT_FILES = 5000
+MAX_IMPORT_UNCOMPRESSED = 300 * 1024 * 1024
+
 
 # -- Notes -----------------------------------------------------------------
 
@@ -1184,6 +1189,150 @@ def handle_get_export():
     return 200, {"filename": filename, "payload": payload}
 
 
+def _safe_archive_member_path(name: str) -> Path | None:
+    """Return a safe relative archive path or None if unsafe/invalid."""
+    if not name:
+        return None
+    member = Path(name)
+    if member.is_absolute():
+        return None
+    parts = [p for p in member.parts if p not in ("", ".")]
+    if not parts or any(p == ".." for p in parts):
+        return None
+    return Path(*parts)
+
+
+def _import_zip_payload(payload: bytes) -> int:
+    """Replace DATA_DIR contents with files from ZIP payload.
+
+    Returns number of restored files.
+    """
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(payload))
+    except zipfile.BadZipFile as e:
+        raise ValueError("Invalid ZIP archive") from e
+
+    staged_files: list[tuple[Path, bytes]] = []
+    total_uncompressed = 0
+    with archive:
+        members = [m for m in archive.infolist() if not m.is_dir()]
+        if not members:
+            raise ValueError("Archive has no files")
+        if len(members) > MAX_IMPORT_FILES:
+            raise ValueError(f"Archive has too many files (max {MAX_IMPORT_FILES})")
+
+        for member in members:
+            rel = _safe_archive_member_path(member.filename)
+            if rel is None:
+                raise ValueError(f"Unsafe path in archive: {member.filename}")
+
+            total_uncompressed += int(member.file_size)
+            if total_uncompressed > MAX_IMPORT_UNCOMPRESSED:
+                raise ValueError(
+                    f"Archive uncompressed size exceeds {MAX_IMPORT_UNCOMPRESSED} bytes"
+                )
+
+            staged_files.append((rel, archive.read(member)))
+
+    root = DATA_DIR.parent
+    stage_dir = root / f".import-stage-{uuid.uuid4().hex[:10]}"
+    backup_dir = root / f".import-backup-{uuid.uuid4().hex[:10]}"
+
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        for rel, data in staged_files:
+            dest = stage_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+
+        if DATA_DIR.exists():
+            shutil.move(str(DATA_DIR), str(backup_dir))
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(stage_dir, DATA_DIR, dirs_exist_ok=True)
+        ensure_dirs()
+
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir)
+    except Exception:
+        try:
+            if DATA_DIR.exists():
+                shutil.rmtree(DATA_DIR)
+        except Exception:
+            pass
+        try:
+            if backup_dir.exists():
+                shutil.move(str(backup_dir), str(DATA_DIR))
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            if stage_dir.exists():
+                shutil.rmtree(stage_dir)
+        except Exception:
+            pass
+
+    return len(staged_files)
+
+
+def handle_post_import(handler):
+    """POST /api/import — restore data from an exported ZIP archive."""
+    token = str(handler.headers.get("X-Confirmation-Token", "")).strip()
+    if token != IMPORT_CONFIRM_TOKEN:
+        return 400, error_response(
+            "CONFIRMATION_TOKEN_MISMATCH",
+            "Confirmation token mismatch",
+            f"Send X-Confirmation-Token exactly as '{IMPORT_CONFIRM_TOKEN}'.",
+        )
+
+    raw_length = handler.headers.get("Content-Length", "0")
+    try:
+        length = int(raw_length)
+    except (TypeError, ValueError):
+        return 400, error_response(
+            "INVALID_CONTENT_LENGTH",
+            "Invalid Content-Length header",
+            "Send a valid numeric Content-Length header.",
+        )
+    if length <= 0:
+        return 400, error_response(
+            "EMPTY_BODY",
+            "Empty body",
+            "Upload a ZIP archive body.",
+        )
+    if length > MAX_IMPORT_SIZE:
+        return 413, error_response(
+            "IMPORT_TOO_LARGE",
+            "Import archive too large",
+            f"Reduce payload to <= {MAX_IMPORT_SIZE} bytes.",
+        )
+
+    payload = handler.rfile.read(length)
+    try:
+        restored_files = _import_zip_payload(payload)
+    except ValueError as e:
+        return 400, error_response(
+            "INVALID_IMPORT_ARCHIVE",
+            str(e),
+            "Upload a valid Memorable export ZIP archive.",
+        )
+    except Exception:
+        return 500, error_response(
+            "IMPORT_FAILED",
+            "Failed to import archive",
+            "Check file permissions and archive integrity, then retry.",
+        )
+
+    append_audit(
+        "data.import",
+        {
+            "restored_files": restored_files,
+            "filename": str(handler.headers.get("X-Filename", "")).strip(),
+        },
+    )
+    return 200, {"ok": True, "restored_files": restored_files}
+
+
 def handle_post_reset(body: dict):
     """POST /api/reset — wipe DATA_DIR contents after explicit confirmation."""
     token = str(body.get("confirmation_token", "")).strip()
@@ -1225,4 +1374,3 @@ def handle_post_reset(body: dict):
 
     append_audit("data.reset", {"removed_count": len(removed)})
     return 200, {"ok": True, "removed_count": len(removed)}
-
