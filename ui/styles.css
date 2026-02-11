@@ -1955,14 +1955,6 @@ p { color: var(--text-secondary); }
     gap: 2px;
   }
 
-  .preset-bar-meta {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .preset-advanced-btn {
-    width: 100%;
-  }
 }
 
 /* Notes header row (inside Memories > Episodic) */
@@ -3027,16 +3019,6 @@ select {
   font-size: 0.8em;
 }
 
-.section-advanced-chip {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  padding: 2px 8px;
-  background: var(--warm-white);
-}
-
 .section.collapsed .section-chevron {
   transform: rotate(-90deg);
 }
@@ -3874,33 +3856,6 @@ input[type="range"]::-moz-range-thumb {
   font-size: 0.76rem;
   color: var(--text-muted);
   margin-top: 8px;
-}
-
-.preset-bar-meta {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.preset-advanced-btn {
-  white-space: nowrap;
-}
-
-.preset-advanced-btn.active {
-  border-color: var(--terracotta-light);
-  background: var(--terracotta-muted);
-  color: var(--terracotta-dark);
-}
-
-.preset-bar-next-step {
-  margin-top: 10px;
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-}
-
-.preset-bar-next-step strong {
-  color: var(--text-primary);
 }
 
 .preset-group {

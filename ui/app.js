@@ -99,16 +99,11 @@
   };
 
   const USER_SECTION_IDS = [
-    'identity', 'about', 'cognitive', 'values', 'communication', 'people', 'projects', 'user-custom'
+    'identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'
   ];
   const AGENT_SECTION_IDS = [
-    'agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'
+    'agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'
   ];
-  const ADVANCED_SECTION_IDS = ['people', 'projects', 'user-custom', 'when-low', 'tech-style', 'agent-custom'];
-  const ADVANCED_SECTIONS_BY_FILE = {
-    user: ['people', 'projects', 'user-custom'],
-    agent: ['when-low', 'tech-style', 'agent-custom'],
-  };
 
   // ---- Anchor Depth Levels ----
   const ANCHOR_DEPTHS = [
@@ -178,30 +173,6 @@
     }
   }
 
-  function isAdvancedSection(sectionId) {
-    return ADVANCED_SECTION_IDS.includes(sectionId);
-  }
-
-  function advancedSectionsForActiveFile() {
-    return ADVANCED_SECTIONS_BY_FILE[state.activeFile] || [];
-  }
-
-  function hasAdvancedSectionContent() {
-    const u = state.user;
-    const a = state.agent;
-    const hasUserAdvanced = u.people.length > 0 || u.projects.length > 0 || u.customSections.length > 0;
-    const hasAgentAdvanced = a.customSections.length > 0
-      || Object.values(a.whenLowActive).some(Boolean)
-      || Object.values(a.techStyleActive).some(Boolean);
-    return hasUserAdvanced || hasAgentAdvanced;
-  }
-
-  function setAdvancedSectionsCollapsed(collapsed) {
-    ADVANCED_SECTION_IDS.forEach((sectionId) => {
-      state.collapsedSections[sectionId] = collapsed;
-    });
-  }
-
   // Track whether we've done first-load animation
   let _firstLoadAnimated = false;
 
@@ -248,10 +219,6 @@
       'when-low': true, 'tech-style': true, 'agent-custom': true
     },
     collapsedSections: {},
-    uiPreferences: {
-      showAdvancedControls: false,
-      advancedDefaultsApplied: false,
-    },
     user: {
       identity: { name: '', age: '', location: '', pronouns: '' },
       about: '',
@@ -3663,9 +3630,7 @@
       <span class="seed-sync-indicator ${seedStatus.className}" title="${esc(seedStatus.title)}">
         <span class="dot"></span>${esc(seedStatus.text)}
       </span>
-      <span class="save-indicator save-state-idle"><span class="dot"></span> Draft auto-save on</span>
-      <button class="btn btn-small" id="seed-undo-btn" title="Undo (Cmd/Ctrl+Z)">Undo</button>
-      <button class="btn btn-small" id="seed-redo-btn" title="Redo (Cmd/Ctrl+Shift+Z / Ctrl+Y)">Redo</button>
+      <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
       <button class="btn btn-primary" id="seed-deploy-btn" title="Write current user.md and agent.md to deployed seed files">
         Deploy
       </button>
@@ -3692,23 +3657,6 @@
         saveToLocalStorage();
       });
     });
-
-    const undoBtn = document.getElementById('seed-undo-btn');
-    const redoBtn = document.getElementById('seed-redo-btn');
-    if (undoBtn) {
-      undoBtn.addEventListener('click', () => {
-        if (!window.memorableApp.undo()) {
-          showToast('Nothing to undo', '');
-        }
-      });
-    }
-    if (redoBtn) {
-      redoBtn.addEventListener('click', () => {
-        if (!window.memorableApp.redo()) {
-          showToast('Nothing to redo', '');
-        }
-      });
-    }
 
     const deployBtn = document.getElementById('seed-deploy-btn');
     if (deployBtn) {
@@ -4153,8 +4101,6 @@
   }
 
   function renderPresetBar() {
-    const advancedVisible = !!(state.uiPreferences && state.uiPreferences.showAdvancedControls);
-    const advancedCount = advancedSectionsForActiveFile().length;
     return `
       <div class="preset-bar">
         <div class="preset-bar-label">Why do you use Claude?</div>
@@ -4163,17 +4109,7 @@
             <button class="preset-btn ${state.preset === key ? 'active' : ''}" data-preset="${key}">${preset.label}</button>
           `).join('')}
         </div>
-        <div class="preset-bar-meta">
-          <div class="preset-bar-hint">Presets cover most first-week setups. Use advanced controls only when you need section-level tuning.</div>
-          <button type="button" class="btn btn-small preset-advanced-btn ${advancedVisible ? 'active' : ''}" data-advanced-controls-toggle>
-            ${advancedVisible ? 'Hide advanced controls' : 'Show advanced controls'}
-          </button>
-        </div>
-        ${advancedVisible ? `
-          <div class="preset-bar-next-step">After edits, click <strong>Deploy</strong> so new sessions use the updated seeds.</div>
-        ` : `
-          <div class="preset-bar-next-step">Advanced sections (${advancedCount}) start collapsed for focus. Expand them later if needed.</div>
-        `}
+        <div class="preset-bar-hint">Presets suggest which sections to enable. You can always toggle any section on or off individually.</div>
       </div>
     `;
   }
@@ -4185,20 +4121,8 @@
     const collapsedClass = state.collapsedSections[id] ? 'collapsed' : '';
     const density = getSectionDensity(id);
     const materialityClass = 'materiality-' + density;
-    const advanced = isAdvancedSection(id);
-    const advancedClass = advanced ? 'section-advanced' : '';
-    const advancedVisible = !!(state.uiPreferences && state.uiPreferences.showAdvancedControls);
-    const toggleHtml = advancedVisible ? `
-      <label class="section-toggle" onclick="event.stopPropagation()">
-        <input type="checkbox" ${enabled ? 'checked' : ''} data-section-toggle="${id}">
-        <span class="section-toggle-track"></span>
-      </label>
-    ` : '';
-    const advancedChip = advanced && !advancedVisible
-      ? '<span class="section-advanced-chip" title="Advanced section">Advanced</span>'
-      : '';
     return `
-      <div class="section ${disabledClass} ${collapsedClass} ${materialityClass} ${advancedClass}" id="section-${id}">
+      <div class="section ${disabledClass} ${collapsedClass} ${materialityClass}" id="section-${id}">
         <div class="section-header">
           <div class="section-header-left" onclick="window.seedApp.toggleSection('section-${id}')">
             <div class="section-icon ${colorClass}">${icon}</div>
@@ -4208,8 +4132,10 @@
             </div>
           </div>
           <div class="section-header-right">
-            ${toggleHtml}
-            ${advancedChip}
+            <label class="section-toggle" onclick="event.stopPropagation()">
+              <input type="checkbox" ${enabled ? 'checked' : ''} data-section-toggle="${id}">
+              <span class="section-toggle-track"></span>
+            </label>
             <span class="section-chevron" onclick="window.seedApp.toggleSection('section-${id}')">&#9660;</span>
           </div>
         </div>
@@ -4682,15 +4608,6 @@
         const presetKey = btn.dataset.preset;
         applyPreset(presetKey);
         render();
-      });
-    });
-    container.querySelectorAll('[data-advanced-controls-toggle]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const next = !(state.uiPreferences && state.uiPreferences.showAdvancedControls);
-        state.uiPreferences.showAdvancedControls = next;
-        if (!next) setAdvancedSectionsCollapsed(true);
-        render();
-        debouncedSave();
       });
     });
   }
@@ -5806,21 +5723,6 @@
     allSections.forEach(id => {
       if (state.enabledSections[id] === undefined) state.enabledSections[id] = true;
     });
-    if (!state.uiPreferences || typeof state.uiPreferences !== 'object') {
-      state.uiPreferences = {};
-    }
-    if (state.uiPreferences.showAdvancedControls === undefined) {
-      state.uiPreferences.showAdvancedControls = hasAdvancedSectionContent();
-    }
-    if (!state.uiPreferences.advancedDefaultsApplied) {
-      if (!state.uiPreferences.showAdvancedControls) {
-        ADVANCED_SECTION_IDS.forEach((sectionId) => {
-          if (state.collapsedSections[sectionId] === undefined) state.collapsedSections[sectionId] = true;
-        });
-      }
-      state.uiPreferences.advancedDefaultsApplied = true;
-    }
-
     // Ensure preset exists
     if (!state.preset) state.preset = 'custom';
 
