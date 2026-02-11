@@ -1587,6 +1587,7 @@
     sort: 'date',
     machine: '',
     session: '',
+    fetchError: false,
     expandedIdx: null,
     loaded: false,
   };
@@ -1601,6 +1602,7 @@
     notesState.tags = Array.isArray(tagsData && tagsData.tags) ? tagsData.tags : [];
     notesState.machines = Array.isArray(machinesData && machinesData.machines) ? machinesData.machines : [];
     notesState.insights = (insightsData && typeof insightsData === 'object') ? insightsData : null;
+    notesState.fetchError = false;
 
     // Fetch first page of notes
     await fetchNotesPage(false);
@@ -1622,7 +1624,16 @@
     if (notesState.session) params.set('session', notesState.session);
 
     const data = await apiFetch('/api/notes?' + params);
-    if (!data) return;
+    if (!data) {
+      notesState.fetchError = true;
+      if (!append) {
+        notesState.notes = [];
+        notesState.total = 0;
+        notesState.offset = 0;
+      }
+      return;
+    }
+    notesState.fetchError = false;
 
     const notes = Array.isArray(data.notes) ? data.notes : [];
     notesState.total = Number.isFinite(data.total) ? data.total : notes.length;
@@ -1654,6 +1665,10 @@
   function renderNotesPage(container) {
     const ns = notesState;
     const mi = ns.insights;
+    const status = state.statusCache || null;
+    const daemonEnabled = status && typeof status.daemon_enabled === 'boolean'
+      ? status.daemon_enabled
+      : !!(((state.settingsCache || {}).daemon || {}).enabled);
 
     // Machine tabs
     let machineTabsHtml = '';
@@ -1749,13 +1764,50 @@
         `;
       }).join('');
     } else {
-      notesHtml = `
-        <div class="notes-empty">
-          <div class="notes-empty-icon">&#128221;</div>
-          <h3>${ns.search || ns.tag ? 'No notes match your filters' : 'No session notes yet'}</h3>
-          <p>${ns.search || ns.tag ? 'Try a different search term or tag.' : 'Notes will appear here as sessions are recorded by the '}<span title="Background process that watches sessions and auto-generates notes.">daemon</span>.</p>
-        </div>
-      `;
+      if (ns.fetchError) {
+        notesHtml = `
+          <div class="notes-empty">
+            <div class="notes-empty-icon">&#9888;</div>
+            <h3>Could not load session notes</h3>
+            <p>Memories may be unavailable while the local server is offline.</p>
+            <div class="notes-empty-actions">
+              <button class="btn btn-primary" id="notes-retry-btn">Retry</button>
+              <button class="btn" id="notes-open-settings-btn">Open Settings</button>
+            </div>
+          </div>
+        `;
+      } else if (ns.search || ns.tag || ns.session) {
+        notesHtml = `
+          <div class="notes-empty">
+            <div class="notes-empty-icon">&#128221;</div>
+            <h3>No notes match your filters</h3>
+            <p>Try a different search term, tag, or clear active filters.</p>
+          </div>
+        `;
+      } else if (!daemonEnabled) {
+        notesHtml = `
+          <div class="notes-empty">
+            <div class="notes-empty-icon">&#128164;</div>
+            <h3>Session notes are not capturing yet</h3>
+            <p>Enable the <span title="Background process that watches sessions and auto-generates notes.">daemon</span> to start generating notes from new sessions.</p>
+            <div class="notes-empty-actions">
+              <button class="btn btn-primary" id="notes-enable-daemon-btn">Enable Daemon</button>
+              <button class="btn" id="notes-open-settings-btn">Open Settings</button>
+            </div>
+          </div>
+        `;
+      } else {
+        notesHtml = `
+          <div class="notes-empty">
+            <div class="notes-empty-icon">&#128221;</div>
+            <h3>No session notes yet</h3>
+            <p>Run one Claude session, then come back here to review what was captured.</p>
+            <div class="notes-empty-actions">
+              <button class="btn" id="notes-retry-btn">Refresh</button>
+            </div>
+          </div>
+        `;
+      }
     }
 
     // Load more button
@@ -1955,6 +2007,27 @@
       });
     }
 
+    const retryNotesBtn = document.getElementById('notes-retry-btn');
+    if (retryNotesBtn) {
+      retryNotesBtn.addEventListener('click', () => {
+        fetchNotesPage(false).then(() => renderNotesPage(container));
+      });
+    }
+
+    const enableDaemonBtn = document.getElementById('notes-enable-daemon-btn');
+    if (enableDaemonBtn) {
+      enableDaemonBtn.addEventListener('click', () => {
+        window.memorableApp.enableDaemon();
+      });
+    }
+
+    const openSettingsBtn = document.getElementById('notes-open-settings-btn');
+    if (openSettingsBtn) {
+      openSettingsBtn.addEventListener('click', () => {
+        window.memorableApp.navigateTo('settings');
+      });
+    }
+
     const resetFiltersBtn = document.getElementById('notes-reset-filters-btn');
     if (resetFiltersBtn) {
       resetFiltersBtn.addEventListener('click', () => {
@@ -2079,7 +2152,21 @@
 
     const data = await apiFetch('/api/seeds');
     if (!data || !data.files) {
-      container.innerHTML = '<div class="notes-empty"><h3>Could not load working memory</h3><p>Make sure the server is running.</p></div>';
+      container.innerHTML = `
+        <div class="notes-empty">
+          <div class="notes-empty-icon">&#9888;</div>
+          <h3>Could not load working memory</h3>
+          <p>Make sure the local server is running, then retry.</p>
+          <div class="notes-empty-actions">
+            <button class="btn btn-primary" id="working-retry-btn">Retry</button>
+            <button class="btn" id="working-open-settings-btn">Open Settings</button>
+          </div>
+        </div>
+      `;
+      const retryBtn = container.querySelector('#working-retry-btn');
+      if (retryBtn) retryBtn.addEventListener('click', () => renderWorkingMemory(container));
+      const settingsBtn = container.querySelector('#working-open-settings-btn');
+      if (settingsBtn) settingsBtn.addEventListener('click', () => window.memorableApp.navigateTo('settings'));
       return;
     }
 
@@ -2114,6 +2201,25 @@
       apiFetch('/api/files'),
       apiFetch('/api/seeds'),
     ]);
+
+    if (!filesData || !seedsData) {
+      container.innerHTML = `
+        <div class="notes-empty" style="padding:24px;">
+          <div class="notes-empty-icon">&#9888;</div>
+          <h3>Could not load semantic memory</h3>
+          <p>Check that the local server is running, then retry.</p>
+          <div class="notes-empty-actions">
+            <button class="btn btn-primary" id="semantic-retry-btn">Retry</button>
+            <button class="btn" id="semantic-open-settings-btn">Open Settings</button>
+          </div>
+        </div>
+      `;
+      const retryBtn = container.querySelector('#semantic-retry-btn');
+      if (retryBtn) retryBtn.addEventListener('click', () => renderSemanticMemory(container));
+      const settingsBtn = container.querySelector('#semantic-open-settings-btn');
+      if (settingsBtn) settingsBtn.addEventListener('click', () => window.memorableApp.navigateTo('settings'));
+      return;
+    }
 
     const files = Array.isArray(filesData && filesData.files) ? filesData.files : [];
     const seedFiles = (seedsData && typeof seedsData.files === 'object' && seedsData.files) ? seedsData.files : {};
@@ -2207,7 +2313,10 @@
         <div class="notes-empty" style="padding:24px;">
           <div class="notes-empty-icon">&#128218;</div>
           <h3>No documents yet</h3>
-          <p>Upload a document above to get started with Semantic Memory.</p>
+          <p>Upload your first knowledge document to make long-lived context available at startup.</p>
+          <div class="notes-empty-actions">
+            <button class="btn btn-primary" id="semantic-upload-first-btn">Upload First Document</button>
+          </div>
         </div>
       `;
     }
@@ -2247,6 +2356,11 @@
         await handleSemanticUpload(fileInput.files, container);
         fileInput.value = '';
       });
+    }
+
+    const uploadFirstBtn = container.querySelector('#semantic-upload-first-btn');
+    if (uploadFirstBtn && fileInput) {
+      uploadFirstBtn.addEventListener('click', () => fileInput.click());
     }
 
     // Process buttons
@@ -2606,6 +2720,18 @@
         </div>
       `;
     }
+    const statusUnavailable = !state.serverConnected || !state.statusCache;
+    const statusWarningHtml = statusUnavailable ? `
+      <div class="settings-status-warning">
+        <div class="settings-status-warning-header">
+          <strong>Server status unavailable</strong>
+          <span>Some live reliability indicators are hidden.</span>
+        </div>
+        <div class="settings-status-warning-actions">
+          <button class="btn btn-primary btn-small" id="settings-retry-status-btn">Retry Status Check</button>
+        </div>
+      </div>
+    ` : '';
 
     container.innerHTML = `
       <div class="settings-page">
@@ -2613,6 +2739,8 @@
           <h1>Settings</h1>
           <p>Configure your Memorable instance</p>
         </div>
+
+        ${statusWarningHtml}
 
         <div class="settings-grid">
           <div class="settings-section">
@@ -2817,6 +2945,14 @@
         btn.classList.add('active');
         localStorage.setItem('memorable-theme', btn.dataset.theme);
         applyTheme();
+      });
+    }
+
+    const retryStatusBtn = document.getElementById('settings-retry-status-btn');
+    if (retryStatusBtn) {
+      retryStatusBtn.addEventListener('click', async () => {
+        await Promise.all([checkServerStatus(), loadSettings()]);
+        showToast('Status refreshed', 'success');
       });
     }
 
