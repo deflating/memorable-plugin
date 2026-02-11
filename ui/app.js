@@ -16,36 +16,31 @@
   ];
 
   const DEFAULT_COGNITIVE_STYLE_DIMS = [
-    { key: 'thinking', label: 'Thinking', left: 'Structured', right: 'Exploratory' },
-    { key: 'abstraction', label: 'Abstraction', left: 'Concrete', right: 'Abstract' },
-    { key: 'focus', label: 'Focus', left: 'Detail-first', right: 'Big picture' },
-    { key: 'processing', label: 'Processing', left: 'Sequential', right: 'Parallel' }
+    { key: 'thinking', label: 'Guidance Style', left: 'Give me structured outlines', right: 'Let ideas wander' },
+    { key: 'abstraction', label: 'Starting Point', left: 'Start with specifics', right: 'Start with the big picture' },
+    { key: 'focus', label: 'Zoom Level', left: 'Detail-first', right: 'Big picture first' },
+    { key: 'processing', label: 'Threading', left: 'Explain step by step', right: 'I can juggle multiple threads' }
   ];
 
   const DEFAULT_COMMUNICATION_OPTIONS = [
     { key: 'beDirect', label: 'Be direct', desc: 'Don\'t soften or hedge unnecessarily' },
     { key: 'noSycophancy', label: 'No sycophancy', desc: 'Skip the "great question!" and "absolutely!"' },
-    { key: 'matchEnergy', label: 'Match my energy', desc: 'Mirror tone and intensity' },
     { key: 'skipPreamble', label: 'Skip preamble', desc: 'Get to the point, skip disclaimers' },
-    { key: 'challengeMe', label: 'Challenge me when I\'m wrong', desc: 'Push back on incorrect assumptions' },
-    { key: 'admitUncertainty', label: 'Admit uncertainty', desc: 'Say "I\'m not sure" when appropriate' },
-    { key: 'noEmojis', label: 'No emojis', desc: 'Keep responses text-only' },
-    { key: 'shortWhenLow', label: 'Short replies when I\'m low', desc: 'Reduce verbosity when energy is low' }
+    { key: 'noEmojis', label: 'No emojis', desc: 'Keep responses text-only' }
   ];
 
   const DEFAULT_BEHAVIOR_OPTIONS = [
     { key: 'holdOwnViews', label: 'Hold your own views' },
-    { key: 'uncertainWhenAppropriate', label: 'Be uncertain when appropriate' },
-    { key: 'rememberContext', label: 'Remember context across conversation' },
-    { key: 'askClarifyingQuestions', label: 'Ask clarifying questions' },
-    { key: 'adaptToMood', label: 'Adapt to user\'s mood' },
-    { key: 'useSharedVocabulary', label: 'Use shared vocabulary' },
-    { key: 'showWorkingProcess', label: 'Show working/thinking process' },
-    { key: 'provideSources', label: 'Provide sources when possible' }
+    { key: 'challengeWhenWrong', label: 'Challenge me when I\'m wrong' },
+    { key: 'admitUncertainty', label: 'Admit uncertainty clearly' },
+    { key: 'askClarifyingQuestions', label: 'Ask clarifying questions when ambiguity blocks progress' },
+    { key: 'calibrateTone', label: 'Calibrate emotional tone to context' }
   ];
 
   const DEFAULT_WHEN_LOW_OPTIONS = [
     { key: 'shorterReplies', label: 'Keep replies shorter', desc: 'Reduce output length' },
+    { key: 'dontProbe', label: 'Don\'t probe — let me lead', desc: 'Avoid digging unless invited' },
+    { key: 'silenceProcessing', label: 'Silence often means processing', desc: 'Don\'t assume disengagement' },
     { key: 'noReframing', label: 'Don\'t reframe or silver-lining', desc: 'Avoid turning negatives into positives' },
     { key: 'noForcedPositivity', label: 'No forced positivity', desc: 'Skip cheerfulness that isn\'t warranted' },
     { key: 'justAcknowledge', label: 'Just acknowledge, don\'t fix', desc: 'Sometimes people need to be heard' },
@@ -68,30 +63,32 @@
     { key: 'directness', label: 'Directness', endpoints: ['Gentle', 'Blunt'] },
     { key: 'humor', label: 'Humor', endpoints: ['Serious', 'Playful'] },
     { key: 'formality', label: 'Formality', endpoints: ['Casual', 'Formal'] },
-    { key: 'verbosity', label: 'Verbosity', endpoints: ['Terse', 'Detailed'] }
+    { key: 'verbosity', label: 'Verbosity', endpoints: ['Terse', 'Detailed'] },
+    { key: 'curiosity', label: 'Curiosity', endpoints: ['Focused', 'Highly curious'] },
+    { key: 'independence', label: 'Independence', endpoints: ['Deferential', 'Independent'] }
   ];
 
   // ---- Presets ----
   const PRESETS = {
     technical: {
       label: 'Technical / Coding',
-      userSections: ['identity', 'about', 'cogStyle', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'tech-style', 'agent-custom']
+      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'projects', 'user-custom'],
+      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'tech-style', 'agent-custom']
     },
     research: {
       label: 'Research / Academic',
-      userSections: ['identity', 'about', 'cogStyle', 'values', 'interests', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'agent-custom']
+      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'projects', 'user-custom'],
+      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'agent-custom']
     },
     personal: {
       label: 'Personal / Companion',
       userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'user-custom'],
-      agentSections: ['agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'agent-custom']
+      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'agent-custom']
     },
     custom: {
       label: 'Custom',
       userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom']
+      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'tech-style', 'agent-custom']
     }
   };
 
@@ -99,7 +96,7 @@
     'identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'
   ];
   const AGENT_SECTION_IDS = [
-    'agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'
+    'agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'tech-style', 'agent-custom'
   ];
 
   // ---- Icons (inline SVG, feather style) ----
@@ -179,12 +176,18 @@
       case 'agent-about':
         return !a.about || !a.about.trim() ? 'sketch' : a.about.trim().length < 100 ? 'forming' : 'substantial';
       case 'traits': {
-        const changed = a.traitOptions.filter(k => (a.traits[k] || 50) !== 50).length;
+        const changed = a.traitOptions.filter(k => (a.traits[k] ?? 50) !== 50).length;
         return changed === 0 ? 'sketch' : changed <= 2 ? 'forming' : 'substantial';
       }
       case 'behaviors': {
         const count = Object.values(a.behaviorsActive).filter(Boolean).length;
         return count === 0 ? 'sketch' : count <= 3 ? 'forming' : 'substantial';
+      }
+      case 'autonomy':
+        return a.autonomyLevel === 50 ? 'sketch' : 'forming';
+      case 'rules': {
+        const count = Array.isArray(a.rules) ? a.rules.length : 0;
+        return count === 0 ? 'sketch' : count <= 2 ? 'forming' : 'substantial';
       }
       case 'avoid':
         return a.avoid.length === 0 ? 'sketch' : a.avoid.length <= 2 ? 'forming' : 'substantial';
@@ -243,6 +246,7 @@
       'values': true, 'interests': true, 'people': true, 'projects': true, 'user-custom': true,
       'communication': true,
       'agent-name': true, 'traits': true, 'behaviors': true, 'avoid': true,
+      'autonomy': true, 'rules': true,
       'when-low': true, 'tech-style': true, 'agent-custom': true
     },
     collapsedSections: {},
@@ -278,12 +282,14 @@
       traitLabels: {},
       traitEndpoints: {},
       traits: {
-        warmth: 60, directness: 75, humor: 40, formality: 30, verbosity: 40
+        warmth: 60, directness: 75, humor: 40, formality: 30, verbosity: 40, curiosity: 50, independence: 50
       },
       behaviorOptions: DEFAULT_BEHAVIOR_OPTIONS.map(o => o.key),
       behaviorLabels: {},
       behaviorsActive: {},
+      autonomyLevel: 50,
       avoid: [],
+      rules: [],
       whenLowOptions: DEFAULT_WHEN_LOW_OPTIONS.map(o => o.key),
       whenLowLabels: {},
       whenLowDescs: {},
@@ -638,9 +644,10 @@
   const PREVIEW_TO_SECTION = {
     'about': 'about', 'neurodivergence': 'cognitive', 'neurotype': 'cognitive', 'cognitive-style': 'cogStyle',
     'values': 'values', 'interests': 'interests', 'people': 'people',
-    'projects': 'projects', 'communication-preferences': 'communication',
-    'character-traits': 'traits', 'behaviors': 'behaviors',
-    'avoid': 'avoid', 'when-user-is-low': 'when-low', 'technical-style': 'tech-style',
+    'projects': 'projects', 'communication-preferences': 'communication', 'tone-format': 'communication',
+    'character-traits': 'traits', 'behaviors': 'behaviors', 'disposition': 'behaviors',
+    'avoid': 'avoid', 'when-user-is-low': 'when-low', 'autonomy': 'autonomy', 'rules': 'rules',
+    'conditional-rules': 'rules', 'technical-style': 'tech-style',
   };
 
   // ---- Markdown Generation ----
@@ -775,46 +782,24 @@
       md += `## About\n\n${a.about.trim()}\n\n`;
     }
 
-    // Communication Preferences
+    // Tone & Format
     if (sec['communication']) {
       const commPrefs = a.communicationOptions.filter(k => a.communicationActive[k]).map(k => getCommLabel(k));
       if (commPrefs.length) {
-        md += '## Communication Preferences\n\n';
+        md += '## Tone & Format\n\n';
         commPrefs.forEach(p => { md += `- ${p}\n`; });
         md += '\n';
       }
     }
 
-    // Character traits
-    if (sec['traits']) {
-      const traitEntries = a.traitOptions.filter(k => a.traits[k] !== undefined);
-      if (traitEntries.length) {
-        md += '## Character Traits\n\n';
-        traitEntries.forEach(key => {
-          const val = a.traits[key] || 50;
-          const label = getTraitLabel(key);
-          const desc = getTraitDescription(key, val);
-          md += `- **${label}:** ${desc} (${val}/100)\n`;
-        });
-        md += '\n';
-      }
-    }
-
-    // Behaviors
+    // Disposition
     if (sec['behaviors']) {
       const activeBehaviors = a.behaviorOptions.filter(k => a.behaviorsActive[k]).map(k => getBehaviorLabel(k));
       if (activeBehaviors.length) {
-        md += '## Behaviors\n\n';
+        md += '## Disposition\n\n';
         activeBehaviors.forEach(b => { md += `- ${b}\n`; });
         md += '\n';
       }
-    }
-
-    // Avoid
-    if (sec['avoid'] && a.avoid.length) {
-      md += '## Avoid\n\n';
-      a.avoid.forEach(item => { md += `- ${item}\n`; });
-      md += '\n';
     }
 
     // When user is low
@@ -825,6 +810,47 @@
         lowPrefs.forEach(p => { md += `- ${p}\n`; });
         md += '\n';
       }
+    }
+
+    // Autonomy
+    if (sec['autonomy']) {
+      const level = Number.isFinite(a.autonomyLevel) ? a.autonomyLevel : 50;
+      md += '## Autonomy\n\n';
+      md += `- **Autonomy:** ${getAutonomyDescription(level)} (${level}/100)\n\n`;
+    }
+
+    // Conditional rules
+    if (sec['rules']) {
+      const rules = (a.rules || []).filter((r) => (r.when || '').trim() || (r.then || '').trim());
+      if (rules.length) {
+        md += '## Conditional Rules\n\n';
+        rules.forEach((r) => {
+          md += `- When ${(r.when || '...').trim()} -> ${(r.then || '...').trim()}\n`;
+        });
+        md += '\n';
+      }
+    }
+
+    // Character traits
+    if (sec['traits']) {
+      const traitEntries = a.traitOptions.filter(k => a.traits[k] !== undefined);
+      if (traitEntries.length) {
+        md += '## Character Traits\n\n';
+        traitEntries.forEach(key => {
+          const val = a.traits[key] ?? 50;
+          const label = getTraitLabel(key);
+          const desc = getTraitDescription(key, val);
+          md += `- **${label}:** ${desc} (${val}/100)\n`;
+        });
+        md += '\n';
+      }
+    }
+
+    // Avoid
+    if (sec['avoid'] && a.avoid.length) {
+      md += '## Avoid\n\n';
+      a.avoid.forEach(item => { md += `- ${item}\n`; });
+      md += '\n';
     }
 
     // Technical style
@@ -1015,6 +1041,8 @@
     a.communicationActive = {};
     a.behaviorsActive = {};
     a.avoid = [];
+    a.rules = [];
+    a.autonomyLevel = 50;
     a.whenLowActive = {};
     a.techStyleActive = {};
     a.customSections = [];
@@ -1038,13 +1066,36 @@
       a.about = getSection(sections, 'About').trim();
     }
 
-    // Communication Preferences
-    if (getSection(sections, 'Communication Preferences')) {
+    const legacyCommToBehavior = {
+      'admit uncertainty': 'admitUncertainty',
+      'challenge me when i\'m wrong': 'challengeWhenWrong',
+      'match my energy': 'calibrateTone'
+    };
+    const legacyCommToWhenLow = {
+      'short replies when i\'m low': 'shorterReplies'
+    };
+
+    // Tone & Format (backward-compatible with old heading)
+    const toneSrc = getSection(sections, 'Tone & Format') || getSection(sections, 'Tone and Format') || getSection(sections, 'Communication Preferences');
+    if (toneSrc) {
       state.enabledSections['communication'] = true;
-      const lines = getSection(sections, 'Communication Preferences').split('\n').filter(l => l.trim().startsWith('-'));
+      const lines = toneSrc.split('\n').filter(l => l.trim().startsWith('-'));
       lines.forEach(line => {
         const text = line.replace(/^-\s*/, '').trim();
         if (!text) return;
+        const lowered = text.toLowerCase();
+        if (legacyCommToBehavior[lowered]) {
+          const behaviorKey = legacyCommToBehavior[lowered];
+          if (!a.behaviorOptions.includes(behaviorKey)) a.behaviorOptions.push(behaviorKey);
+          a.behaviorsActive[behaviorKey] = true;
+          return;
+        }
+        if (legacyCommToWhenLow[lowered]) {
+          const lowKey = legacyCommToWhenLow[lowered];
+          if (!a.whenLowOptions.includes(lowKey)) a.whenLowOptions.push(lowKey);
+          a.whenLowActive[lowKey] = true;
+          return;
+        }
         const existing = a.communicationOptions.find(k => getCommLabel(k).toLowerCase() === text.toLowerCase());
         if (existing) {
           a.communicationActive[existing] = true;
@@ -1086,12 +1137,25 @@
       });
     }
 
-    if (getSection(sections, 'Behaviors')) {
+    const legacyBehaviorLabels = {
+      'be uncertain when appropriate': 'admitUncertainty',
+      'adapt to user\'s mood': 'calibrateTone',
+      'match my energy': 'calibrateTone'
+    };
+    const dispositionSrc = getSection(sections, 'Disposition') || getSection(sections, 'Behaviors');
+    if (dispositionSrc) {
       state.enabledSections['behaviors'] = true;
-      const lines = getSection(sections, 'Behaviors').split('\n').filter(l => l.trim().startsWith('-'));
+      const lines = dispositionSrc.split('\n').filter(l => l.trim().startsWith('-'));
       lines.forEach(line => {
         const text = line.replace(/^-\s*/, '').trim();
         if (!text) return;
+        const lowered = text.toLowerCase();
+        if (legacyBehaviorLabels[lowered]) {
+          const behaviorKey = legacyBehaviorLabels[lowered];
+          if (!a.behaviorOptions.includes(behaviorKey)) a.behaviorOptions.push(behaviorKey);
+          a.behaviorsActive[behaviorKey] = true;
+          return;
+        }
         const existing = a.behaviorOptions.find(k => getBehaviorLabel(k).toLowerCase() === text.toLowerCase());
         if (existing) {
           a.behaviorsActive[existing] = true;
@@ -1102,6 +1166,37 @@
             a.behaviorLabels[key] = text;
           }
           a.behaviorsActive[key] = true;
+        }
+      });
+    }
+
+    if (getSection(sections, 'Autonomy')) {
+      state.enabledSections['autonomy'] = true;
+      const lines = getSection(sections, 'Autonomy').split('\n').filter(l => l.trim().startsWith('-'));
+      for (const line of lines) {
+        const match = line.match(/\((\d+)\/100\)/);
+        if (match) {
+          const n = parseInt(match[1], 10);
+          if (Number.isFinite(n)) {
+            a.autonomyLevel = Math.max(0, Math.min(100, n));
+            break;
+          }
+        }
+      }
+    }
+
+    const rulesSrc = getSection(sections, 'Conditional Rules') || getSection(sections, 'Rules');
+    if (rulesSrc) {
+      state.enabledSections['rules'] = true;
+      const lines = rulesSrc.split('\n').filter(l => l.trim().startsWith('-'));
+      lines.forEach((line) => {
+        const text = line.replace(/^-\s*/, '').trim();
+        if (!text) return;
+        const match = text.match(/^when\s+(.+?)\s*(?:->|→)\s*(.+)$/i);
+        if (match) {
+          a.rules.push({ when: match[1].trim(), then: match[2].trim() });
+        } else {
+          a.rules.push({ when: text, then: '' });
         }
       });
     }
@@ -1156,7 +1251,21 @@
       });
     }
 
-    const knownSections = ['about', 'communication preferences', 'character traits', 'behaviors', 'avoid', 'when user is low', 'technical style'];
+    const knownSections = [
+      'about',
+      'communication preferences',
+      'tone & format',
+      'tone and format',
+      'character traits',
+      'behaviors',
+      'disposition',
+      'autonomy',
+      'conditional rules',
+      'rules',
+      'avoid',
+      'when user is low',
+      'technical style'
+    ];
     Object.entries(sections).forEach(([title, content]) => {
       if (title.startsWith('_')) return;
       if (knownSections.includes(title.toLowerCase())) return;
@@ -1217,9 +1326,23 @@
 
   function getKnownImportSections(fileType) {
     if (fileType === 'user') {
-      return ['About', 'Cognitive Style', 'Values', 'Communication Preferences', 'People', 'Projects'];
+      return ['About', 'Neurotype', 'Cognitive Style', 'Values', 'Interests', 'People', 'Projects'];
     }
-    return ['Character Traits', 'Behaviors', 'Avoid', 'When User Is Low', 'Technical Style'];
+    return [
+      'About',
+      'Communication Preferences',
+      'Tone & Format',
+      'Tone and Format',
+      'Character Traits',
+      'Behaviors',
+      'Disposition',
+      'Autonomy',
+      'Conditional Rules',
+      'Rules',
+      'Avoid',
+      'When User Is Low',
+      'Technical Style'
+    ];
   }
 
   function collectSectionTitles(md) {
@@ -1283,11 +1406,20 @@
       directness: val < 30 ? 'Gentle' : val < 50 ? 'Balanced' : val < 70 ? 'Direct' : 'Blunt',
       humor: val < 30 ? 'Serious' : val < 50 ? 'Dry' : val < 70 ? 'Witty' : 'Playful',
       formality: val < 30 ? 'Casual' : val < 50 ? 'Relaxed' : val < 70 ? 'Professional' : 'Formal',
-      verbosity: val < 30 ? 'Terse' : val < 50 ? 'Concise' : val < 70 ? 'Moderate' : 'Detailed'
+      verbosity: val < 30 ? 'Terse' : val < 50 ? 'Concise' : val < 70 ? 'Moderate' : 'Detailed',
+      curiosity: val < 30 ? 'Focused' : val < 50 ? 'Occasionally exploratory' : val < 70 ? 'Curious' : 'Highly curious',
+      independence: val < 30 ? 'Deferential' : val < 50 ? 'Collaborative' : val < 70 ? 'Self-directed' : 'Strongly independent'
     };
     if (descs[key]) return descs[key];
     // Generic for custom traits
     return val < 25 ? 'Very low' : val < 50 ? 'Low' : val < 75 ? 'Moderate' : 'High';
+  }
+
+  function getAutonomyDescription(val) {
+    if (val < 25) return 'Cautious';
+    if (val < 50) return 'Ask-first';
+    if (val < 75) return 'Balanced';
+    return 'Proactive';
   }
 
   // ---- Utility ----
@@ -1423,18 +1555,21 @@
   }
 
   function updateSidebarStatus() {
-    const dot = document.querySelector('.top-nav-status-dot');
-    const text = document.querySelector('.top-nav-status-text');
-    if (!dot || !text) return;
-    if (state.serverConnected) {
-      dot.classList.add('online');
-      dot.classList.remove('error');
-      text.textContent = 'Connected';
-    } else {
-      dot.classList.remove('online');
-      dot.classList.add('error');
-      text.textContent = 'Offline';
-    }
+    const dots = document.querySelectorAll('.top-nav-status-dot');
+    const texts = document.querySelectorAll('.top-nav-status-text');
+    if (!dots.length || !texts.length) return;
+    dots.forEach((dot) => {
+      if (state.serverConnected) {
+        dot.classList.add('online');
+        dot.classList.remove('error');
+      } else {
+        dot.classList.remove('online');
+        dot.classList.add('error');
+      }
+    });
+    texts.forEach((text) => {
+      text.textContent = state.serverConnected ? 'Connected' : 'Offline';
+    });
   }
 
   // ---- Main Render (page router) ----
@@ -1466,13 +1601,23 @@
     document.querySelectorAll('#top-nav-links .top-nav-link').forEach(l => {
       l.classList.toggle('active', l.dataset.page === state.activePage);
     });
-    const settingsBtn = document.getElementById('top-nav-settings');
-    if (settingsBtn) {
-      settingsBtn.classList.toggle('active', state.activePage === 'settings');
+    const settingsItem = document.getElementById('top-nav-open-settings');
+    if (settingsItem) {
+      settingsItem.classList.toggle('active', state.activePage === 'settings');
     }
   }
 
   function bindSidebarNav() {
+    const utilityBtn = document.getElementById('top-nav-utilities');
+    const utilityMenu = document.getElementById('top-nav-utility-menu');
+    const settingsItem = document.getElementById('top-nav-open-settings');
+    const setUtilityMenuOpen = (open) => {
+      if (!utilityBtn || !utilityMenu) return;
+      utilityMenu.hidden = !open;
+      utilityBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      utilityBtn.classList.toggle('active', open);
+    };
+
     // Logo = dashboard
     const homeLink = document.getElementById('top-nav-home');
     if (homeLink) {
@@ -1480,6 +1625,7 @@
         e.preventDefault();
         state.activePage = 'dashboard';
         syncNavHighlight();
+        setUtilityMenuOpen(false);
         render();
       });
     }
@@ -1492,16 +1638,33 @@
         if (page === state.activePage) return;
         state.activePage = page;
         syncNavHighlight();
+        setUtilityMenuOpen(false);
         render();
       });
     });
 
-    // Settings cog
-    const settingsBtn = document.getElementById('top-nav-settings');
-    if (settingsBtn) {
-      settingsBtn.addEventListener('click', () => {
+    if (utilityBtn && utilityMenu) {
+      utilityBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = utilityMenu.hidden;
+        setUtilityMenuOpen(open);
+      });
+
+      utilityMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+
+      document.addEventListener('click', () => setUtilityMenuOpen(false));
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') setUtilityMenuOpen(false);
+      });
+    }
+
+    if (settingsItem) {
+      settingsItem.addEventListener('click', () => {
         state.activePage = 'settings';
         syncNavHighlight();
+        setUtilityMenuOpen(false);
         render();
       });
     }
@@ -1565,7 +1728,7 @@
           <p class="wizard-step-hint">Tune core traits. You can refine these later in Configure.</p>
           <div class="wizard-traits">
             ${traitKeys.map((key) => {
-              const val = parseInt(a.traits[key] || 50, 10);
+              const val = parseInt(a.traits[key] ?? 50, 10);
               return `
                 <div class="wizard-trait-row">
                   <div class="wizard-trait-head">
@@ -1593,7 +1756,7 @@
           <ul>
             ${valueLines.length ? valueLines.map(v => `<li>${esc(v)}</li>`).join('') : '<li>Not set</li>'}
           </ul>
-          <p><strong>Agent traits:</strong> ${['warmth', 'directness', 'humor', 'formality', 'verbosity'].map(k => `${getTraitLabel(k)} ${a.traits[k] || 50}`).join(', ')}</p>
+          <p><strong>Agent traits:</strong> ${['warmth', 'directness', 'humor', 'formality', 'verbosity'].map(k => `${getTraitLabel(k)} ${a.traits[k] ?? 50}`).join(', ')}</p>
           <p class="wizard-step-hint">Save now to generate starter ` + "`user.md`, `agent.md`, and `now.md`." + `</p>
         </div>
       `;
@@ -3979,7 +4142,7 @@
     container.innerHTML = `
       ${renderPresetBar()}
 
-      ${renderSection('identity', 'Identity', 'Who you are', 'terracotta', ICON.star, `
+      ${renderSection('identity', 'Identity', 'Basic details for context', 'terracotta', ICON.star, `
         <div class="form-row">
           <div class="form-group">
             <label>Name</label>
@@ -4002,7 +4165,7 @@
         </div>
       `)}
 
-      ${renderSection('about', 'About', 'A brief bio or description', 'sage', ICON.edit, `
+      ${renderSection('about', 'About', 'Context that helps responses fit you', 'sage', ICON.edit, `
         <div class="form-group">
           <textarea data-bind="user.about" rows="4" placeholder="Tell the agent about yourself. What matters to you? What should it know?">${esc(u.about)}</textarea>
         </div>
@@ -4028,7 +4191,7 @@
         </div>
       `)}
 
-      ${renderSection('cogStyle', 'Cognitive Style', 'How you think and process information', 'clay', ICON.settings, `
+      ${renderSection('cogStyle', 'Cognitive Style', 'How you prefer ideas to be explained', 'clay', ICON.settings, `
         <div class="spectrum-group" id="cogstyle-spectrums">
           ${DEFAULT_COGNITIVE_STYLE_DIMS.concat(u.cognitiveStyleDims || []).map(d => {
             const val = u.cognitiveStyle[d.key] || 'balanced';
@@ -4145,10 +4308,11 @@
   // ---- Agent Form ----
   function renderAgentForm(container) {
     const a = state.agent;
+    const autonomyLevel = Number.isFinite(a.autonomyLevel) ? Math.max(0, Math.min(100, a.autonomyLevel)) : 50;
     container.innerHTML = `
       ${renderPresetBar()}
 
-      ${renderSection('agent-name', 'Identity', 'Name, model, and role', 'sage', ICON.settings, `
+      ${renderSection('agent-name', 'Identity', 'Basic details for context', 'sage', ICON.settings, `
         <div class="form-row">
           <div class="form-group">
             <label>Name</label>
@@ -4176,13 +4340,13 @@
         </div>
       `)}
 
-      ${renderSection('agent-about', 'About', 'Who is this agent and what is it for', 'sage', ICON.edit, `
+      ${renderSection('agent-about', 'About', 'What this agent is for and how it should show up', 'sage', ICON.edit, `
         <div class="form-group">
           <textarea data-bind="agent.about" rows="4" placeholder="Describe who this agent is, its role, personality, or purpose.">${esc(a.about)}</textarea>
         </div>
       `)}
 
-      ${renderSection('communication', 'Communication Preferences', 'How the agent should talk to you', 'sage', ICON.chat, `
+      ${renderSection('communication', 'Tone & Format', 'Surface-level style for responses', 'sage', ICON.chat, `
         <div id="communication-switches">
           ${a.communicationOptions.map(k => {
             const isCustom = !isDefaultComm(k);
@@ -4192,14 +4356,7 @@
         <button class="add-item-btn" id="add-comm-btn" style="margin-top:12px;">${ICON.plus} Add custom preference...</button>
       `)}
 
-      ${renderSection('traits', 'Character Traits', 'Personality sliders', 'terracotta', ICON.sliders, `
-        <div id="trait-sliders">
-          ${a.traitOptions.map(key => renderSlider(key, getTraitLabel(key), a.traits[key] || 50, getTraitEndpoints(key), !isDefaultTrait(key))).join('')}
-        </div>
-        <button class="add-item-btn" id="add-trait-btn" style="margin-top:12px;">${ICON.plus} Add custom trait...</button>
-      `)}
-
-      ${renderSection('behaviors', 'Behaviors', 'What the agent should do', 'sage', ICON.check, `
+      ${renderSection('behaviors', 'Disposition', 'Rules your agent follows', 'sage', ICON.check, `
         <div class="toggle-group" id="behavior-toggles">
           ${a.behaviorOptions.map(k => {
             const active = a.behaviorsActive[k];
@@ -4218,6 +4375,53 @@
         </div>
       `)}
 
+      ${renderSection('when-low', 'When User Is Low', 'How to respond when the user seems down', 'clay', ICON.heart, `
+        <div id="when-low-switches">
+          ${a.whenLowOptions.map(k => {
+            const isCustom = !isDefaultWhenLow(k);
+            return renderSwitchRowWithRemove('agent.whenLowActive.' + k, getWhenLowLabel(k), getWhenLowDesc(k), !!a.whenLowActive[k], isCustom ? k : null, 'whenlow');
+          }).join('')}
+        </div>
+        <button class="add-item-btn" id="add-whenlow-btn" style="margin-top:12px;">${ICON.plus} Add custom behavior...</button>
+      `)}
+
+      ${renderSection('autonomy', 'Autonomy', 'How proactive the agent should be without explicit prompts', 'clay', ICON.compass, `
+        <div class="slider-group">
+          <div class="slider-header">
+            <span class="slider-label">Proactivity</span>
+            <span class="slider-value" id="autonomy-level-label">${getAutonomyDescription(autonomyLevel)} (${autonomyLevel}/100)</span>
+          </div>
+          <input type="range" min="0" max="100" value="${autonomyLevel}" id="autonomy-slider">
+          <div class="slider-labels">
+            <span>Ask before acting</span>
+            <span>Act proactively</span>
+          </div>
+        </div>
+      `)}
+
+      ${renderSection('rules', 'Conditional Rules', 'If/then instructions for specific situations', 'sand', ICON.link, `
+        <div class="value-pairs" id="rules-list">
+          ${a.rules.length ? a.rules.map((rule, i) => `
+            <div class="value-pair" data-rule-index="${i}">
+              <input type="text" data-rule="${i}" data-field="when" value="${esc(rule.when || '')}" placeholder="When...">
+              <span class="separator">&rarr;</span>
+              <input type="text" data-rule="${i}" data-field="then" value="${esc(rule.then || '')}" placeholder="Then...">
+              <button class="btn btn-icon btn-danger-ghost" data-remove-rule="${i}" title="Remove">${ICON.x}</button>
+            </div>
+          `).join('') : `
+            <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:8px;">Add rules like &ldquo;When I share code &rarr; review first, rewrite only if asked.&rdquo;</p>
+          `}
+        </div>
+        <button class="add-item-btn" id="add-rule-btn">${ICON.plus} Add rule</button>
+      `)}
+
+      ${renderSection('traits', 'Character Traits', 'How your agent\'s personality feels', 'terracotta', ICON.sliders, `
+        <div id="trait-sliders">
+          ${a.traitOptions.map(key => renderSlider(key, getTraitLabel(key), a.traits[key] ?? 50, getTraitEndpoints(key), !isDefaultTrait(key))).join('')}
+        </div>
+        <button class="add-item-btn" id="add-trait-btn" style="margin-top:12px;">${ICON.plus} Add custom trait...</button>
+      `)}
+
       ${renderSection('avoid', 'Avoid', 'Things the agent should not do', 'sand', ICON.ban, `
         <div class="tag-list" id="avoid-tags">
           ${a.avoid.length ? a.avoid.map((item, i) => `
@@ -4233,17 +4437,7 @@
         </div>
       `)}
 
-      ${renderSection('when-low', 'When User Is Low', 'How to behave when the user seems down', 'clay', ICON.heart, `
-        <div id="when-low-switches">
-          ${a.whenLowOptions.map(k => {
-            const isCustom = !isDefaultWhenLow(k);
-            return renderSwitchRowWithRemove('agent.whenLowActive.' + k, getWhenLowLabel(k), getWhenLowDesc(k), !!a.whenLowActive[k], isCustom ? k : null, 'whenlow');
-          }).join('')}
-        </div>
-        <button class="add-item-btn" id="add-whenlow-btn" style="margin-top:12px;">${ICON.plus} Add custom behavior...</button>
-      `)}
-
-      ${renderSection('tech-style', 'Technical Style', 'Code and technical preferences', 'terracotta', ICON.code, `
+      ${renderSection('tech-style', 'Technical Style', 'How technical responses should be shaped', 'terracotta', ICON.code, `
         <div id="tech-style-switches">
           ${a.techStyleOptions.map(k => {
             const isCustom = !isDefaultTech(k);
@@ -4761,6 +4955,48 @@
           }
           render();
         });
+      });
+    }
+
+    // Autonomy slider
+    const autonomySlider = document.getElementById('autonomy-slider');
+    if (autonomySlider) {
+      autonomySlider.addEventListener('input', () => {
+        const raw = parseInt(autonomySlider.value, 10);
+        const val = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 50;
+        state.agent.autonomyLevel = val;
+        const label = document.getElementById('autonomy-level-label');
+        if (label) label.textContent = `${getAutonomyDescription(val)} (${val}/100)`;
+        renderPreview();
+        debouncedSave();
+      });
+    }
+
+    // Conditional rules
+    container.querySelectorAll('[data-rule]').forEach(el => {
+      el.addEventListener('input', () => {
+        const idx = parseInt(el.dataset.rule, 10);
+        const field = el.dataset.field;
+        if (!state.agent.rules[idx]) state.agent.rules[idx] = { when: '', then: '' };
+        state.agent.rules[idx][field] = el.value;
+        renderPreview();
+        debouncedSave();
+      });
+    });
+
+    container.querySelectorAll('[data-remove-rule]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.removeRule, 10);
+        state.agent.rules.splice(idx, 1);
+        render();
+      });
+    });
+
+    const addRuleBtn = document.getElementById('add-rule-btn');
+    if (addRuleBtn) {
+      addRuleBtn.addEventListener('click', () => {
+        state.agent.rules.push({ when: '', then: '' });
+        render();
       });
     }
 
@@ -5562,6 +5798,20 @@
   function migrateState() {
     const u = state.user;
     const a = state.agent;
+    const dedupe = (items) => {
+      const out = [];
+      const seen = new Set();
+      (items || []).forEach((item) => {
+        if (!item || seen.has(item)) return;
+        seen.add(item);
+        out.push(item);
+      });
+      return out;
+    };
+    const withDefaults = (defaults, items) => {
+      const custom = (items || []).filter(k => !defaults.includes(k));
+      return dedupe(defaults.concat(custom));
+    };
 
     // Migrate old cognitive: { adhd: true, ... } -> cognitiveActive
     if (u.cognitive && typeof u.cognitive === 'object' && !u.cognitiveOptions) {
@@ -5614,9 +5864,47 @@
     if (!a.communicationLabels) a.communicationLabels = {};
     if (!a.communicationDescs) a.communicationDescs = {};
     if (!a.communicationActive) a.communicationActive = {};
+    if (!Array.isArray(a.behaviorOptions)) a.behaviorOptions = [];
+    if (!a.behaviorLabels) a.behaviorLabels = {};
+    if (!a.behaviorsActive) a.behaviorsActive = {};
+    if (!Array.isArray(a.whenLowOptions)) a.whenLowOptions = [];
+    if (!a.whenLowLabels) a.whenLowLabels = {};
+    if (!a.whenLowDescs) a.whenLowDescs = {};
+    if (!a.whenLowActive) a.whenLowActive = {};
+    if (!Array.isArray(a.traitOptions)) a.traitOptions = [];
+    if (!a.traitLabels) a.traitLabels = {};
+    if (!a.traitEndpoints) a.traitEndpoints = {};
+    if (!a.traits || typeof a.traits !== 'object') a.traits = {};
+    if (!Array.isArray(a.rules)) a.rules = [];
+
+    // Legacy communication keys moved into disposition / when-low.
+    const commToBehavior = {
+      challengeMe: 'challengeWhenWrong',
+      admitUncertainty: 'admitUncertainty',
+      matchEnergy: 'calibrateTone'
+    };
+    const commToWhenLow = {
+      shortWhenLow: 'shorterReplies'
+    };
+    Object.entries(commToBehavior).forEach(([oldKey, newKey]) => {
+      if (a.communicationActive[oldKey]) a.behaviorsActive[newKey] = true;
+      a.communicationOptions = a.communicationOptions.filter(k => k !== oldKey);
+      delete a.communicationActive[oldKey];
+      delete a.communicationLabels[oldKey];
+      delete a.communicationDescs[oldKey];
+      if (!a.behaviorOptions.includes(newKey)) a.behaviorOptions.push(newKey);
+    });
+    Object.entries(commToWhenLow).forEach(([oldKey, newKey]) => {
+      if (a.communicationActive[oldKey]) a.whenLowActive[newKey] = true;
+      a.communicationOptions = a.communicationOptions.filter(k => k !== oldKey);
+      delete a.communicationActive[oldKey];
+      delete a.communicationLabels[oldKey];
+      delete a.communicationDescs[oldKey];
+      if (!a.whenLowOptions.includes(newKey)) a.whenLowOptions.push(newKey);
+    });
 
     // Migrate old agent behaviors
-    if (a.behaviors && typeof a.behaviors === 'object' && !a.behaviorOptions) {
+    if (a.behaviors && typeof a.behaviors === 'object' && (!Array.isArray(a.behaviorOptions) || a.behaviorOptions.length === 0)) {
       a.behaviorOptions = DEFAULT_BEHAVIOR_OPTIONS.map(o => o.key);
       a.behaviorLabels = {};
       a.behaviorsActive = {};
@@ -5627,8 +5915,35 @@
       delete a.behaviors;
     }
 
+    // Rename old behavior keys to new behavior keys.
+    const behaviorRenames = {
+      uncertainWhenAppropriate: 'admitUncertainty',
+      adaptToMood: 'calibrateTone',
+      matchEnergy: 'calibrateTone',
+      challengeMe: 'challengeWhenWrong'
+    };
+    Object.entries(behaviorRenames).forEach(([oldKey, newKey]) => {
+      if (a.behaviorsActive[oldKey]) a.behaviorsActive[newKey] = true;
+      a.behaviorOptions = a.behaviorOptions.map(k => (k === oldKey ? newKey : k));
+      delete a.behaviorsActive[oldKey];
+      delete a.behaviorLabels[oldKey];
+    });
+
+    // Drop old vague defaults that don't produce reliable behavior steering.
+    const retiredBehaviorKeys = new Set([
+      'rememberContext',
+      'useSharedVocabulary',
+      'showWorkingProcess',
+      'provideSources'
+    ]);
+    a.behaviorOptions = a.behaviorOptions.filter(k => !retiredBehaviorKeys.has(k));
+    retiredBehaviorKeys.forEach((key) => {
+      delete a.behaviorsActive[key];
+      delete a.behaviorLabels[key];
+    });
+
     // Migrate old whenLow
-    if (a.whenLow && typeof a.whenLow === 'object' && !a.whenLowOptions) {
+    if (a.whenLow && typeof a.whenLow === 'object' && (!Array.isArray(a.whenLowOptions) || a.whenLowOptions.length === 0)) {
       a.whenLowOptions = DEFAULT_WHEN_LOW_OPTIONS.map(o => o.key);
       a.whenLowLabels = {};
       a.whenLowDescs = {};
@@ -5654,7 +5969,7 @@
     }
 
     // Migrate old traits (flat object) -> new format with traitOptions
-    if (a.traits && !a.traitOptions) {
+    if (a.traits && (!Array.isArray(a.traitOptions) || a.traitOptions.length === 0)) {
       a.traitOptions = DEFAULT_TRAIT_OPTIONS.map(o => o.key);
       a.traitLabels = {};
       a.traitEndpoints = {};
@@ -5663,6 +5978,24 @@
         if (!a.traitOptions.includes(k)) a.traitOptions.push(k);
       });
     }
+
+    const commDefaultKeys = DEFAULT_COMMUNICATION_OPTIONS.map(o => o.key);
+    const behaviorDefaultKeys = DEFAULT_BEHAVIOR_OPTIONS.map(o => o.key);
+    const whenLowDefaultKeys = DEFAULT_WHEN_LOW_OPTIONS.map(o => o.key);
+    const traitDefaultKeys = DEFAULT_TRAIT_OPTIONS.map(o => o.key);
+    a.communicationOptions = withDefaults(commDefaultKeys, a.communicationOptions);
+    a.behaviorOptions = withDefaults(behaviorDefaultKeys, a.behaviorOptions);
+    a.whenLowOptions = withDefaults(whenLowDefaultKeys, a.whenLowOptions);
+    a.traitOptions = withDefaults(traitDefaultKeys, a.traitOptions);
+    traitDefaultKeys.forEach((key) => {
+      if (a.traits[key] === undefined) a.traits[key] = 50;
+    });
+    a.rules = a.rules.map((rule) => ({
+      when: String((rule && rule.when) || ''),
+      then: String((rule && rule.then) || '')
+    }));
+    const autonomyRaw = parseInt(a.autonomyLevel, 10);
+    a.autonomyLevel = Number.isFinite(autonomyRaw) ? Math.max(0, Math.min(100, autonomyRaw)) : 50;
 
     // Ensure enabledSections exists
     if (!state.enabledSections) {
