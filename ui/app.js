@@ -2272,40 +2272,46 @@
         }).join('');
 
         insightsHtml = `
-          <div class="memory-insights-card">
-            <div class="memory-insights-header">
-              <h3>Memory Effectiveness</h3>
-              <span class="memory-insights-sub">How often loaded notes are referenced later. Click a row to filter notes by session.</span>
+          <div class="memory-insights-card collapsed" id="memory-insights-card">
+            <button type="button" class="memory-insights-toggle" id="memory-insights-toggle">
+              <div class="memory-insights-toggle-left">
+                <span class="memory-insights-chevron">&#9660;</span>
+                <h3>Memory Effectiveness</h3>
+              </div>
+              <span class="memory-insights-blurb">Tracks how often loaded notes get referenced in later sessions. Expand to see which notes are working and which might need tuning.</span>
+            </button>
+            <div class="memory-insights-body">
+              <div class="memory-insights-sub">How often loaded notes are referenced later. Click a row to filter notes by session.</div>
+              <div class="memory-insights-metrics">
+                <div class="memory-insights-metric">
+                  <span class="memory-insights-value">${loaded}</span>
+                  <span class="memory-insights-label">Loads</span>
+                </div>
+                <div class="memory-insights-metric">
+                  <span class="memory-insights-value">${referenced}</span>
+                  <span class="memory-insights-label">References</span>
+                </div>
+                <div class="memory-insights-metric">
+                  <span class="memory-insights-value">${refRate}%</span>
+                  <span class="memory-insights-label">Yield</span>
+                </div>
+              </div>
+              <div class="memory-insights-columns">
+                <div class="memory-insights-column">
+                  <h4>Top referenced</h4>
+                  ${topRows || '<p class="memory-insights-empty">No reference activity yet.</p>'}
+                </div>
+                <div class="memory-insights-column">
+                  <h4>High load, low yield</h4>
+                  ${lowRows || '<p class="memory-insights-empty">No low-yield notes detected.</p>'}
+                </div>
+              </div>
+              ${suggestions.length ? `
+                <div class="memory-insights-suggestions">
+                  ${suggestions.slice(0, 2).map(s => `<p>${esc(s)}</p>`).join('')}
+                </div>
+              ` : ''}
             </div>
-            <div class="memory-insights-metrics">
-              <div class="memory-insights-metric">
-                <span class="memory-insights-value">${loaded}</span>
-                <span class="memory-insights-label">Loads</span>
-              </div>
-              <div class="memory-insights-metric">
-                <span class="memory-insights-value">${referenced}</span>
-                <span class="memory-insights-label">References</span>
-              </div>
-              <div class="memory-insights-metric">
-                <span class="memory-insights-value">${refRate}%</span>
-                <span class="memory-insights-label">Yield</span>
-              </div>
-            </div>
-            <div class="memory-insights-columns">
-              <div class="memory-insights-column">
-                <h4>Top referenced</h4>
-                ${topRows || '<p class="memory-insights-empty">No reference activity yet.</p>'}
-              </div>
-              <div class="memory-insights-column">
-                <h4>High load, low yield</h4>
-                ${lowRows || '<p class="memory-insights-empty">No low-yield notes detected.</p>'}
-              </div>
-            </div>
-            ${suggestions.length ? `
-              <div class="memory-insights-suggestions">
-                ${suggestions.slice(0, 2).map(s => `<p>${esc(s)}</p>`).join('')}
-              </div>
-            ` : ''}
           </div>
         `;
       } else {
@@ -2353,21 +2359,23 @@
         </div>
         ${notesGuideHtml}
         ${machineTabsHtml}
+        <div class="notes-search">
+          <svg class="notes-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" class="notes-search-input" id="notes-search-input" placeholder="Search notes\u2026" value="${esc(ns.search)}">
+        </div>
         <div class="notes-toolbar">
-          <div class="notes-search">
-            <svg class="notes-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" class="notes-search-input" id="notes-search-input" placeholder="Search notes\u2026" value="${esc(ns.search)}">
-          </div>
-          <select class="notes-archive-filter" id="notes-archive-filter">
-            <option value="exclude"${ns.archived === 'exclude' ? ' selected' : ''}>Active</option>
-            <option value="only"${ns.archived === 'only' ? ' selected' : ''}>Archived</option>
-            <option value="include"${ns.archived === 'include' ? ' selected' : ''}>All</option>
-          </select>
-          <select class="notes-tag-filter" id="notes-tag-filter">${tagOptions}</select>
           <div class="notes-sort">
             <button class="notes-sort-btn ${ns.sort === 'date' ? 'active' : ''}" data-sort="date">Newest</button>
             <button class="notes-sort-btn ${ns.sort === 'date_asc' ? 'active' : ''}" data-sort="date_asc">Oldest</button>
             <button class="notes-sort-btn ${ns.sort === 'salience' ? 'active' : ''}" data-sort="salience" title="How relevant/important a note is. Higher salience notes are more likely to be loaded.">Salience</button>
+          </div>
+          <div class="notes-filters">
+            <select class="notes-archive-filter" id="notes-archive-filter">
+              <option value="exclude"${ns.archived === 'exclude' ? ' selected' : ''}>Active</option>
+              <option value="only"${ns.archived === 'only' ? ' selected' : ''}>Archived</option>
+              <option value="include"${ns.archived === 'include' ? ' selected' : ''}>All</option>
+            </select>
+            <select class="notes-tag-filter" id="notes-tag-filter">${tagOptions}</select>
           </div>
           ${resetFiltersHtml}
         </div>
@@ -2409,6 +2417,11 @@
       ns.machine = tab.dataset.machine;
       ns.expandedIdx = null;
       refreshNotes();
+    });
+
+    bindById('memory-insights-toggle', 'click', () => {
+      const card = document.getElementById('memory-insights-card');
+      if (card) card.classList.toggle('collapsed');
     });
 
     bindAll(container, '.memory-insights-row-btn', 'click', (event, btn) => {
