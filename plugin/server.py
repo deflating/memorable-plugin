@@ -59,6 +59,7 @@ DEFAULT_CONFIG = {
         "idle_threshold": 300,
     },
     "server_port": DEFAULT_PORT,
+    "context_files": [],
 }
 
 
@@ -85,15 +86,32 @@ def atomic_write_bytes(path: Path, data: bytes):
     tmp_path.rename(path)
 
 
+def _deep_merge(defaults: dict, overrides: dict) -> dict:
+    """Recursively merge *overrides* into *defaults*.
+
+    For nested dicts, missing keys in *overrides* inherit from *defaults*.
+    All other types in *overrides* win outright.
+    """
+    merged = dict(defaults)
+    for key, value in overrides.items():
+        if (
+            key in merged
+            and isinstance(merged[key], dict)
+            and isinstance(value, dict)
+        ):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def load_config() -> dict:
     """Load config.json, returning defaults on any error."""
     try:
         if CONFIG_PATH.exists():
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            # Merge with defaults so new keys are always present
-            merged = dict(DEFAULT_CONFIG)
-            merged.update(data)
-            return merged
+            if isinstance(data, dict):
+                return _deep_merge(DEFAULT_CONFIG, data)
     except Exception:
         pass
     return dict(DEFAULT_CONFIG)
