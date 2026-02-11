@@ -140,18 +140,18 @@ def load_all_notes() -> list[dict]:
 
     for jsonl_path in sorted(NOTES_DIR.glob("*.jsonl")):
         try:
-            text = jsonl_path.read_text(encoding="utf-8")
+            with jsonl_path.open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                        notes.append(_normalize_note(obj))
+                    except json.JSONDecodeError:
+                        continue
         except Exception:
             continue
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-                notes.append(_normalize_note(obj))
-            except json.JSONDecodeError:
-                continue
     return notes
 
 
@@ -390,6 +390,57 @@ def handle_post_settings(body: dict):
 # -- Status ----------------------------------------------------------------
 
 
+def _get_daemon_status() -> dict:
+    """Return daemon pid/running status based on daemon.pid and process liveness."""
+    status = {"running": False, "pid": None}
+    pid_file = DATA_DIR / "daemon.pid"
+    if not pid_file.exists():
+        return status
+
+    try:
+        pid = int(pid_file.read_text().strip())
+    except ValueError:
+        return status
+
+    status["pid"] = pid
+    try:
+        os.kill(pid, 0)
+        status["running"] = True
+    except (OSError, ProcessLookupError):
+        status["running"] = False
+    return status
+
+
+def _check_config_validity() -> dict:
+    """Validate on-disk config schema for health checks."""
+    if not CONFIG_PATH.exists():
+        return {"exists": False, "valid": True, "error": None}
+
+    try:
+        raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {"exists": True, "valid": False, "error": "Invalid JSON"}
+
+    if not isinstance(raw, dict):
+        return {"exists": True, "valid": False, "error": "Config root must be an object"}
+
+    required = ("llm_provider", "token_budget", "daemon", "server_port")
+    missing = [k for k in required if k not in raw]
+    if missing:
+        return {
+            "exists": True,
+            "valid": False,
+            "error": f"Missing required keys: {', '.join(missing)}",
+        }
+
+    if not isinstance(raw.get("llm_provider"), dict):
+        return {"exists": True, "valid": False, "error": "llm_provider must be an object"}
+    if not isinstance(raw.get("daemon"), dict):
+        return {"exists": True, "valid": False, "error": "daemon must be an object"}
+
+    return {"exists": True, "valid": True, "error": None}
+
+
 def handle_get_status():
     """GET /api/status — dashboard data."""
     # Note count
@@ -397,10 +448,8 @@ def handle_get_status():
     if NOTES_DIR.is_dir():
         for jsonl_path in NOTES_DIR.glob("*.jsonl"):
             try:
-                text = jsonl_path.read_text(encoding="utf-8")
-                note_count += sum(
-                    1 for line in text.splitlines() if line.strip()
-                )
+                with jsonl_path.open("r", encoding="utf-8") as fh:
+                    note_count += sum(1 for line in fh if line.strip())
             except Exception:
                 continue
 
@@ -424,16 +473,7 @@ def handle_get_status():
     seeds_present = SEEDS_DIR.is_dir() and any(SEEDS_DIR.glob("*.md"))
 
     # Daemon running — check for PID file
-    daemon_running = False
-    pid_file = DATA_DIR / "daemon.pid"
-    if pid_file.exists():
-        try:
-            pid = int(pid_file.read_text().strip())
-            # Check if PID is alive
-            os.kill(pid, 0)
-            daemon_running = True
-        except (ValueError, OSError, ProcessLookupError):
-            daemon_running = False
+    daemon_running = _get_daemon_status()["running"]
 
     # Total token estimate from seed files
     total_tokens = 0
@@ -462,6 +502,40 @@ def handle_get_status():
         "total_seed_tokens": total_tokens,
         "file_count": file_count,
         "data_dir": str(DATA_DIR),
+    }
+
+
+def handle_get_health():
+    """GET /api/health — basic runtime and storage health information."""
+    ensure_dirs()
+
+    seed_required = ("user.md", "agent.md", "now.md")
+    seeds = {
+        "required": {
+            name: (SEEDS_DIR / name).is_file() for name in seed_required
+        },
+        "total_seed_files": 0,
+    }
+    if SEEDS_DIR.is_dir():
+        seeds["total_seed_files"] = sum(1 for p in SEEDS_DIR.glob("*.md") if p.is_file())
+    seeds["present"] = any(seeds["required"].values())
+
+    usage = shutil.disk_usage(DATA_DIR)
+    config_health = _check_config_validity()
+    daemon = _get_daemon_status()
+
+    return 200, {
+        "ok": config_health["valid"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "seeds": seeds,
+        "disk": {
+            "path": str(DATA_DIR),
+            "total_bytes": usage.total,
+            "used_bytes": usage.used,
+            "free_bytes": usage.free,
+        },
+        "config": config_health,
+        "daemon": daemon,
     }
 
 
@@ -1096,6 +1170,10 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/status":
             status, data = handle_get_status()
+            return self.send_json(status, data)
+
+        if path == "/api/health":
+            status, data = handle_get_health()
             return self.send_json(status, data)
 
         if path == "/api/files":
