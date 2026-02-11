@@ -3432,6 +3432,7 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   gap: 8px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .history-controls {
@@ -3443,6 +3444,45 @@ input[type="range"]::-moz-range-thumb {
 .history-controls .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* ============================================
+   Seed deployment status
+   ============================================ */
+.seed-sync-indicator {
+  font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.seed-sync-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.seed-sync-indicator.seed-sync-draft {
+  color: var(--warm-gray-dark);
+  border-color: var(--border);
+  background: var(--cream-dark);
+}
+
+.seed-sync-indicator.seed-sync-pending {
+  color: var(--ochre-dark);
+  border-color: var(--ochre);
+  background: var(--ochre-muted);
+}
+
+.seed-sync-indicator.seed-sync-deployed {
+  color: var(--sage-dark);
+  border-color: var(--sage);
+  background: var(--sage-muted);
 }
 
 /* ============================================

@@ -181,6 +181,11 @@
     statusCache: null,        // cached status from API
     serverConnected: false,   // whether server is reachable
     onboardingStep: 1,        // dashboard onboarding wizard step
+    seedSync: {
+      deploymentKnown: false, // whether we have a deployed baseline to compare against
+      deployedHash: "",       // hash-like fingerprint of deployed user+agent seeds
+      deployedAt: "",         // local timestamp of most recent deploy action
+    },
   };
 
   // Keep a markdown cache to track manual edits
@@ -195,6 +200,59 @@
 
   function cloneJson(value) {
     return JSON.parse(JSON.stringify(value));
+  }
+
+  function _seedFingerprint(userMd, agentMd) {
+    const u = String(userMd || "");
+    const a = String(agentMd || "");
+    return `${u.length}:${u}\n@@\n${a.length}:${a}`;
+  }
+
+  function _currentSeedFingerprint() {
+    return _seedFingerprint(generateUserMarkdown(), generateAgentMarkdown());
+  }
+
+  function _hasPendingSeedDraft() {
+    if (!state.seedSync || !state.seedSync.deploymentKnown) return false;
+    return _currentSeedFingerprint() !== state.seedSync.deployedHash;
+  }
+
+  function _seedStatusMeta() {
+    if (!state.seedSync || !state.seedSync.deploymentKnown) {
+      return {
+        className: 'seed-sync-draft',
+        text: 'Draft only',
+        title: 'No deployed baseline found yet. Deploy to apply seeds for session start.',
+      };
+    }
+    if (_hasPendingSeedDraft()) {
+      return {
+        className: 'seed-sync-pending',
+        text: 'Draft changes not deployed',
+        title: 'Local draft differs from deployed seed files. Deploy to apply runtime changes.',
+      };
+    }
+    if (state.seedSync.deployedAt) {
+      const d = new Date(state.seedSync.deployedAt);
+      const stamp = Number.isNaN(d.getTime())
+        ? 'just now'
+        : d.toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit'
+        });
+      return {
+        className: 'seed-sync-deployed',
+        text: `Deployed ${stamp}`,
+        title: 'Draft and deployed seeds are in sync.',
+      };
+    }
+    return {
+      className: 'seed-sync-deployed',
+      text: 'Deployed',
+      title: 'Draft and deployed seeds are in sync.',
+    };
   }
 
   function buildConfigSnapshot() {
@@ -2205,6 +2263,25 @@
     }
   }
 
+  async function loadDeployedSeeds(hadLocalDraft) {
+    const data = await apiFetch('/api/seeds');
+    if (!data || !data.files || typeof data.files !== 'object') return;
+
+    const userMd = typeof data.files['user.md'] === 'string' ? data.files['user.md'] : '';
+    const agentMd = typeof data.files['agent.md'] === 'string' ? data.files['agent.md'] : '';
+
+    if (userMd || agentMd) {
+      state.seedSync.deploymentKnown = true;
+      state.seedSync.deployedHash = _seedFingerprint(userMd, agentMd);
+
+      // Fresh session: initialize editor from deployed files.
+      if (!hadLocalDraft) {
+        if (userMd) parseUserMarkdown(userMd);
+        if (agentMd) parseAgentMarkdown(agentMd);
+      }
+    }
+  }
+
   function renderSettingsPage(container) {
     const s = state.settingsCache || {};
     const llm = s.llm_provider || {};
@@ -2639,6 +2716,7 @@
     const controls = document.getElementById('seeds-view-controls');
     if (!controls) return;
     const file = state.activeFile;
+    const seedStatus = _seedStatusMeta();
 
     controls.innerHTML = `
       <div class="view-toggle">
@@ -2646,11 +2724,17 @@
         <button class="view-toggle-btn ${state.activeView === 'markdown' ? 'active' : ''}" data-view="markdown">Markdown</button>
       </div>
       <div class="action-buttons">
-        <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
+        <span class="seed-sync-indicator ${seedStatus.className}" title="${esc(seedStatus.title)}">
+          <span class="dot"></span>${esc(seedStatus.text)}
+        </span>
+        <span class="save-indicator save-state-idle"><span class="dot"></span> Draft auto-save on</span>
         <div class="history-controls">
           <button class="btn btn-small" id="seed-undo-btn" title="Undo (Cmd/Ctrl+Z)">Undo</button>
           <button class="btn btn-small" id="seed-redo-btn" title="Redo (Cmd/Ctrl+Shift+Z / Ctrl+Y)">Redo</button>
         </div>
+        <button class="btn btn-primary" id="seed-deploy-btn" title="Write current user.md and agent.md to deployed seed files">
+          Deploy
+        </button>
         <button class="btn" onclick="window.memorableApp.showImportModal()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           Import
@@ -2689,6 +2773,39 @@
       redoBtn.addEventListener('click', () => {
         if (!window.memorableApp.redo()) {
           showToast('Nothing to redo', '');
+        }
+      });
+    }
+
+    const deployBtn = document.getElementById('seed-deploy-btn');
+    if (deployBtn) {
+      deployBtn.addEventListener('click', async () => {
+        const files = {
+          'user.md': generateUserMarkdown(),
+          'agent.md': generateAgentMarkdown(),
+        };
+
+        deployBtn.disabled = true;
+        deployBtn.textContent = 'Deploying...';
+        try {
+          const result = await apiFetch('/api/seeds', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ files }),
+          });
+          if (!result || !result.ok) {
+            throw new Error('Deploy failed');
+          }
+
+          state.seedSync.deploymentKnown = true;
+          state.seedSync.deployedHash = _seedFingerprint(files['user.md'], files['agent.md']);
+          state.seedSync.deployedAt = new Date().toISOString();
+          if (state.statusCache) state.statusCache.seeds_present = true;
+          showToast('Seed files deployed', 'success');
+          render();
+        } catch (err) {
+          showToast(err && err.message ? err.message : 'Failed to deploy seeds', 'error');
+          renderSeedsViewControls();
         }
       });
     }
@@ -4654,6 +4771,17 @@
     if (state.statusCache === undefined) state.statusCache = null;
     if (state.serverConnected === undefined) state.serverConnected = false;
     if (state.onboardingStep === undefined) state.onboardingStep = 1;
+    if (!state.seedSync || typeof state.seedSync !== 'object') {
+      state.seedSync = {
+        deploymentKnown: false,
+        deployedHash: '',
+        deployedAt: '',
+      };
+    } else {
+      if (state.seedSync.deploymentKnown === undefined) state.seedSync.deploymentKnown = false;
+      if (typeof state.seedSync.deployedHash !== 'string') state.seedSync.deployedHash = '';
+      if (typeof state.seedSync.deployedAt !== 'string') state.seedSync.deployedAt = '';
+    }
   }
 
   // ---- Public API ----
@@ -4761,6 +4889,9 @@
 
       if (result && result.ok) {
         state.onboardingStep = 1;
+        state.seedSync.deploymentKnown = true;
+        state.seedSync.deployedHash = _seedFingerprint(files['user.md'], files['agent.md']);
+        state.seedSync.deployedAt = new Date().toISOString();
         if (state.statusCache) state.statusCache.seeds_present = true;
         showToast('Onboarding complete. Seed files created.', 'success');
       } else {
@@ -4854,7 +4985,7 @@
 
   // ---- Init ----
   async function init() {
-    loadFromLocalStorage();
+    const hadLocalDraft = loadFromLocalStorage();
     migrateState();
     resetConfigHistory();
     bindStorageSync();
@@ -4870,6 +5001,12 @@
       }
     });
     loadSettings();
+    loadDeployedSeeds(hadLocalDraft).then(() => {
+      // Re-render pages that expose seed deployment status/content.
+      if (state.activePage === 'configure' || state.activePage === 'dashboard') {
+        render();
+      }
+    });
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
