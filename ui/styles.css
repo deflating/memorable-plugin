@@ -63,7 +63,7 @@
 }
 
 html.dark {
-  /* Earth tones — dark variant */
+  /* Earth tones — warm dark variant */
     --terracotta: #D4876E;
     --terracotta-light: #E0A08A;
     --terracotta-dark: #C2694F;
@@ -71,9 +71,9 @@ html.dark {
     --sand: #3D3530;
     --sand-light: #4A3F38;
     --sand-dark: #2E2824;
-    --clay: #9A7650;
-    --clay-light: #B8926A;
-    --clay-dark: #7E6040;
+    --clay: #B8926A;
+    --clay-light: #CBAA87;
+    --clay-dark: #9A7650;
     --sage: #A8BF99;
     --sage-light: #BBCEAF;
     --sage-dark: #8FA87E;
@@ -82,28 +82,28 @@ html.dark {
     --ochre-light: #EAC888;
     --ochre-dark: #D4A050;
     --ochre-muted: #D4A05033;
-    --cream: #1a1a2e;
-    --cream-dark: #151525;
-    --warm-white: #1e1e32;
+    --cream: #2A2320;
+    --cream-dark: #221C18;
+    --warm-white: #332B26;
     --warm-gray: #9A8E84;
     --warm-gray-light: #B5ADA5;
     --warm-gray-dark: #7A6E64;
-    --text-primary: #e0e0e0;
-    --text-secondary: #b0a8a0;
+    --text-primary: #E8DDD4;
+    --text-secondary: #B8AA9E;
     --text-muted: #7A6E64;
-    --border: #2e2a3e;
-    --border-light: #363250;
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.35);
+    --border: #4A3F38;
+    --border-light: #3D3530;
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
     --shadow-focus: 0 0 0 3px rgba(212, 135, 110, 0.3);
 
-    /* Top Nav — dark variant */
-    --nav-bg: #141420;
+    /* Top Nav — warm dark variant */
+    --nav-bg: #1E1814;
     --nav-text: #9A8E84;
-    --nav-text-active: #e0e0e0;
-    --nav-hover: rgba(255, 255, 255, 0.08);
-    --nav-active: rgba(212, 135, 110, 0.25);
+    --nav-text-active: #E8DDD4;
+    --nav-hover: rgba(255, 255, 255, 0.06);
+    --nav-active: rgba(194, 105, 79, 0.3);
 }
 
 /* Theme toggle */
@@ -333,7 +333,7 @@ p { color: var(--text-secondary); }
 }
 
 .token-budget-bar {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -500,7 +500,7 @@ p { color: var(--text-secondary); }
 
 /* Dashboard stat cards */
 .stat-card {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -535,7 +535,7 @@ p { color: var(--text-secondary); }
 
 /* Dashboard session summary */
 .session-summary-card {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -583,7 +583,7 @@ p { color: var(--text-secondary); }
   align-items: center;
   gap: 8px;
   padding: 10px 18px;
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-family: inherit;
@@ -672,7 +672,7 @@ p { color: var(--text-secondary); }
 
 /* Onboarding card */
 .onboarding-card {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -730,7 +730,7 @@ p { color: var(--text-secondary); }
   font-family: inherit;
   font-size: 0.88rem;
   color: var(--text-primary);
-  background: white;
+  background: var(--warm-white);
   transition: all var(--transition-fast);
 }
 
@@ -754,7 +754,7 @@ p { color: var(--text-secondary); }
   align-items: center;
   gap: 6px;
   padding: 9px 14px;
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-family: inherit;
@@ -790,7 +790,7 @@ p { color: var(--text-secondary); }
 }
 
 .note-card {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -1006,7 +1006,7 @@ p { color: var(--text-secondary); }
   font-family: inherit;
   font-size: 0.84rem;
   color: var(--text-primary);
-  background: white;
+  background: var(--warm-white);
   cursor: pointer;
   min-width: 140px;
 }
@@ -1095,11 +1095,11 @@ p { color: var(--text-secondary); }
 
 .memories-sub-tab:hover {
   color: var(--text-primary);
-  background: rgba(255,255,255,0.5);
+  background: var(--cream-dark);
 }
 
 .memories-sub-tab.active {
-  background: white;
+  background: var(--warm-white);
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
 }
@@ -1113,7 +1113,7 @@ p { color: var(--text-secondary); }
 
 /* Working Memory */
 .working-memory-card {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-left: 3px solid var(--sage);
   border-radius: var(--radius-lg);
@@ -1177,7 +1177,7 @@ p { color: var(--text-secondary); }
 }
 
 .semantic-seed-card {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -1299,7 +1299,7 @@ p { color: var(--text-secondary); }
 
 /* File card */
 .file-card {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border);
   border-left: 3px solid var(--sage-light);
   border-radius: var(--radius-md);
@@ -1410,7 +1410,7 @@ p { color: var(--text-secondary); }
   padding: 3px 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: white;
+  background: var(--warm-white);
   color: var(--text-primary);
   cursor: pointer;
 }
@@ -1477,11 +1477,11 @@ p { color: var(--text-secondary); }
 
 .seeds-tab:hover {
   color: var(--text-secondary);
-  background: rgba(255,255,255,0.5);
+  background: var(--cream-dark);
 }
 
 .seeds-tab.active {
-  background: white;
+  background: var(--warm-white);
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
 }
@@ -1530,7 +1530,7 @@ p { color: var(--text-secondary); }
 }
 
 .settings-section {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -1626,7 +1626,7 @@ p { color: var(--text-secondary); }
   outline: none;
   border-color: var(--terracotta-light);
   box-shadow: var(--shadow-focus);
-  background: white;
+  background: var(--warm-white);
 }
 
 .settings-path-display {
@@ -1657,7 +1657,7 @@ p { color: var(--text-secondary); }
    Cards (general)
    ============================================ */
 .card {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -1691,7 +1691,7 @@ p { color: var(--text-secondary); }
   gap: 6px;
   padding: 8px 16px;
   border: 1px solid var(--border);
-  background: white;
+  background: var(--warm-white);
   border-radius: var(--radius-md);
   font-family: inherit;
   font-size: 0.82rem;
@@ -1777,7 +1777,7 @@ p { color: var(--text-secondary); }
 }
 
 .btn-danger-ghost:hover {
-  background: #f8e8e5;
+  background: var(--terracotta-muted);
   color: #c0392b;
   border: none;
 }
@@ -1836,7 +1836,7 @@ textarea:focus {
   outline: none;
   border-color: var(--terracotta-light);
   box-shadow: var(--shadow-focus);
-  background: white;
+  background: var(--warm-white);
 }
 
 input::placeholder,
@@ -1861,7 +1861,7 @@ select {
    Section (collapsible form groups in Seeds)
    ============================================ */
 .section {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -1993,7 +1993,7 @@ select {
   left: 2px;
   width: 16px;
   height: 16px;
-  background: white;
+  background: var(--warm-white);
   border-radius: 50%;
   transition: transform var(--transition-fast);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
@@ -2068,7 +2068,7 @@ select {
   flex-shrink: 0;
   font-size: 10px;
   color: transparent;
-  background: white;
+  background: var(--warm-white);
 }
 
 .toggle-item.active .toggle-check {
@@ -2096,7 +2096,7 @@ select {
 }
 
 .toggle-item .toggle-remove:hover {
-  background: #e8c4bc;
+  background: var(--terracotta-muted);
   color: var(--terracotta-dark);
 }
 
@@ -2148,7 +2148,7 @@ select {
 }
 
 .switch-remove-btn:hover {
-  background: #f8e8e5;
+  background: var(--terracotta-muted);
   color: #c0392b;
 }
 
@@ -2182,7 +2182,7 @@ select {
   left: 3px;
   width: 18px;
   height: 18px;
-  background: white;
+  background: var(--warm-white);
   border-radius: 50%;
   transition: transform var(--transition-fast);
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
@@ -2264,7 +2264,7 @@ select {
 }
 
 .slider-remove-btn:hover {
-  background: #f8e8e5;
+  background: var(--terracotta-muted);
   color: #c0392b;
 }
 
@@ -2442,7 +2442,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .tag .tag-remove:hover {
-  background: #e8c4bc;
+  background: var(--terracotta-muted);
   color: var(--terracotta-dark);
 }
 
@@ -2468,7 +2468,7 @@ input[type="range"]::-moz-range-thumb {
    Preset Bar (Seeds)
    ============================================ */
 .preset-bar {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -2524,7 +2524,7 @@ input[type="range"]::-moz-range-thumb {
    Markdown Editor
    ============================================ */
 .markdown-editor-container {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -2584,7 +2584,7 @@ input[type="range"]::-moz-range-thumb {
   font-size: 0.85rem;
   line-height: 1.7;
   color: var(--text-primary);
-  background: white;
+  background: var(--warm-white);
   resize: vertical;
   outline: none;
   tab-size: 2;
@@ -2648,7 +2648,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .raw-mode-btn.active {
-  background: white;
+  background: var(--warm-white);
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
 }
@@ -2748,7 +2748,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .files-sidebar {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -2839,7 +2839,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .file-detail-card {
-  background: white;
+  background: var(--warm-white);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -2926,7 +2926,7 @@ input[type="range"]::-moz-range-thumb {
   font-size: 0.85rem;
   line-height: 1.7;
   color: var(--text-primary);
-  background: white;
+  background: var(--warm-white);
   resize: vertical;
   outline: none;
   border-radius: 0;
@@ -2940,7 +2940,7 @@ input[type="range"]::-moz-range-thumb {
   color: var(--text-muted);
   cursor: pointer;
   transition: all var(--transition-fast);
-  background: white;
+  background: var(--warm-white);
 }
 
 .file-upload-zone:hover,
@@ -3080,7 +3080,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .view-toggle-btn.active {
-  background: white;
+  background: var(--warm-white);
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
 }
@@ -3230,7 +3230,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .modal {
-  background: white;
+  background: var(--warm-white);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 90%;
@@ -3301,7 +3301,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .modal-body .import-tab.active {
-  background: white;
+  background: var(--warm-white);
   color: var(--text-primary);
   box-shadow: var(--shadow-sm);
 }
@@ -3343,7 +3343,7 @@ input[type="range"]::-moz-range-thumb {
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  background: white;
+  background: var(--warm-white);
   border: 1.5px solid var(--terracotta-light);
   border-radius: var(--radius-lg);
   animation: fadeIn var(--transition-fast) ease;
@@ -3398,7 +3398,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .inline-add-form .inline-add-cancel:hover {
-  background: #f8e8e5;
+  background: var(--terracotta-muted);
   color: #c0392b;
 }
 
