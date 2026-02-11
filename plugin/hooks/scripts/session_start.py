@@ -12,7 +12,7 @@ import hashlib
 import platform
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 BASE_DIR = Path.home() / ".memorable"
@@ -40,6 +40,16 @@ MAX_SALIENT_NOTES = 8
 RECENCY_CEILING = 3  # Always include this many most-recent notes
 CURRENT_MACHINE = platform.node().split(".")[0].strip().lower()
 AUTO_NOW_MARKER = "<!-- memorable:auto-now -->"
+WEEKLY_SYNTHESIS_PATH = DATA_DIR / "notes" / "synthesis_weekly.jsonl"
+MONTHLY_SYNTHESIS_PATH = DATA_DIR / "notes" / "synthesis_monthly.jsonl"
+NOTE_MAINTENANCE_PATH = DATA_DIR / "note_maintenance.json"
+ARCHIVE_DIRNAME = "archive"
+ARCHIVE_MIN_SALIENCE = 0.1
+ARCHIVE_AFTER_DAYS = 90
+MAINTENANCE_INTERVAL_HOURS = 24
+MAX_WEEKLY_TAGS = 6
+MAX_WEEKLY_BULLETS_PER_TAG = 3
+MAX_MONTHLY_WEEKS = 8
 
 
 def load_config() -> dict:
@@ -416,6 +426,430 @@ def _note_timestamp(entry: dict) -> str:
     return entry.get("first_ts", entry.get("ts", ""))
 
 
+def _parse_iso_datetime(value: str) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _note_datetime(entry: dict) -> datetime | None:
+    return _parse_iso_datetime(_note_timestamp(entry))
+
+
+def _note_salience(entry: dict) -> float:
+    try:
+        return float(entry.get("salience", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _note_tags(entry: dict) -> list[str]:
+    raw = entry.get("topic_tags", [])
+    if not isinstance(raw, list):
+        return []
+    return [str(tag).strip() for tag in raw if str(tag).strip()]
+
+
+def _is_synthesis_entry(entry: dict) -> bool:
+    level = str(entry.get("synthesis_level", "")).strip().lower()
+    return level in {"weekly", "monthly"}
+
+
+def _week_start(d: date) -> date:
+    return d - timedelta(days=d.weekday())
+
+
+def _month_start(d: date) -> date:
+    return date(d.year, d.month, 1)
+
+
+def _next_month_start(d: date) -> date:
+    if d.month == 12:
+        return date(d.year + 1, 1, 1)
+    return date(d.year, d.month + 1, 1)
+
+
+def _period_end_iso(d: date) -> str:
+    return datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc).isoformat()
+
+
+def _load_note_maintenance_state() -> dict:
+    try:
+        if NOTE_MAINTENANCE_PATH.exists():
+            data = json.loads(NOTE_MAINTENANCE_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def _save_note_maintenance_state(state: dict):
+    try:
+        NOTE_MAINTENANCE_PATH.write_text(
+            json.dumps(state, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _should_archive_entry(entry: dict, cutoff: datetime) -> bool:
+    if _is_synthesis_entry(entry):
+        return False
+    if _note_salience(entry) >= ARCHIVE_MIN_SALIENCE:
+        return False
+    dt = _note_datetime(entry)
+    if not dt:
+        return False
+    return dt < cutoff
+
+
+def _archive_low_salience_notes(notes_dir: Path, now: datetime) -> int:
+    archive_dir = notes_dir / ARCHIVE_DIRNAME
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    cutoff = now - timedelta(days=ARCHIVE_AFTER_DAYS)
+    archived_count = 0
+
+    for jsonl_file in notes_dir.glob("*.jsonl"):
+        if jsonl_file.name in {
+            WEEKLY_SYNTHESIS_PATH.name,
+            MONTHLY_SYNTHESIS_PATH.name,
+        }:
+            continue
+
+        keep_lines: list[str] = []
+        archive_lines: list[str] = []
+
+        try:
+            with jsonl_file.open("r", encoding="utf-8") as fh:
+                for raw_line in fh:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    normalized = raw_line if raw_line.endswith("\n") else raw_line + "\n"
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        keep_lines.append(normalized)
+                        continue
+
+                    if _should_archive_entry(obj, cutoff):
+                        archive_lines.append(normalized)
+                    else:
+                        keep_lines.append(normalized)
+        except OSError:
+            continue
+
+        if not archive_lines:
+            continue
+
+        tmp_path = jsonl_file.with_suffix(jsonl_file.suffix + ".tmp")
+        try:
+            archive_path = archive_dir / jsonl_file.name
+            with archive_path.open("a", encoding="utf-8") as fh:
+                fh.writelines(archive_lines)
+
+            with tmp_path.open("w", encoding="utf-8") as fh:
+                fh.writelines(keep_lines)
+            tmp_path.replace(jsonl_file)
+            archived_count += len(archive_lines)
+        except OSError:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
+
+    return archived_count
+
+
+def _load_existing_periods(path: Path, level: str) -> set[str]:
+    periods: set[str] = set()
+    try:
+        if not path.exists():
+            return periods
+        with path.open("r", encoding="utf-8") as fh:
+            for raw_line in fh:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if str(obj.get("synthesis_level", "")).strip().lower() != level:
+                    continue
+                period = str(obj.get("period_start", "")).strip()
+                if period:
+                    periods.add(period)
+    except OSError:
+        pass
+    return periods
+
+
+def _append_jsonl_entries(path: Path, entries: list[dict]):
+    if not entries:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            for entry in entries:
+                fh.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    except OSError:
+        pass
+
+
+def _build_weekly_synthesis_entry(
+    week_start_date: date,
+    week_entries: list[dict],
+    generated_at: str,
+) -> dict | None:
+    if not week_entries:
+        return None
+
+    week_end_date = week_start_date + timedelta(days=6)
+    scored = sorted(week_entries, key=_note_salience, reverse=True)
+
+    tag_buckets: dict[str, list[dict]] = {}
+    tag_scores: dict[str, float] = {}
+    for entry in scored:
+        tags = _note_tags(entry) or ["untagged"]
+        score = max(0.0, _note_salience(entry))
+        for tag in tags:
+            tag_buckets.setdefault(tag, []).append(entry)
+            tag_scores[tag] = tag_scores.get(tag, 0.0) + score
+
+    if not tag_buckets:
+        return None
+
+    ranked_tags = sorted(
+        tag_scores.items(),
+        key=lambda kv: (kv[1], len(tag_buckets.get(kv[0], []))),
+        reverse=True,
+    )[:MAX_WEEKLY_TAGS]
+    top_tags = [tag for tag, _ in ranked_tags]
+
+    lines = [
+        "## Summary",
+        (
+            f"Weekly synthesis for {week_start_date.isoformat()} "
+            f"to {week_end_date.isoformat()}."
+        ),
+    ]
+
+    for tag in top_tags:
+        lines.append("")
+        lines.append(f"### {tag}")
+        items = sorted(tag_buckets.get(tag, []), key=_note_salience, reverse=True)
+        for entry in items[:MAX_WEEKLY_BULLETS_PER_TAG]:
+            ts = _note_timestamp(entry)[:10]
+            sid = str(entry.get("session", "")).strip()[:8]
+            sid_suffix = f" [{sid}]" if sid else ""
+            lines.append(f"- {ts}{sid_suffix}: {_note_summary(entry)}")
+
+    if not top_tags:
+        lines.extend(["", "- No theme clusters identified"])
+
+    baseline = scored[: min(12, len(scored))]
+    avg_salience = (
+        sum(max(0.0, _note_salience(entry)) for entry in baseline) / float(len(baseline))
+        if baseline
+        else 0.2
+    )
+
+    return {
+        "ts": _period_end_iso(week_end_date),
+        "first_ts": _period_end_iso(week_start_date),
+        "session": f"weekly-{week_start_date.isoformat()}",
+        "note": "\n".join(lines).strip(),
+        "topic_tags": top_tags,
+        "salience": round(max(0.2, min(2.0, avg_salience)), 3),
+        "synthesis_level": "weekly",
+        "period_start": week_start_date.isoformat(),
+        "period_end": week_end_date.isoformat(),
+        "source_count": len(week_entries),
+        "generated_at": generated_at,
+    }
+
+
+def _create_missing_weekly_syntheses(entries: list[dict], now: datetime) -> int:
+    existing = _load_existing_periods(WEEKLY_SYNTHESIS_PATH, "weekly")
+    current_week = _week_start(now.date())
+
+    by_week: dict[date, list[dict]] = {}
+    for entry in entries:
+        if _is_synthesis_entry(entry):
+            continue
+        dt = _note_datetime(entry)
+        if not dt:
+            continue
+        week_start_date = _week_start(dt.date())
+        if week_start_date >= current_week:
+            continue
+        by_week.setdefault(week_start_date, []).append(entry)
+
+    if not by_week:
+        return 0
+
+    generated_at = _utc_now_iso()
+    new_entries = []
+    for week_start_date in sorted(by_week):
+        period_key = week_start_date.isoformat()
+        if period_key in existing:
+            continue
+        built = _build_weekly_synthesis_entry(week_start_date, by_week[week_start_date], generated_at)
+        if built:
+            new_entries.append(built)
+
+    _append_jsonl_entries(WEEKLY_SYNTHESIS_PATH, new_entries)
+    return len(new_entries)
+
+
+def _build_monthly_synthesis_entry(
+    month_start_date: date,
+    month_weeklies: list[dict],
+    generated_at: str,
+) -> dict | None:
+    if not month_weeklies:
+        return None
+
+    month_end_date = _next_month_start(month_start_date) - timedelta(days=1)
+    sorted_weeklies = sorted(month_weeklies, key=_note_timestamp, reverse=True)
+
+    tag_counts: dict[str, int] = {}
+    for entry in month_weeklies:
+        for tag in _note_tags(entry):
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+    top_tags = [
+        tag
+        for tag, _ in sorted(tag_counts.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)[:MAX_WEEKLY_TAGS]
+    ]
+
+    lines = [
+        "## Summary",
+        (
+            f"Monthly synthesis for {month_start_date.strftime('%Y-%m')} "
+            f"from {len(month_weeklies)} weekly synthesis notes."
+        ),
+        "",
+        "### Recurring themes",
+    ]
+    if top_tags:
+        for tag in top_tags:
+            lines.append(f"- {tag} ({tag_counts.get(tag, 0)} weeks)")
+    else:
+        lines.append("- No recurring themes detected")
+
+    lines.extend(["", "### Weekly highlights"])
+    for weekly in sorted_weeklies[:MAX_MONTHLY_WEEKS]:
+        period = str(weekly.get("period_start", "")).strip()[:10]
+        period_label = period if period else _note_timestamp(weekly)[:10]
+        lines.append(f"- Week of {period_label}: {_note_summary(weekly)}")
+
+    baseline = sorted_weeklies[: min(8, len(sorted_weeklies))]
+    avg_salience = (
+        sum(max(0.0, _note_salience(entry)) for entry in baseline) / float(len(baseline))
+        if baseline
+        else 0.25
+    )
+
+    return {
+        "ts": _period_end_iso(month_end_date),
+        "first_ts": _period_end_iso(month_start_date),
+        "session": f"monthly-{month_start_date.strftime('%Y-%m')}",
+        "note": "\n".join(lines).strip(),
+        "topic_tags": top_tags,
+        "salience": round(max(0.25, min(2.0, avg_salience)), 3),
+        "synthesis_level": "monthly",
+        "period_start": month_start_date.isoformat(),
+        "period_end": month_end_date.isoformat(),
+        "source_count": len(month_weeklies),
+        "generated_at": generated_at,
+    }
+
+
+def _create_missing_monthly_syntheses(entries: list[dict], now: datetime) -> int:
+    existing = _load_existing_periods(MONTHLY_SYNTHESIS_PATH, "monthly")
+    current_month = _month_start(now.date())
+
+    by_month: dict[date, list[dict]] = {}
+    for entry in entries:
+        if str(entry.get("synthesis_level", "")).strip().lower() != "weekly":
+            continue
+        period_start = str(entry.get("period_start", "")).strip()
+        dt = _parse_iso_datetime(period_start)
+        if not dt:
+            dt = _note_datetime(entry)
+        if not dt:
+            continue
+        month_start_date = _month_start(dt.date())
+        if month_start_date >= current_month:
+            continue
+        by_month.setdefault(month_start_date, []).append(entry)
+
+    if not by_month:
+        return 0
+
+    generated_at = _utc_now_iso()
+    new_entries = []
+    for month_start_date in sorted(by_month):
+        period_key = month_start_date.isoformat()
+        if period_key in existing:
+            continue
+        built = _build_monthly_synthesis_entry(month_start_date, by_month[month_start_date], generated_at)
+        if built:
+            new_entries.append(built)
+
+    _append_jsonl_entries(MONTHLY_SYNTHESIS_PATH, new_entries)
+    return len(new_entries)
+
+
+def _run_hierarchical_consolidation(notes_dir: Path, entries: list[dict]) -> list[dict]:
+    """Run periodic note consolidation: archive + weekly/monthly synthesis."""
+    now = datetime.now(timezone.utc)
+    state = _load_note_maintenance_state()
+    last_run = _parse_iso_datetime(state.get("last_run", ""))
+    if last_run and (now - last_run) < timedelta(hours=MAINTENANCE_INTERVAL_HOURS):
+        return entries
+
+    archived = 0
+    weekly_created = 0
+    monthly_created = 0
+    try:
+        archived = _archive_low_salience_notes(notes_dir, now)
+        entries = _load_all_notes(notes_dir)
+        weekly_created = _create_missing_weekly_syntheses(entries, now)
+        if weekly_created:
+            entries = _load_all_notes(notes_dir)
+        monthly_created = _create_missing_monthly_syntheses(entries, now)
+        if monthly_created:
+            entries = _load_all_notes(notes_dir)
+    finally:
+        _save_note_maintenance_state(
+            {
+                "last_run": _utc_now_iso(),
+                "archived": archived,
+                "weekly_created": weekly_created,
+                "monthly_created": monthly_created,
+            }
+        )
+
+    if archived or weekly_created or monthly_created:
+        print(
+            f"\n[Memorable] Note consolidation: archived={archived}, "
+            f"weekly={weekly_created}, monthly={monthly_created}."
+        )
+    return entries
+
+
 def _load_all_notes(notes_dir: Path) -> list[dict]:
     """Load all note entries from JSONL files in the notes directory."""
     entries = []
@@ -621,6 +1055,7 @@ def main():
         if notes_dir.exists():
             entries = _load_all_notes(notes_dir)
             if entries:
+                entries = _run_hierarchical_consolidation(notes_dir, entries)
                 selected = _select_notes(entries)
                 if selected:
                     _maybe_update_now_md([entry for _, entry in selected])
