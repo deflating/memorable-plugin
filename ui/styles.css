@@ -2990,6 +2990,7 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   align-items: center;
   gap: 4px;
+  transition: opacity 0.3s ease;
 }
 
 .save-indicator .dot {
@@ -2997,6 +2998,47 @@ input[type="range"]::-moz-range-thumb {
   height: 6px;
   border-radius: 50%;
   background: var(--sage);
+}
+
+/* Saving state */
+.save-state-saving {
+  color: var(--text-muted);
+}
+
+.save-indicator .saving-pulse {
+  background: var(--sage);
+  animation: save-pulse 1s ease-in-out infinite;
+}
+
+@keyframes save-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Saved state */
+.save-state-saved {
+  color: #4caf50;
+}
+
+.save-indicator .saved-dot {
+  background: #4caf50;
+}
+
+/* Error state */
+.save-state-error {
+  color: #e53935;
+}
+
+.save-indicator .error-dot {
+  background: #e53935;
+}
+
+.save-retry-link {
+  color: #e53935;
+  text-decoration: underline;
+  cursor: pointer;
+  margin-left: 4px;
+  font-size: 0.78rem;
 }
 
 /* ============================================
