@@ -1614,297 +1614,223 @@
     const metrics = state.metricsCache && typeof state.metricsCache === 'object'
       ? state.metricsCache
       : null;
-    const totalNotes = status ? (status.total_notes || 0) : '\u2014';
-    const totalNotesCount = status ? Number(status.total_notes || 0) : 0;
-    const totalSessions = status ? (status.total_sessions || 0) : '\u2014';
-    const contextFileCount = status ? Number(status.file_count || 0) : '\u2014';
+    const totalNotes = status ? Number(status.total_notes || 0) : 0;
+    const totalSessions = status ? Number(status.total_sessions || 0) : 0;
     const daemonRunning = status ? status.daemon_running : false;
     const seedsExist = status ? status.seeds_present : true;
     const daemonEnabled = status
       ? !!status.daemon_enabled
       : !!(((state.settingsCache || {}).daemon || {}).enabled);
     const daemonHealth = status && status.daemon_health ? status.daemon_health : null;
-    const daemonIssues = daemonHealth && Array.isArray(daemonHealth.issues)
-      ? daemonHealth.issues
-      : [];
-    const daemonLagSeconds = status && Number.isFinite(status.daemon_lag_seconds)
-      ? Number(status.daemon_lag_seconds)
-      : null;
     const lastNoteDate = status ? status.last_note_date : '';
-    const lastTranscriptDate = status ? status.last_transcript_date : '';
-    const notesToday = metrics ? Number(metrics.notes_generated_today || 0) : null;
-    const notesLast7 = metrics && Array.isArray(metrics.notes_generated_last_7_days)
-      ? metrics.notes_generated_last_7_days.reduce((sum, row) => {
-        const count = Number(row && row.count);
-        return sum + (Number.isFinite(count) ? count : 0);
-      }, 0)
-      : null;
-    const lagIncidents7d = metrics ? Number(metrics.lag_incidents_7d || 0) : null;
-    const importSuccess = metrics ? Number(((metrics.import || {}).success || 0)) : null;
-    const importFailure = metrics ? Number(((metrics.import || {}).failure || 0)) : null;
-    const exportSuccess = metrics ? Number(((metrics.export || {}).success || 0)) : null;
-    const exportFailure = metrics ? Number(((metrics.export || {}).failure || 0)) : null;
-    const lastLagIncidentAt = metrics ? metrics.last_lag_incident_at : null;
-
-    // Get recent notes (up to 5)
     const recentNotes = state.notesCache.slice(0, 5);
-
-    // Last session summary
     const lastNote = recentNotes.length > 0 ? recentNotes[0] : null;
 
-    let notesHtml = '';
-    if (recentNotes.length > 0) {
-      notesHtml = recentNotes.map(note => {
-        const salience = note.salience || 0;
-        const salienceColor = salience >= 1.5 ? 'var(--terracotta)' : salience >= 1.0 ? 'var(--ochre)' : salience >= 0.5 ? 'var(--sage)' : 'var(--warm-gray-light)';
-        const tags = (note.tags || []).map(t => `<span class="note-tag">${esc(t)}</span>`).join('');
-        const date = note.date ? new Date(note.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
-        return `
-          <div class="dashboard-note-card">
-            <div class="dashboard-note-header">
-              <span class="dashboard-note-date">${date}</span>
-              <span class="dashboard-note-salience" style="background:${salienceColor};"></span>
-            </div>
-            <div class="dashboard-note-summary">${esc(note.summary || note.title || 'Untitled')}</div>
-            <div class="dashboard-note-tags">${tags}</div>
-          </div>
-        `;
-      }).join('');
-    } else {
-      notesHtml = `
-        <div class="empty-state" style="padding:24px;">
-          <div class="empty-state-icon">${ICON.fileText}</div>
-          <h3>No session notes yet</h3>
-          <p>Notes will appear here as sessions are recorded by the <span title="Background process that watches sessions and auto-generates notes.">daemon</span>.</p>
+    // 7-day rhythm from metrics
+    const last7 = metrics && Array.isArray(metrics.notes_generated_last_7_days)
+      ? metrics.notes_generated_last_7_days : [];
+    const maxCount7 = Math.max(1, ...last7.map(d => d.count || 0));
+    const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+    const rhythmHtml = last7.map(d => {
+      const count = d.count || 0;
+      const height = count === 0 ? 4 : Math.max(8, Math.round((count / maxCount7) * 44));
+      const dayOfWeek = new Date(d.date + 'T12:00:00').getDay();
+      return `
+        <div class="dash-rhythm-day">
+          <div class="dash-rhythm-bar ${count === 0 ? 'empty' : ''}" style="height:${height}px;" title="${d.date}: ${count} note${count !== 1 ? 's' : ''}"></div>
+          <span class="dash-rhythm-label">${dayLabels[dayOfWeek]}</span>
         </div>
       `;
-    }
+    }).join('');
 
-    let lastSessionHtml = '';
-    if (lastNote) {
-      lastSessionHtml = `
-        <div class="dashboard-session-card">
-          <div class="dashboard-session-header">
-            <h3>Last Session</h3>
-            <span class="dashboard-session-date">${lastNote.date ? new Date(lastNote.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</span>
-          </div>
-          <div class="dashboard-session-body">
-            <p>${esc(lastNote.summary || lastNote.content || 'No summary available')}</p>
-          </div>
-          ${(lastNote.tags || []).length ? `<div class="dashboard-session-tags">${(lastNote.tags || []).map(t => `<span class="note-tag">${esc(t)}</span>`).join('')}</div>` : ''}
-        </div>
-      `;
-    }
-
-    // Onboarding card (shown if no seeds exist)
+    // Onboarding (only if no seeds)
     let onboardingHtml = '';
     if (!seedsExist) {
       onboardingHtml = renderOnboardingWizard();
     }
 
-    const setupReady = !!status && !!state.settingsCache;
-    const hasFirstNote = totalNotesCount > 0;
-    const showFirstWeekFlow = !hasFirstNote;
-    const firstWeekFlowHtml = showFirstWeekFlow ? `
-      <div class="dashboard-first-week-flow">
-        <div class="dashboard-first-week-header">
-          <h2>First-Week Path</h2>
-          <span>Configure &rarr; Capture &rarr; Review</span>
-        </div>
-        <p>Start here to get useful memory quickly. You can skip advanced controls for now.</p>
-        <div class="dashboard-first-week-steps">
-          <button class="dashboard-first-week-step" onclick="window.memorableApp.navigateTo('configure')">
-            <span class="dashboard-first-week-step-num">1</span>
-            Configure seeds
-          </button>
-          <button class="dashboard-first-week-step" onclick="window.memorableApp.navigateTo('settings')">
-            <span class="dashboard-first-week-step-num">2</span>
-            Enable capture daemon
-          </button>
-          <button class="dashboard-first-week-step" onclick="window.memorableApp.navigateTo('memories')">
-            <span class="dashboard-first-week-step-num">3</span>
-            Review notes
-          </button>
-        </div>
-      </div>
-    ` : '';
-    const showSetupChecklist = setupReady && seedsExist && (!daemonEnabled || !hasFirstNote);
-    let setupChecklistHtml = '';
-    if (showSetupChecklist) {
-      setupChecklistHtml = `
-        <div class="dashboard-setup-card">
-          <h2>Finish Setup</h2>
-          <p>Complete these steps to start seeing useful memory right away.</p>
-          <div class="dashboard-setup-list">
-            <div class="dashboard-setup-item complete">
-              <span class="setup-mark">${ICON.check}</span>
-              <span>Seed files are created and available at session start.</span>
-            </div>
-            <div class="dashboard-setup-item ${daemonEnabled ? 'complete' : ''}">
-              <span class="setup-mark">${daemonEnabled ? '${ICON.check}' : '${ICON.circle}'}</span>
-              <span>Enable daemon note capture.</span>
-            </div>
-            <div class="dashboard-setup-item ${hasFirstNote ? 'complete' : ''}">
-              <span class="setup-mark">${hasFirstNote ? '${ICON.check}' : '${ICON.circle}'}</span>
-              <span>Capture your first session note.</span>
-            </div>
-          </div>
-          <div class="dashboard-setup-actions">
-            ${!daemonEnabled ? '<button class="btn btn-primary" onclick="window.memorableApp.enableDaemon()">Enable Daemon</button>' : ''}
-            ${daemonEnabled && !hasFirstNote ? '<button class="btn" onclick="window.memorableApp.navigateTo(\'memories\')">Open Memories</button>' : ''}
-            <button class="btn" onclick="window.memorableApp.navigateTo('settings')">Open Settings</button>
-          </div>
-        </div>
-      `;
-    }
-
-    let daemonReliabilityHtml = '';
-    if (status && daemonHealth && daemonHealth.state !== 'healthy') {
-      const issueText = daemonIssues.map((issue) => {
-        if (issue === 'daemon_not_running') return 'Daemon is enabled but not running.';
-        if (issue === 'notes_lagging') return `Notes are lagging behind transcripts (${formatDuration(daemonLagSeconds)} behind).`;
-        if (issue === 'no_notes_generated') return 'Transcripts exist, but no notes have been generated yet.';
-        return issue;
-      });
-      let bodyText = '';
+    // Alert strip — only when daemon has issues
+    let alertHtml = '';
+    if (status && daemonHealth && daemonHealth.state !== 'healthy' && daemonHealth.state !== undefined) {
+      const issues = Array.isArray(daemonHealth.issues) ? daemonHealth.issues : [];
+      let alertText = '';
       if (daemonHealth.state === 'disabled') {
-        bodyText = 'Daemon note capture is disabled. New sessions will not create notes until you enable it.';
-      } else if (issueText.length) {
-        bodyText = issueText.join(' ');
-      } else {
-        bodyText = 'Daemon is not fully healthy yet. Open settings to review capture configuration.';
+        alertText = "Daemon is disabled \u2014 sessions won't generate notes.";
+      } else if (issues.includes('daemon_not_running')) {
+        alertText = 'Daemon is enabled but not running.';
+      } else if (issues.includes('notes_lagging')) {
+        alertText = 'Notes are lagging behind transcripts.';
+      } else if (issues.includes('no_notes_generated')) {
+        alertText = 'Transcripts exist but no notes generated yet.';
       }
+      if (alertText) {
+        alertHtml = `
+          <div class="dash-alert">
+            <span class="dash-alert-icon">${ICON.alert}</span>
+            <div>
+              <div>${esc(alertText)}</div>
+              <div class="dash-alert-actions">
+                ${!daemonEnabled ? '<button class="btn btn-small" onclick="window.memorableApp.enableDaemon()">Enable</button>' : ''}
+                <button class="btn btn-small" onclick="window.memorableApp.navigateTo(\'settings\')">Settings</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+    }
 
-      daemonReliabilityHtml = `
-        <div class="dashboard-daemon-health dashboard-daemon-health-${esc(daemonHealth.state || 'idle')}">
-          <div class="dashboard-daemon-health-header">
-            <h2>Daemon Reliability</h2>
-            <span class="dashboard-daemon-health-badge">${esc((daemonHealth.state || 'idle').toUpperCase())}</span>
+    // Last session hero
+    let sessionHtml = '';
+    if (lastNote) {
+      const when = lastNote.date
+        ? new Date(lastNote.date).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+        : '';
+      const tags = (lastNote.tags || []).map(t => `<span class="note-tag">${esc(t)}</span>`).join('');
+      sessionHtml = `
+        <section class="dash-session">
+          <span class="dash-session-when">Last session \u00b7 ${esc(when)}</span>
+          <p class="dash-session-summary">${esc(lastNote.summary || lastNote.content || 'No summary available')}</p>
+          ${tags ? `<div class="dash-session-tags">${tags}</div>` : ''}
+        </section>
+      `;
+    }
+
+    // Daemon status
+    const daemonStatusText = daemonRunning ? 'Active' : (daemonEnabled ? 'Stopped' : 'Off');
+    const pulseClass = daemonRunning ? 'active' : (daemonEnabled ? 'inactive' : '');
+
+    // Recent notes timeline (skip the first — it's the hero)
+    let timelineHtml = '';
+    if (recentNotes.length > 1) {
+      const items = recentNotes.slice(1).map(note => {
+        const salience = note.salience || 0;
+        const dotColor = salience >= 1.5 ? 'var(--plum)' : salience >= 1.0 ? 'var(--sage)' : salience >= 0.5 ? 'var(--ochre-light)' : 'var(--border)';
+        const date = note.date ? new Date(note.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        const tags = (note.tags || []).slice(0, 3).map(t => `<span class="note-tag">${esc(t)}</span>`).join('');
+        return `
+          <div class="dash-timeline-item" onclick="window.memorableApp.navigateTo('memories')">
+            <span class="dash-timeline-date">${date}</span>
+            <span class="dash-timeline-dot" style="background:${dotColor}"></span>
+            <div class="dash-timeline-body">
+              <span class="dash-timeline-text">${esc(note.summary || note.title || 'Untitled')}</span>
+              ${tags ? `<div class="dash-timeline-tags">${tags}</div>` : ''}
+            </div>
           </div>
-          <p>${esc(bodyText)}</p>
-          <div class="dashboard-daemon-health-meta">
-            <span>Last note: ${esc(formatRelativeTime(lastNoteDate))}</span>
-            <span>Last transcript: ${esc(formatRelativeTime(lastTranscriptDate))}</span>
+        `;
+      }).join('');
+
+      timelineHtml = `
+        <section class="dash-recent">
+          <div class="dash-recent-header">
+            <h2>Recent</h2>
+            <button class="btn btn-small" onclick="window.memorableApp.navigateTo('memories')">View all</button>
           </div>
-          <div class="dashboard-daemon-health-actions">
-            ${!daemonEnabled ? '<button class="btn btn-primary" onclick="window.memorableApp.enableDaemon()">Enable Daemon</button>' : ''}
-            ${daemonIssues.includes('notes_lagging') || daemonIssues.includes('no_notes_generated')
-              ? '<button class="btn" onclick="window.memorableApp.navigateTo(\'memories\')">Open Memories</button>'
-              : ''}
-            <button class="btn" onclick="window.memorableApp.navigateTo('settings')">Open Settings</button>
+          <div class="dash-timeline">${items}</div>
+        </section>
+      `;
+    }
+
+    // Getting started (simplified first-run, replaces old first-week-flow + setup-checklist)
+    let gettingStartedHtml = '';
+    if (seedsExist && totalNotes === 0) {
+      gettingStartedHtml = `
+        <div class="dash-getting-started">
+          <h2>Getting started</h2>
+          <p>Your seeds are set up. Once the daemon captures a session, notes will appear here.</p>
+          <div class="dash-getting-started-steps">
+            ${!daemonEnabled ? '<button class="btn btn-small" onclick="window.memorableApp.enableDaemon()">Enable Daemon</button>' : ''}
+            <button class="btn btn-small" onclick="window.memorableApp.navigateTo('configure')">Edit Seeds</button>
+            <button class="btn btn-small" onclick="window.memorableApp.navigateTo('settings')">Settings</button>
           </div>
         </div>
       `;
     }
-
-    const daemonStatSub = (() => {
-      const noteText = `Last note ${formatRelativeTime(lastNoteDate)}`;
-      if (daemonLagSeconds && daemonLagSeconds > 0) {
-        return `${noteText} · Lag ${formatDuration(daemonLagSeconds)}`;
-      }
-      return noteText;
-    })();
-
-    const reliabilityMetricsHtml = metrics ? `
-      <div class="dashboard-section">
-        <div class="dashboard-section-header">
-          <h2>Reliability Metrics</h2>
-        </div>
-        <div class="dashboard-stats">
-          <div class="stat-card">
-            <div class="stat-value">${notesToday}</div>
-            <div class="stat-label">Notes Today</div>
-            <div class="stat-card-sub">Last 7 days: ${notesLast7}</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${lagIncidents7d}</div>
-            <div class="stat-label">Lag Incidents (7d)</div>
-            <div class="stat-card-sub">${esc(lastLagIncidentAt ? `Last ${formatRelativeTime(lastLagIncidentAt)}` : 'No incidents logged')}</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${importSuccess} / ${importFailure}</div>
-            <div class="stat-label">Imports (ok/fail)</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${exportSuccess} / ${exportFailure}</div>
-            <div class="stat-label">Exports (ok/fail)</div>
-          </div>
-        </div>
-      </div>
-    ` : '';
 
     container.innerHTML = `
       <div class="dashboard-page">
-        <div class="page-header">
-          <h1>Dashboard</h1>
-          <p>Overview of your Memorable instance</p>
+        <div class="dash-hero">
+          <h1>Memorable</h1>
+          <span class="dash-hero-sub">${lastNoteDate ? `Last note ${formatRelativeTime(lastNoteDate)}` : (totalNotes > 0 ? totalNotes + ' notes captured' : 'No notes yet')}</span>
         </div>
 
         ${onboardingHtml}
-        ${firstWeekFlowHtml}
-        ${setupChecklistHtml}
-        ${daemonReliabilityHtml}
+        ${alertHtml}
+        ${gettingStartedHtml}
 
-        <div class="dashboard-stats">
-          <div class="stat-card">
-            <div class="stat-value">${totalNotes}</div>
-            <div class="stat-label">Episodic Notes</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${totalSessions}</div>
-            <div class="stat-label">Sessions Tracked</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">${contextFileCount}</div>
-            <div class="stat-label">Context Files</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-value">
-              <span class="stat-dot ${daemonRunning ? 'stat-dot-active' : 'stat-dot-inactive'}"></span>
-              ${daemonRunning ? 'Active' : 'Inactive'}
+        ${sessionHtml}
+
+        <div class="dash-vitals">
+          ${last7.length > 0 ? `
+            <div class="dash-rhythm">
+              <div class="dash-rhythm-title">This week</div>
+              <div class="dash-rhythm-bars">${rhythmHtml}</div>
             </div>
-            <div class="stat-label" title="Background process that watches sessions and auto-generates notes.">Daemon</div>
-            <div class="stat-card-sub">${esc(daemonStatSub)}</div>
+          ` : ''}
+          <div class="dash-stats">
+            <div class="dash-stat">
+              <span class="dash-stat-value">${totalNotes}</span>
+              <span class="dash-stat-label">Notes</span>
+            </div>
+            <div class="dash-stat">
+              <span class="dash-stat-value">${totalSessions}</span>
+              <span class="dash-stat-label">Sessions</span>
+            </div>
+            <div class="dash-stat">
+              <span class="dash-stat-value"><span class="dash-yield" id="dash-yield-value">\u2014</span></span>
+              <span class="dash-stat-label">Yield</span>
+            </div>
+            <div class="dash-stat">
+              <span class="dash-stat-value"><span class="dash-pulse ${pulseClass}"></span> ${esc(daemonStatusText)}</span>
+              <span class="dash-stat-label">Daemon</span>
+              ${lastNoteDate ? `<span class="dash-stat-sub">${formatRelativeTime(lastNoteDate)}</span>` : ''}
+            </div>
           </div>
         </div>
 
-        ${reliabilityMetricsHtml}
+        ${timelineHtml}
 
-        ${lastSessionHtml}
-
-        <div class="dashboard-section">
-          <div class="dashboard-section-header">
-            <h2>Recent Notes</h2>
-            ${recentNotes.length > 0 ? `<button class="btn btn-small" onclick="window.memorableApp.navigateTo('memories')">View all</button>` : ''}
-          </div>
-          <div class="dashboard-notes-grid">
-            ${notesHtml}
-          </div>
-        </div>
-
-        <div class="dashboard-section">
-          <h2>Quick Actions</h2>
-          <div class="quick-actions">
-            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('configure')">
-              <span class="quick-action-icon">${ICON.file}</span>
-              Edit Seeds
-            </button>
-            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('memories'); window.memorableApp.setMemoriesSubTab('semantic')">
-              <span class="quick-action-icon">${ICON.folder}</span>
-              Semantic Memory
-            </button>
-            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('memories')">
-              <span class="quick-action-icon">${ICON.search}</span>
-              Search Sessions
-            </button>
-            <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('settings')">
-              <span class="quick-action-icon">${ICON.settings}</span>
-              Settings
-            </button>
-          </div>
+        <div class="dash-paths">
+          <button class="dash-path-btn" onclick="window.memorableApp.navigateTo('configure')">
+            ${ICON.file} Edit Seeds
+          </button>
+          <button class="dash-path-btn" onclick="window.memorableApp.navigateTo('memories')">
+            ${ICON.search} Browse Notes
+          </button>
+          <button class="dash-path-btn" onclick="window.memorableApp.navigateTo('memories'); window.memorableApp.setMemoriesSubTab('semantic')">
+            ${ICON.folder} Semantic Memory
+          </button>
+          <button class="dash-path-btn" onclick="window.memorableApp.navigateTo('settings')">
+            ${ICON.settings} Settings
+          </button>
         </div>
       </div>
     `;
+
+    // Async: fetch memory insights for yield stat
+    fetch('/api/memory/insights')
+      .then(r => r.ok ? r.json() : null)
+      .then(insights => {
+        const el = document.getElementById('dash-yield-value');
+        if (el && insights && insights.reference_rate != null) {
+          const pct = Math.round(insights.reference_rate * 100);
+          const cls = pct >= 50 ? 'strong' : pct >= 20 ? '' : 'weak';
+          el.className = 'dash-yield ' + cls;
+          el.textContent = pct + '%';
+        }
+      }).catch(() => {});
+
+    // Async: fetch recent notes if cache is empty
+    if (state.notesCache.length === 0) {
+      fetch('/api/notes?sort=date&limit=5')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && Array.isArray(data.notes) && data.notes.length > 0) {
+            state.notesCache = data.notes;
+            if (state.activePage === 'dashboard') renderDashboard(container);
+          }
+        }).catch(() => {});
+    }
   }
 
 
