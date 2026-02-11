@@ -79,22 +79,22 @@
     technical: {
       label: 'Technical / Coding',
       userSections: ['identity', 'about', 'cogStyle', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'tech-style', 'agent-custom']
+      agentSections: ['agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'tech-style', 'agent-custom']
     },
     research: {
       label: 'Research / Academic',
       userSections: ['identity', 'about', 'cogStyle', 'values', 'interests', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'agent-custom']
+      agentSections: ['agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'agent-custom']
     },
     personal: {
       label: 'Personal / Companion',
       userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'user-custom'],
-      agentSections: ['agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'agent-custom']
+      agentSections: ['agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'agent-custom']
     },
     custom: {
       label: 'Custom',
       userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom']
+      agentSections: ['agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom']
     }
   };
 
@@ -102,7 +102,7 @@
     'identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'
   ];
   const AGENT_SECTION_IDS = [
-    'agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'
+    'agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'
   ];
 
   // ---- Anchor Depth Levels ----
@@ -148,6 +148,8 @@
         return u.customSections.length === 0 ? 'sketch' : u.customSections.length === 1 ? 'forming' : 'substantial';
       case 'agent-name':
         return !a.name || !a.name.trim() ? 'sketch' : 'forming';
+      case 'agent-about':
+        return !a.about || !a.about.trim() ? 'sketch' : a.about.trim().length < 100 ? 'forming' : 'substantial';
       case 'traits': {
         const changed = a.traitOptions.filter(k => (a.traits[k] || 50) !== 50).length;
         return changed === 0 ? 'sketch' : changed <= 2 ? 'forming' : 'substantial';
@@ -240,6 +242,7 @@
     },
     agent: {
       name: '',
+      about: '',
       communicationOptions: DEFAULT_COMMUNICATION_OPTIONS.map(o => o.key),
       communicationLabels: {},
       communicationDescs: {},
@@ -784,6 +787,10 @@
       md += '# Agent Profile\n\n';
     }
 
+    if (sec['agent-about'] && a.about && a.about.trim()) {
+      md += `## About\n\n${a.about.trim()}\n\n`;
+    }
+
     // Communication Preferences
     if (sec['communication']) {
       const commPrefs = a.communicationOptions.filter(k => a.communicationActive[k]).map(k => getCommLabel(k));
@@ -1018,6 +1025,7 @@
   function parseAgentMarkdown(md) {
     const a = state.agent;
     a.name = '';
+    a.about = '';
     a.communicationActive = {};
     a.behaviorsActive = {};
     a.avoid = [];
@@ -1029,6 +1037,11 @@
 
     if (sections._title && sections._title !== 'Agent Profile') {
       a.name = sections._title;
+    }
+
+    if (getSection(sections, 'About')) {
+      state.enabledSections['agent-about'] = true;
+      a.about = getSection(sections, 'About').trim();
     }
 
     // Communication Preferences
@@ -1149,7 +1162,7 @@
       });
     }
 
-    const knownSections = ['communication preferences', 'character traits', 'behaviors', 'avoid', 'when user is low', 'technical style'];
+    const knownSections = ['about', 'communication preferences', 'character traits', 'behaviors', 'avoid', 'when user is low', 'technical style'];
     Object.entries(sections).forEach(([title, content]) => {
       if (title.startsWith('_')) return;
       if (knownSections.includes(title.toLowerCase())) return;
@@ -3999,9 +4012,13 @@
       el.style.cursor = 'pointer';
       el.addEventListener('click', () => {
         const slug = el.dataset.previewSection;
-        const sectionId = PREVIEW_TO_SECTION[slug];
+        let sectionId = PREVIEW_TO_SECTION[slug];
         if (sectionId) {
-          const sectionEl = document.getElementById('section-' + sectionId);
+          let sectionEl = document.getElementById('section-' + sectionId);
+          // Fallback: try agent-prefixed version (e.g. 'about' -> 'agent-about')
+          if (!sectionEl && state.activeFile === 'agent') {
+            sectionEl = document.getElementById('section-agent-' + sectionId);
+          }
           if (sectionEl) {
             sectionEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
             sectionEl.classList.add('preview-highlight');
@@ -4339,6 +4356,12 @@
         <div class="form-group">
           <label>Agent Name</label>
           <input type="text" data-bind="agent.name" value="${esc(a.name)}" placeholder="e.g. Claude, Aria, Helper">
+        </div>
+      `)}
+
+      ${renderSection('agent-about', 'About', 'Who is this agent and what is it for', 'sage', '&#9998;', `
+        <div class="form-group">
+          <textarea data-bind="agent.about" rows="4" placeholder="Describe who this agent is, its role, personality, or purpose.">${esc(a.about)}</textarea>
         </div>
       `)}
 
@@ -5755,6 +5778,9 @@
     if (!u.cognitiveStyle) u.cognitiveStyle = {};
     if (!Array.isArray(u.cognitiveStyleDims)) u.cognitiveStyleDims = [];
     if (!Array.isArray(u.interests)) u.interests = [];
+
+    // Ensure agent about exists
+    if (typeof a.about !== 'string') a.about = '';
 
     // Ensure agent communication exists
     if (!a.communicationOptions) a.communicationOptions = DEFAULT_COMMUNICATION_OPTIONS.map(o => o.key);
