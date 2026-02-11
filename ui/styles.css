@@ -705,6 +705,61 @@ p { color: var(--text-secondary); }
   justify-content: center;
 }
 
+.dashboard-setup-card {
+  background: var(--warm-white);
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--ochre);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+
+.dashboard-setup-card h2 {
+  font-size: 1rem;
+  margin-bottom: 4px;
+}
+
+.dashboard-setup-card p {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.dashboard-setup-list {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.dashboard-setup-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+}
+
+.dashboard-setup-item.complete {
+  color: var(--text-primary);
+}
+
+.dashboard-setup-item .setup-mark {
+  color: var(--warm-gray);
+  line-height: 1.2;
+}
+
+.dashboard-setup-item.complete .setup-mark {
+  color: var(--sage-dark);
+}
+
+.dashboard-setup-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .onboarding-wizard {
   text-align: left;
   padding: 28px;

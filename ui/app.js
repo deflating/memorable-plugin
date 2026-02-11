@@ -1320,9 +1320,11 @@
   function renderDashboard(container) {
     const status = state.statusCache;
     const totalNotes = status ? (status.total_notes || 0) : '\u2014';
+    const totalNotesCount = status ? Number(status.total_notes || 0) : 0;
     const totalSessions = status ? (status.total_sessions || 0) : '\u2014';
     const daemonRunning = status ? status.daemon_running : false;
     const seedsExist = status ? status.seeds_present : true;
+    const daemonEnabled = !!(((state.settingsCache || {}).daemon || {}).enabled);
 
     // Get recent notes (up to 5)
     const recentNotes = state.notesCache.slice(0, 5);
@@ -1380,6 +1382,38 @@
       onboardingHtml = renderOnboardingWizard();
     }
 
+    const setupReady = !!status && !!state.settingsCache;
+    const hasFirstNote = totalNotesCount > 0;
+    const showSetupChecklist = setupReady && seedsExist && (!daemonEnabled || !hasFirstNote);
+    let setupChecklistHtml = '';
+    if (showSetupChecklist) {
+      setupChecklistHtml = `
+        <div class="dashboard-setup-card">
+          <h2>Finish Setup</h2>
+          <p>Complete these steps to start seeing useful memory right away.</p>
+          <div class="dashboard-setup-list">
+            <div class="dashboard-setup-item complete">
+              <span class="setup-mark">&#10003;</span>
+              <span>Seed files are created and available at session start.</span>
+            </div>
+            <div class="dashboard-setup-item ${daemonEnabled ? 'complete' : ''}">
+              <span class="setup-mark">${daemonEnabled ? '&#10003;' : '&#9675;'}</span>
+              <span>Enable daemon note capture.</span>
+            </div>
+            <div class="dashboard-setup-item ${hasFirstNote ? 'complete' : ''}">
+              <span class="setup-mark">${hasFirstNote ? '&#10003;' : '&#9675;'}</span>
+              <span>Capture your first session note.</span>
+            </div>
+          </div>
+          <div class="dashboard-setup-actions">
+            ${!daemonEnabled ? '<button class="btn btn-primary" onclick="window.memorableApp.enableDaemon()">Enable Daemon</button>' : ''}
+            ${daemonEnabled && !hasFirstNote ? '<button class="btn" onclick="window.memorableApp.navigateTo(\'memories\')">Open Session Notes</button>' : ''}
+            <button class="btn" onclick="window.memorableApp.navigateTo('settings')">Open Settings</button>
+          </div>
+        </div>
+      `;
+    }
+
     container.innerHTML = `
       <div class="dashboard-page">
         <div class="page-header">
@@ -1388,6 +1422,7 @@
         </div>
 
         ${onboardingHtml}
+        ${setupChecklistHtml}
 
         <div class="dashboard-stats">
           <div class="stat-card">
@@ -2280,6 +2315,9 @@
     const data = await apiFetch('/api/settings');
     if (data && data.settings) {
       state.settingsCache = data.settings;
+      if (state.activePage === 'dashboard' || state.activePage === 'settings') {
+        renderPage();
+      }
     }
   }
 
@@ -4921,6 +4959,35 @@
       state.activePage = 'configure';
       syncNavHighlight();
       render();
+    },
+
+    async enableDaemon() {
+      const existing = state.settingsCache || {};
+      const existingDaemon = existing.daemon || {};
+      const daemon = {
+        ...existingDaemon,
+        enabled: true,
+        idle_threshold: Number(existingDaemon.idle_threshold || 300),
+      };
+
+      const result = await apiFetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ daemon }),
+      });
+
+      if (result && result.ok) {
+        if (result.settings) {
+          state.settingsCache = result.settings;
+        } else {
+          state.settingsCache = { ...existing, daemon };
+        }
+        await checkServerStatus();
+        showToast('Daemon enabled. Start a session to generate your first note.', 'success');
+        render();
+      } else {
+        showToast('Could not enable daemon from Dashboard', 'error');
+      }
     },
 
     undo() {
