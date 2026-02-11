@@ -956,7 +956,7 @@
         <div class="empty-state" style="padding:24px;">
           <div class="empty-state-icon">&#128221;</div>
           <h3>No session notes yet</h3>
-          <p>Notes will appear here as sessions are recorded by the daemon.</p>
+          <p>Notes will appear here as sessions are recorded by the <span title="Background process that watches sessions and auto-generates notes.">daemon</span>.</p>
         </div>
       `;
     }
@@ -984,7 +984,7 @@
         <div class="onboarding-card">
           <div class="onboarding-icon"><img src="logo.png" alt="Memorable" style="width:64px;height:64px;"></div>
           <h2>Welcome to Memorable</h2>
-          <p>Get started by creating your seed files. These tell Claude who you are and how to talk to you.</p>
+          <p>Get started by creating your <span title="Files that define who you are (user.md) and how the agent should behave (agent.md).">seed files</span>. These tell Claude who you are and how to talk to you.</p>
           <div class="onboarding-actions">
             <button class="btn btn-primary" onclick="window.memorableApp.navigateTo('configure')">Create Seeds</button>
             <button class="btn" onclick="window.memorableApp.navigateTo('settings')">Configure Settings</button>
@@ -1020,7 +1020,7 @@
               <span class="stat-dot ${daemonRunning ? 'stat-dot-active' : 'stat-dot-inactive'}"></span>
               ${daemonRunning ? 'Active' : 'Inactive'}
             </div>
-            <div class="stat-label">Daemon</div>
+            <div class="stat-label" title="Background process that watches sessions and auto-generates notes.">Daemon</div>
           </div>
         </div>
 
@@ -1216,7 +1216,7 @@
         <div class="notes-empty">
           <div class="notes-empty-icon">&#128221;</div>
           <h3>${ns.search || ns.tag ? 'No notes match your filters' : 'No session notes yet'}</h3>
-          <p>${ns.search || ns.tag ? 'Try a different search term or tag.' : 'Notes will appear here as sessions are recorded by the daemon.'}</p>
+          <p>${ns.search || ns.tag ? 'Try a different search term or tag.' : 'Notes will appear here as sessions are recorded by the '}<span title="Background process that watches sessions and auto-generates notes.">daemon</span>.</p>
         </div>
       `;
     }
@@ -1246,7 +1246,7 @@
           <div class="notes-sort">
             <button class="notes-sort-btn ${ns.sort === 'date' ? 'active' : ''}" data-sort="date">Newest</button>
             <button class="notes-sort-btn ${ns.sort === 'date_asc' ? 'active' : ''}" data-sort="date_asc">Oldest</button>
-            <button class="notes-sort-btn ${ns.sort === 'salience' ? 'active' : ''}" data-sort="salience">Salience</button>
+            <button class="notes-sort-btn ${ns.sort === 'salience' ? 'active' : ''}" data-sort="salience" title="How relevant/important a note is. Higher salience notes are more likely to be loaded.">Salience</button>
           </div>
         </div>
         <div class="notes-list">
@@ -1397,7 +1397,7 @@
         <div class="notes-empty">
           <div class="notes-empty-icon">&#128203;</div>
           <h3>No working memory yet</h3>
-          <p>The now.md file will be created automatically by the daemon as sessions are processed.</p>
+          <p>The now.md file will be created automatically by the <span title="Background process that watches sessions and auto-generates notes.">daemon</span> as sessions are processed.</p>
         </div>
       `;
       return;
@@ -1779,7 +1779,7 @@
           <div class="settings-section">
             <div class="settings-section-header">
               <div class="settings-section-icon sand">&#9672;</div>
-              <h3>Daemon</h3>
+              <h3 title="Background process that watches sessions and auto-generates notes.">Daemon</h3>
             </div>
             <div class="settings-section-body">
               <div class="settings-row">
@@ -2174,8 +2174,8 @@
               <span class="file-meta-value">${formatTokens(tokens)}</span>
             </div>
             <div class="file-meta-item">
-              <span class="file-meta-label">Anchor Depth</span>
-              <select data-file-depth="${activeFile.id}" class="file-meta-value">
+              <span class="file-meta-label" title="How much detail to include when loading this document. Higher depth uses more tokens.">Anchor Depth</span>
+              <select data-file-depth="${activeFile.id}" class="file-meta-value" title="How much detail to include when loading this document. Higher depth uses more tokens.">
                 ${ANCHOR_DEPTHS.map(d => `<option value="${d.key}" ${(activeFile.anchorDepth || 'full') === d.key ? 'selected' : ''}>${d.label} &mdash; ${d.desc}</option>`).join('')}
               </select>
             </div>
