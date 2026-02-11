@@ -3157,6 +3157,18 @@
   function renderSettingsPage(container) {
     const s = state.settingsCache || {};
     const llm = s.llm_provider || {};
+    const routing = s.llm_routing || {};
+    const claudeCli = s.claude_cli || {};
+    const routeOptions = [
+      { value: 'deepseek', label: 'DeepSeek (API)' },
+      { value: 'claude_cli', label: 'Claude CLI (claude -p)' },
+      { value: 'claude_api', label: 'Claude API' },
+      { value: 'gemini', label: 'Gemini API' },
+    ];
+    const routeSelect = (selected) =>
+      routeOptions
+        .map((opt) => `<option value="${opt.value}" ${selected === opt.value ? 'selected' : ''}>${opt.label}</option>`)
+        .join('');
     const status = state.statusCache || {};
     const daemonHealth = status.daemon_health && typeof status.daemon_health === 'object'
       ? status.daemon_health
@@ -3270,6 +3282,57 @@
                 </div>
                 <div class="settings-row-control">
                   <input type="text" id="settings-llm-model" value="${esc(llm.model || '')}" placeholder="deepseek-chat">
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Session Notes Route</div>
+                  <div class="settings-row-desc">Provider used for daemon session note generation</div>
+                </div>
+                <div class="settings-row-control">
+                  <select id="settings-route-session-notes">
+                    ${routeSelect(routing.session_notes || 'deepseek')}
+                  </select>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">now.md Route</div>
+                  <div class="settings-row-desc">Provider used for rolling now.md synthesis</div>
+                </div>
+                <div class="settings-row-control">
+                  <select id="settings-route-now-md">
+                    ${routeSelect(routing.now_md || 'deepseek')}
+                  </select>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Anchors Route</div>
+                  <div class="settings-row-desc">Provider used by Semantic tab on-demand anchor processing</div>
+                </div>
+                <div class="settings-row-control">
+                  <select id="settings-route-anchors">
+                    ${routeSelect(routing.anchors || 'deepseek')}
+                  </select>
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Claude CLI Command</div>
+                  <div class="settings-row-desc">Used when route is Claude CLI</div>
+                </div>
+                <div class="settings-row-control">
+                  <input type="text" id="settings-claude-command" value="${esc(claudeCli.command || 'claude')}" placeholder="claude">
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Claude Prompt Flag</div>
+                  <div class="settings-row-desc">Default: -p (for claude -p \"...\")</div>
+                </div>
+                <div class="settings-row-control">
+                  <input type="text" id="settings-claude-prompt-flag" value="${esc(claudeCli.prompt_flag || '-p')}" placeholder="-p">
                 </div>
               </div>
             </div>
@@ -3425,6 +3488,15 @@
         endpoint: getInputValue('settings-llm-endpoint'),
         api_key: getInputValue('settings-llm-apikey'),
         model: getInputValue('settings-llm-model'),
+      },
+      llm_routing: {
+        session_notes: getInputValue('settings-route-session-notes'),
+        now_md: getInputValue('settings-route-now-md'),
+        anchors: getInputValue('settings-route-anchors'),
+      },
+      claude_cli: {
+        command: getInputValue('settings-claude-command'),
+        prompt_flag: getInputValue('settings-claude-prompt-flag'),
       },
       token_budget: parseInt(getInputValue('settings-token-budget'), 10),
       daemon: {
