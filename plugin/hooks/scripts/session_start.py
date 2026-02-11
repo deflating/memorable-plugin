@@ -20,6 +20,13 @@ CONFIG_PATH = BASE_DIR / "data" / "config.json"
 
 ANCHOR = "\u2693"
 _ANCHOR_RE = re.compile(ANCHOR + r"([0-3]\ufe0f\u20e3)?")
+_WORD_RE = re.compile(r"[A-Za-z0-9_']+")
+_BULLET_RE = re.compile(r"^\s*[-*]\s+", re.MULTILINE)
+_ACTION_CUE_RE = re.compile(
+    r"\b(todo|next step|next steps|action(?:s| items?)?|follow[- ]?up|"
+    r"decide|decision|blocked|blocker|unblock|deadline|ship|fix|implement|resolve)\b",
+    re.IGNORECASE,
+)
 
 # Note loading constants
 DECAY_FACTOR = 0.97
@@ -153,9 +160,17 @@ def collect_files(config: dict) -> list[str]:
 
 
 def _effective_salience(entry: dict) -> float:
-    """Calculate effective salience with time decay and emotional weight."""
-    salience = entry.get("salience", 1.0)
-    emotional_weight = entry.get("emotional_weight", 0.3)
+    """Calculate effective salience with decay + density + actionability."""
+    try:
+        salience = float(entry.get("salience", 1.0))
+    except (TypeError, ValueError):
+        salience = 1.0
+
+    try:
+        emotional_weight = float(entry.get("emotional_weight", 0.3))
+    except (TypeError, ValueError):
+        emotional_weight = 0.3
+    emotional_weight = max(0.0, min(1.0, emotional_weight))
 
     last_ref = entry.get("last_referenced", entry.get("ts", ""))
     try:
@@ -169,7 +184,70 @@ def _effective_salience(entry: dict) -> float:
 
     adjusted_days = days * (1.0 - emotional_weight * 0.5)
     decayed = salience * (DECAY_FACTOR ** adjusted_days)
-    return max(MIN_SALIENCE, decayed)
+    base = max(MIN_SALIENCE, decayed)
+    density_mult = _information_density_multiplier(entry)
+    actionability_mult = _actionability_multiplier(entry)
+    return max(MIN_SALIENCE, base * density_mult * actionability_mult)
+
+
+def _note_text(entry: dict) -> str:
+    text = entry.get("note", "")
+    return text if isinstance(text, str) else str(text)
+
+
+def _information_density_multiplier(entry: dict) -> float:
+    """Score notes by signal per token (short dense > long rambling)."""
+    text = _note_text(entry).strip()
+    if not text:
+        return 1.0
+
+    words = _WORD_RE.findall(text.lower())
+    if not words:
+        return 1.0
+
+    word_count = len(words)
+    unique_ratio = len(set(words)) / word_count
+    est_tokens = max(1, len(text) // 4)
+    words_per_token = word_count / est_tokens
+
+    lexical_score = max(0.0, min(1.0, (unique_ratio - 0.25) / 0.55))
+    density_score = max(0.0, min(1.0, words_per_token / 0.85))
+
+    # Softly penalize extremely long notes unless they are exceptionally dense.
+    token_penalty = 0.0
+    if est_tokens > 450:
+        token_penalty = min(0.25, (est_tokens - 450) / 2200)
+
+    score = (0.55 * lexical_score) + (0.45 * density_score) - token_penalty
+    score = max(0.0, min(1.0, score))
+
+    # 0.80x .. 1.30x
+    return 0.8 + (0.5 * score)
+
+
+def _actionability_multiplier(entry: dict) -> float:
+    """Boost notes with clear next actions, blockers, or explicit action items."""
+    text = _note_text(entry)
+    score = 0.0
+
+    if _ACTION_CUE_RE.search(text):
+        score += 0.4
+
+    bullet_count = len(_BULLET_RE.findall(text))
+    if bullet_count >= 2:
+        score += 0.25
+    elif bullet_count == 1:
+        score += 0.15
+
+    action_items = entry.get("action_items", [])
+    if isinstance(action_items, list):
+        valid_items = [str(x).strip() for x in action_items if str(x).strip()]
+        if valid_items:
+            score += min(0.45, 0.15 + (0.1 * len(valid_items)))
+
+    score = max(0.0, min(1.0, score))
+    # 1.00x .. 1.35x
+    return 1.0 + (0.35 * score)
 
 
 def _note_timestamp(entry: dict) -> str:
