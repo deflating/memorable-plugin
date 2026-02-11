@@ -1093,7 +1093,7 @@ p { color: var(--text-secondary); }
   border-left: 3px solid var(--sage);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  padding: 16px;
+  padding: 20px;
   position: sticky;
   top: calc(var(--nav-height) + 16px);
   max-height: calc(100vh - var(--nav-height) - 32px);
@@ -1108,7 +1108,7 @@ p { color: var(--text-secondary); }
 }
 
 .memory-insights-panel-header h3 {
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   margin: 0;
 }
 
@@ -1128,15 +1128,15 @@ p { color: var(--text-secondary); }
 }
 
 .memory-insights-sub {
-  font-size: 0.76rem;
+  font-size: 0.82rem;
   color: var(--text-muted);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .memory-insights-metrics {
   display: flex;
-  gap: 10px;
-  margin-top: 10px;
+  gap: 12px;
+  margin-top: 12px;
   flex-wrap: wrap;
 }
 
@@ -1150,14 +1150,14 @@ p { color: var(--text-secondary); }
 
 .memory-insights-value {
   display: block;
-  font-size: 1rem;
+  font-size: 1.15rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .memory-insights-label {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   color: var(--text-muted);
   margin-top: 2px;
   text-transform: uppercase;
@@ -1165,15 +1165,16 @@ p { color: var(--text-secondary); }
 }
 
 .memory-insights-columns {
-  margin-top: 10px;
+  margin-top: 14px;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 12px;
 }
 
 .memory-insights-column h4 {
-  margin: 0 0 4px;
-  font-size: 0.78rem;
+  margin: 0 0 6px;
+  font-size: 0.84rem;
+  font-weight: 600;
   color: var(--text-secondary);
 }
 
@@ -1181,8 +1182,8 @@ p { color: var(--text-secondary); }
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 0.78rem;
-  padding: 2px 0;
+  font-size: 0.84rem;
+  padding: 3px 0;
 }
 
 .memory-insights-row-btn {
@@ -1191,8 +1192,8 @@ p { color: var(--text-secondary); }
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  font-size: 0.78rem;
-  padding: 6px 8px;
+  font-size: 0.84rem;
+  padding: 7px 10px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -1223,7 +1224,7 @@ p { color: var(--text-secondary); }
 
 .memory-insights-empty {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: 0.84rem;
   color: var(--text-muted);
 }
 
@@ -1234,8 +1235,9 @@ p { color: var(--text-secondary); }
 }
 
 .memory-insights-suggestions p {
-  margin: 0 0 4px;
-  font-size: 0.78rem;
+  margin: 0 0 6px;
+  font-size: 0.84rem;
+  line-height: 1.45;
   color: var(--text-secondary);
 }
 
