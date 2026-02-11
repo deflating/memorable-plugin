@@ -268,7 +268,7 @@ def load_all_notes() -> list[dict]:
 
 
 def handle_get_notes(query_params: dict):
-    """GET /api/notes — list session notes with optional search/sort/limit/tag/machine."""
+    """GET /api/notes — list session notes with optional search/sort/limit/tag/machine/session."""
     notes = load_all_notes()
 
     # Tag filter
@@ -280,6 +280,16 @@ def handle_get_notes(query_params: dict):
     machine = query_params.get("machine", [None])[0]
     if machine:
         notes = [n for n in notes if n.get("machine", "") == machine]
+
+    # Session filter (supports short prefixes shown in UI, like first 8 chars)
+    session = query_params.get("session", [None])[0]
+    if session:
+        session_lower = session.lower()
+        notes = [
+            n
+            for n in notes
+            if str(n.get("session", "")).lower().startswith(session_lower)
+        ]
 
     # Search filter
     search = query_params.get("search", [None])[0]
@@ -294,11 +304,13 @@ def handle_get_notes(query_params: dict):
             anti_str = " ".join(anti) if isinstance(anti, list) else ""
             conflicts = n.get("conflicts_with", [])
             conflicts_str = " ".join(conflicts) if isinstance(conflicts, list) else ""
+            session_ref = str(n.get("session", ""))
             if (
                 search_lower in text.lower()
                 or search_lower in tag_str.lower()
                 or search_lower in anti_str.lower()
                 or search_lower in conflicts_str.lower()
+                or search_lower in session_ref.lower()
             ):
                 filtered.append(n)
         notes = filtered

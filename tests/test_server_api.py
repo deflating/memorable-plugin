@@ -135,6 +135,34 @@ class ServerApiTests(unittest.TestCase):
             self.assertEqual("sess-b2", data["top_referenced"][0]["session"])
             self.assertEqual("sess-a1", data["high_load_low_reference"][0]["session"])
 
+    def test_handle_get_notes_filters_by_session_prefix(self):
+        with tempfile.TemporaryDirectory() as td:
+            notes_dir = Path(td)
+            notes_file = notes_dir / "notes.jsonl"
+            rows = [
+                {
+                    "ts": "2026-01-01T00:00:00Z",
+                    "session": "abcdef123456",
+                    "note": "alpha",
+                    "topic_tags": ["one"],
+                },
+                {
+                    "ts": "2026-01-02T00:00:00Z",
+                    "session": "zzz999",
+                    "note": "beta",
+                    "topic_tags": ["two"],
+                },
+            ]
+            with notes_file.open("w", encoding="utf-8") as fh:
+                for row in rows:
+                    fh.write(json.dumps(row) + "\n")
+
+            server_api.NOTES_DIR = notes_dir
+            status, data = server_api.handle_get_notes({"session": ["AbCdEf12"]})
+            self.assertEqual(200, status)
+            self.assertEqual(1, data["total"])
+            self.assertEqual("abcdef123456", data["notes"][0]["session"])
+
 
 if __name__ == "__main__":
     unittest.main()

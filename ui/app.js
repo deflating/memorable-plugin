@@ -1502,6 +1502,7 @@
     tag: '',
     sort: 'date',
     machine: '',
+    session: '',
     expandedIdx: null,
     loaded: false,
   };
@@ -1534,6 +1535,7 @@
     if (notesState.search) params.set('search', notesState.search);
     if (notesState.tag) params.set('tag', notesState.tag);
     if (notesState.machine) params.set('machine', notesState.machine);
+    if (notesState.session) params.set('session', notesState.session);
 
     const data = await apiFetch('/api/notes?' + params);
     if (!data) return;
@@ -1693,24 +1695,32 @@
         const top = Array.isArray(mi.top_referenced) ? mi.top_referenced : [];
         const low = Array.isArray(mi.high_load_low_reference) ? mi.high_load_low_reference : [];
         const suggestions = Array.isArray(mi.suggestions) ? mi.suggestions : [];
-        const topRows = top.map((r) => `
-          <div class="memory-insights-row">
-            <span class="memory-insights-session">${esc(r.session || 'unknown')}</span>
-            <span class="memory-insights-row-meta">${Number(r.referenced || 0)} / ${Number(r.loaded || 0)} refs</span>
-          </div>
-        `).join('');
-        const lowRows = low.map((r) => `
-          <div class="memory-insights-row">
-            <span class="memory-insights-session">${esc(r.session || 'unknown')}</span>
-            <span class="memory-insights-row-meta">${Number(r.loaded || 0)} loads, ${Math.round(Number(r.reference_rate || 0) * 100)}% yield</span>
-          </div>
-        `).join('');
+        const topRows = top.map((r) => {
+          const session = String(r.session || '').trim();
+          const active = session && ns.session.toLowerCase() === session.toLowerCase() ? ' active' : '';
+          return `
+            <button type="button" class="memory-insights-row-btn${active}" data-session="${esc(session)}">
+              <span class="memory-insights-session">${esc(session || 'unknown')}</span>
+              <span class="memory-insights-row-meta">${Number(r.referenced || 0)} / ${Number(r.loaded || 0)} refs</span>
+            </button>
+          `;
+        }).join('');
+        const lowRows = low.map((r) => {
+          const session = String(r.session || '').trim();
+          const active = session && ns.session.toLowerCase() === session.toLowerCase() ? ' active' : '';
+          return `
+            <button type="button" class="memory-insights-row-btn${active}" data-session="${esc(session)}">
+              <span class="memory-insights-session">${esc(session || 'unknown')}</span>
+              <span class="memory-insights-row-meta">${Number(r.loaded || 0)} loads, ${Math.round(Number(r.reference_rate || 0) * 100)}% yield</span>
+            </button>
+          `;
+        }).join('');
 
         insightsHtml = `
           <div class="memory-insights-card">
             <div class="memory-insights-header">
               <h3>Memory Effectiveness</h3>
-              <span class="memory-insights-sub">How often loaded notes are referenced later</span>
+              <span class="memory-insights-sub">How often loaded notes are referenced later. Click a row to filter notes by session.</span>
             </div>
             <div class="memory-insights-metrics">
               <div class="memory-insights-metric">
@@ -1755,6 +1765,14 @@
       }
     }
 
+    const sessionFilterHtml = ns.session ? `
+      <div class="notes-active-filters">
+        <button type="button" class="notes-filter-pill" id="notes-session-filter-clear" title="Clear session filter">
+          Session ${esc(ns.session)} <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+    ` : '';
+
     container.innerHTML = `
       <div class="notes-page">
         ${insightsHtml}
@@ -1774,6 +1792,7 @@
             <button class="notes-sort-btn ${ns.sort === 'salience' ? 'active' : ''}" data-sort="salience" title="How relevant/important a note is. Higher salience notes are more likely to be loaded.">Salience</button>
           </div>
         </div>
+        ${sessionFilterHtml}
         <div class="notes-list">
           ${notesHtml}
         </div>
@@ -1820,6 +1839,26 @@
         fetchNotesPage(false).then(() => renderNotesPage(container));
       });
     });
+
+    container.querySelectorAll('.memory-insights-row-btn').forEach(btn => {
+      btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const session = String(btn.dataset.session || '').trim();
+        if (!session) return;
+        ns.session = ns.session.toLowerCase() === session.toLowerCase() ? '' : session;
+        ns.expandedIdx = null;
+        fetchNotesPage(false).then(() => renderNotesPage(container));
+      });
+    });
+
+    const clearSessionFilterBtn = document.getElementById('notes-session-filter-clear');
+    if (clearSessionFilterBtn) {
+      clearSessionFilterBtn.addEventListener('click', () => {
+        ns.session = '';
+        ns.expandedIdx = null;
+        fetchNotesPage(false).then(() => renderNotesPage(container));
+      });
+    }
 
     // Card accordion — only one expanded at a time
     container.querySelectorAll('.note-card').forEach(card => {
