@@ -99,6 +99,73 @@
     { key: 'none', label: 'None', desc: 'Excluded from context' }
   ];
 
+  // ---- Materiality: Content Density ----
+  function getSectionDensity(sectionId) {
+    const u = state.user;
+    const a = state.agent;
+    switch (sectionId) {
+      case 'identity': {
+        const filled = ['name', 'age', 'location', 'pronouns'].filter(k => u.identity[k] && u.identity[k].trim()).length;
+        return filled === 0 ? 'sketch' : filled <= 2 ? 'forming' : 'substantial';
+      }
+      case 'about':
+        return !u.about || !u.about.trim() ? 'sketch' : u.about.trim().length < 100 ? 'forming' : 'substantial';
+      case 'cognitive': {
+        const count = Object.values(u.cognitiveActive).filter(Boolean).length;
+        return count === 0 ? 'sketch' : count <= 2 ? 'forming' : 'substantial';
+      }
+      case 'values':
+        return u.values.length === 0 ? 'sketch' : u.values.length <= 2 ? 'forming' : 'substantial';
+      case 'communication': {
+        const count = Object.values(u.communicationActive).filter(Boolean).length;
+        return count === 0 ? 'sketch' : count <= 3 ? 'forming' : 'substantial';
+      }
+      case 'people':
+        return u.people.length === 0 ? 'sketch' : u.people.length <= 2 ? 'forming' : 'substantial';
+      case 'projects':
+        return u.projects.length === 0 ? 'sketch' : u.projects.length === 1 ? 'forming' : 'substantial';
+      case 'user-custom':
+        return u.customSections.length === 0 ? 'sketch' : u.customSections.length === 1 ? 'forming' : 'substantial';
+      case 'agent-name':
+        return !a.name || !a.name.trim() ? 'sketch' : 'forming';
+      case 'traits': {
+        const changed = a.traitOptions.filter(k => (a.traits[k] || 50) !== 50).length;
+        return changed === 0 ? 'sketch' : changed <= 2 ? 'forming' : 'substantial';
+      }
+      case 'behaviors': {
+        const count = Object.values(a.behaviorsActive).filter(Boolean).length;
+        return count === 0 ? 'sketch' : count <= 3 ? 'forming' : 'substantial';
+      }
+      case 'avoid':
+        return a.avoid.length === 0 ? 'sketch' : a.avoid.length <= 2 ? 'forming' : 'substantial';
+      case 'when-low': {
+        const count = Object.values(a.whenLowActive).filter(Boolean).length;
+        return count === 0 ? 'sketch' : count <= 2 ? 'forming' : 'substantial';
+      }
+      case 'tech-style': {
+        const count = Object.values(a.techStyleActive).filter(Boolean).length;
+        return count === 0 ? 'sketch' : count <= 2 ? 'forming' : 'substantial';
+      }
+      case 'agent-custom':
+        return a.customSections.length === 0 ? 'sketch' : a.customSections.length === 1 ? 'forming' : 'substantial';
+      default:
+        return 'sketch';
+    }
+  }
+
+  // Track whether we've done first-load animation
+  let _firstLoadAnimated = false;
+
+  function applySectionFadeIn(container) {
+    if (_firstLoadAnimated) return;
+    _firstLoadAnimated = true;
+    const sections = container.querySelectorAll('.section');
+    sections.forEach((section, i) => {
+      section.classList.add('section-fade-in');
+      section.style.animationDelay = (i * 80) + 'ms';
+    });
+  }
+
   // ---- Theme ----
   function applyTheme() {
     const pref = localStorage.getItem('memorable-theme') || 'auto';
@@ -3770,8 +3837,10 @@
     const enabled = state.enabledSections[id] !== false;
     const disabledClass = enabled ? '' : 'section-disabled';
     const collapsedClass = state.collapsedSections[id] ? 'collapsed' : '';
+    const density = getSectionDensity(id);
+    const materialityClass = 'materiality-' + density;
     return `
-      <div class="section ${disabledClass} ${collapsedClass}" id="section-${id}">
+      <div class="section ${disabledClass} ${collapsedClass} ${materialityClass}" id="section-${id}">
         <div class="section-header">
           <div class="section-header-left" onclick="window.seedApp.toggleSection('section-${id}')">
             <div class="section-icon ${colorClass}">${icon}</div>
@@ -3920,6 +3989,7 @@
     bindPresetEvents(container);
     bindSectionToggleEvents(container);
     bindReorderEvents(container);
+    applySectionFadeIn(container);
   }
 
   // ---- Agent Form ----
@@ -4015,6 +4085,7 @@
     bindPresetEvents(container);
     bindSectionToggleEvents(container);
     bindReorderEvents(container);
+    applySectionFadeIn(container);
   }
 
   // ---- Partial Renderers ----
