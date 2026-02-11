@@ -70,6 +70,20 @@ def ensure_dirs():
         d.mkdir(parents=True, exist_ok=True)
 
 
+def atomic_write(path: Path, content: str, encoding: str = "utf-8"):
+    """Write content atomically by writing to a temp file then renaming."""
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(content, encoding=encoding)
+    tmp_path.rename(path)
+
+
+def atomic_write_bytes(path: Path, data: bytes):
+    """Write bytes atomically by writing to a temp file then renaming."""
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_bytes(data)
+    tmp_path.rename(path)
+
+
 def load_config() -> dict:
     """Load config.json, returning defaults on any error."""
     try:
@@ -87,11 +101,7 @@ def load_config() -> dict:
 def save_config(config: dict):
     """Write config.json atomically."""
     ensure_dirs()
-    tmp = CONFIG_PATH.with_suffix(".tmp")
-    tmp.write_text(
-        json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    tmp.rename(CONFIG_PATH)
+    atomic_write(CONFIG_PATH, json.dumps(config, indent=2, ensure_ascii=False))
 
 
 def estimate_tokens(text: str) -> int:
@@ -342,7 +352,7 @@ def handle_post_seeds(body: dict):
             except Exception:
                 return 500, {"error": f"Backup failed for {safe}, aborting write"}
 
-        path.write_text(content, encoding="utf-8")
+        atomic_write(path, content)
         written.append(safe)
 
     if not written:
@@ -641,7 +651,7 @@ def handle_post_file_upload(handler):
             safe = f"upload-{uuid.uuid4().hex[:8]}.txt"
 
         path = FILES_DIR / safe
-        path.write_text(content, encoding="utf-8")
+        atomic_write(path, content)
 
         return 200, {
             "ok": True,
@@ -669,7 +679,7 @@ def handle_post_file_upload(handler):
             safe = f"upload-{uuid.uuid4().hex[:8]}.bin"
 
         path = FILES_DIR / safe
-        path.write_bytes(raw)
+        atomic_write_bytes(path, raw)
 
         tokens = 0
         try:
@@ -802,7 +812,7 @@ def handle_post_deploy(body: dict):
             except Exception:
                 return 500, {"error": f"Backup failed for {safe}, aborting write"}
 
-        path.write_text(content, encoding="utf-8")
+        atomic_write(path, content)
         deployed_files.append(safe)
 
     if not deployed_files:
@@ -834,7 +844,7 @@ def handle_post_process(body: dict):
         or "document.md"
     )
     original_path = FILES_DIR / f"original_{safe_name}"
-    original_path.write_text(content, encoding="utf-8")
+    atomic_write(original_path, content)
 
     return 200, {
         "ok": True,

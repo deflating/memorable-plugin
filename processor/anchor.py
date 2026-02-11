@@ -84,6 +84,13 @@ Output the anchored version. Start with ⚓0️⃣. No preamble."""
 # -- Utility ---------------------------------------------------------------
 
 
+def _atomic_write(path: Path, content: str, encoding: str = "utf-8"):
+    """Write content atomically by writing to a temp file then renaming."""
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(content, encoding=encoding)
+    tmp_path.rename(path)
+
+
 def log_error(msg: str):
     try:
         with open(ERROR_LOG, "a") as f:
@@ -504,7 +511,7 @@ def process_file(filename: str, force: bool = False) -> dict:
                     "tokens_by_depth": None, "error": str(e)}
 
     # Save anchored output
-    anchored_path.write_text(anchored, encoding="utf-8")
+    _atomic_write(anchored_path, anchored)
 
     # Calculate token counts at each depth
     tokens_by_depth = {}
