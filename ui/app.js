@@ -116,6 +116,7 @@
       'agent-name': true, 'traits': true, 'behaviors': true, 'avoid': true,
       'when-low': true, 'tech-style': true, 'agent-custom': true
     },
+    collapsedSections: {},
     user: {
       identity: { name: '', age: '', location: '', pronouns: '' },
       about: '',
@@ -2449,8 +2450,9 @@
   function renderSection(id, title, subtitle, colorClass, icon, body, emptyHint) {
     const enabled = state.enabledSections[id] !== false;
     const disabledClass = enabled ? '' : 'section-disabled';
+    const collapsedClass = state.collapsedSections[id] ? 'collapsed' : '';
     return `
-      <div class="section ${disabledClass}" id="section-${id}">
+      <div class="section ${disabledClass} ${collapsedClass}" id="section-${id}">
         <div class="section-header">
           <div class="section-header-left" onclick="window.seedApp.toggleSection('section-${id}')">
             <div class="section-icon ${colorClass}">${icon}</div>
@@ -3812,6 +3814,9 @@
     if (!state.enabledSections) {
       state.enabledSections = {};
     }
+    if (!state.collapsedSections || typeof state.collapsedSections !== 'object') {
+      state.collapsedSections = {};
+    }
     const allSections = ['identity', 'about', 'cognitive', 'values', 'communication', 'people', 'projects', 'user-custom', 'agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'];
     allSections.forEach(id => {
       if (state.enabledSections[id] === undefined) state.enabledSections[id] = true;
@@ -3843,6 +3848,9 @@
       const el = document.getElementById(id);
       if (el && !el.classList.contains('section-disabled')) {
         el.classList.toggle('collapsed');
+        const sectionId = id.startsWith('section-') ? id.slice('section-'.length) : id;
+        state.collapsedSections[sectionId] = el.classList.contains('collapsed');
+        debouncedSave();
       }
     },
 
