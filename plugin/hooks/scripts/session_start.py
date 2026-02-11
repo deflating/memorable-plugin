@@ -276,6 +276,10 @@ def main():
                     print(formatted)
                     print(f"To read a note: grep {notes_dir}/ for its session ID. To search by topic: grep by keyword.")
 
+        # Surface memorable_search tool
+        print("\n[Memorable] To search past sessions and observations, use the `memorable_search` MCP tool or the /memorable-search skill.")
+        print("Use this when the user references past conversations, asks \"do you remember...\", or when you need historical context.")
+
     except Exception as e:
         log_path = BASE_DIR / "hook-errors.log"
         try:
