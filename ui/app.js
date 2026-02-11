@@ -99,6 +99,20 @@
     { key: 'none', label: 'None', desc: 'Excluded from context' }
   ];
 
+  // ---- Theme ----
+  function applyTheme() {
+    const pref = localStorage.getItem('memorable-theme') || 'auto';
+    if (pref === 'dark' || (pref === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }
+  applyTheme();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if ((localStorage.getItem('memorable-theme') || 'auto') === 'auto') applyTheme();
+  });
+
   // ---- State ----
   const state = {
     activeFile: 'user',
@@ -1746,6 +1760,28 @@
         <div class="settings-grid">
           <div class="settings-section">
             <div class="settings-section-header">
+              <div class="settings-section-icon ochre">&#9788;</div>
+              <h3>Appearance</h3>
+            </div>
+            <div class="settings-section-body">
+              <div class="settings-row">
+                <div class="settings-row-info">
+                  <div class="settings-row-label">Theme</div>
+                  <div class="settings-row-desc">Choose light, dark, or follow your system setting</div>
+                </div>
+                <div class="settings-row-control">
+                  <div class="theme-toggle" id="theme-toggle">
+                    <button class="theme-toggle-btn" data-theme="light">Light</button>
+                    <button class="theme-toggle-btn" data-theme="auto">Auto</button>
+                    <button class="theme-toggle-btn" data-theme="dark">Dark</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-header">
               <div class="settings-section-icon terracotta">&#9881;</div>
               <h3>LLM Provider</h3>
             </div>
@@ -1909,6 +1945,21 @@
         </div>
       </div>
     `;
+
+    // Theme toggle
+    const themeToggle = document.getElementById('theme-toggle');
+    if (themeToggle) {
+      const current = localStorage.getItem('memorable-theme') || 'auto';
+      themeToggle.querySelector(`[data-theme="${current}"]`).classList.add('active');
+      themeToggle.addEventListener('click', (e) => {
+        const btn = e.target.closest('.theme-toggle-btn');
+        if (!btn) return;
+        themeToggle.querySelectorAll('.theme-toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        localStorage.setItem('memorable-theme', btn.dataset.theme);
+        applyTheme();
+      });
+    }
 
     // Token budget slider
     const budgetSlider = document.getElementById('settings-token-budget');
