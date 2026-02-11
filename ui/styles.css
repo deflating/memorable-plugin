@@ -959,30 +959,28 @@ p { color: var(--text-secondary); }
 /* ============================================
    Session Notes Page
    ============================================ */
-/* Review Effectiveness button */
+/* Tune Memory button */
 .notes-review-btn {
-  margin-left: auto;
-  padding: 6px 14px;
-  border: 1px solid var(--border);
+  padding: 7px 14px;
+  border: 1px solid var(--sage);
   border-radius: var(--radius-md);
   background: var(--warm-white);
   font-family: inherit;
   font-size: 0.82rem;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--sage-dark);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .notes-review-btn:hover {
-  border-color: var(--sage);
-  color: var(--sage-dark);
+  background: rgba(143, 169, 133, 0.12);
 }
 
 .notes-page.review-mode .notes-review-btn {
+  background: var(--sage);
+  color: white;
   border-color: var(--sage);
-  color: var(--sage-dark);
-  background: rgba(143, 169, 133, 0.1);
 }
 
 /* Split-screen review mode */
@@ -1303,6 +1301,7 @@ p { color: var(--text-secondary); }
 .notes-count {
   font-size: 0.82rem;
   color: var(--text-muted);
+  margin-left: auto;
 }
 
 /* Note cards */

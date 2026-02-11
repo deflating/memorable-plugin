@@ -2354,7 +2354,7 @@
     }
 
     const reviewBtnHtml = hasInsights
-      ? `<button type="button" class="notes-review-btn" id="notes-review-btn">${ns.reviewMode ? 'Close Review' : 'Review Effectiveness'}</button>`
+      ? `<button type="button" class="notes-review-btn" id="notes-review-btn">${ns.reviewMode ? 'Close' : 'Tune Memory'}</button>`
       : '';
 
     const sessionFilterHtml = ns.session ? `
@@ -2379,10 +2379,6 @@
 
     const notesContentHtml = `
       <div class="notes-main">
-        <div class="notes-header-row">
-          <span class="notes-count">${ns.total} note${ns.total !== 1 ? 's' : ''}</span>
-          ${reviewBtnHtml}
-        </div>
         ${notesGuideHtml}
         ${machineTabsHtml}
         <div class="notes-search">
@@ -2403,6 +2399,8 @@
             </select>
             <select class="notes-tag-filter" id="notes-tag-filter">${tagOptions}</select>
           </div>
+          <span class="notes-count">${ns.total} note${ns.total !== 1 ? 's' : ''}</span>
+          ${reviewBtnHtml}
           ${resetFiltersHtml}
         </div>
         ${sessionFilterHtml}
