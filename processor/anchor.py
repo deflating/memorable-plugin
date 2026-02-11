@@ -15,6 +15,7 @@ Anchor levels (cumulative):
 import json
 import os
 import re
+import subprocess
 import time
 import urllib.request
 import urllib.error
@@ -29,6 +30,8 @@ LLM_CONFIG_PATH = DATA_DIR / "config.json"
 ERROR_LOG = Path.home() / ".memorable" / "hook-errors.log"
 
 CHARS_PER_TOKEN = 4
+DEFAULT_CLAUDE_CLI_COMMAND = "claude"
+DEFAULT_CLAUDE_CLI_PROMPT_FLAG = "-p"
 
 # -- Anchor format constants -----------------------------------------------
 
@@ -170,6 +173,44 @@ def _call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5-20251
     return data["content"][0]["text"]
 
 
+def _call_claude_cli(prompt: str, cfg: dict) -> str:
+    command = DEFAULT_CLAUDE_CLI_COMMAND
+    prompt_flag = DEFAULT_CLAUDE_CLI_PROMPT_FLAG
+
+    cli_cfg = cfg.get("claude_cli", {})
+    if isinstance(cli_cfg, dict):
+        command = (cli_cfg.get("command") or command).strip() or command
+        prompt_flag = (cli_cfg.get("prompt_flag") or prompt_flag).strip() or prompt_flag
+
+    cmd = [command, prompt_flag, prompt]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=240,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError(
+            f"Claude CLI not found: '{command}'. Install Claude CLI or set claude_cli.command."
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("Claude CLI timed out while generating output.") from exc
+
+    if proc.returncode != 0:
+        err = (proc.stderr or "").strip()
+        raise RuntimeError(
+            f"Claude CLI failed (exit {proc.returncode}). "
+            f"{err if err else 'No stderr output from claude CLI.'}"
+        )
+
+    output = (proc.stdout or "").strip()
+    if not output:
+        raise RuntimeError("Claude CLI returned empty output.")
+    return output
+
+
 def _resolve_provider(llm_cfg: dict) -> str:
     explicit = (llm_cfg.get("provider") or "").strip().lower()
     if explicit in ("deepseek", "gemini", "claude"):
@@ -183,6 +224,29 @@ def _resolve_provider(llm_cfg: dict) -> str:
     if "generativelanguage.googleapis.com" in endpoint or "gemini" in model:
         return "gemini"
     return "deepseek"
+
+
+def _normalize_route_name(route: str) -> str:
+    value = (route or "").strip().lower().replace(" ", "_")
+    if value in {"claude", "claude-cli", "claude_cli"}:
+        return "claude_cli"
+    if value in {"claude-api", "claude_api"}:
+        return "claude_api"
+    return value
+
+
+def _resolve_anchor_route(cfg: dict, provider_fallback: str) -> str:
+    routing = cfg.get("llm_routing", {})
+    if isinstance(routing, dict):
+        route_raw = routing.get("anchors")
+        if isinstance(route_raw, str):
+            route = _normalize_route_name(route_raw)
+            if route in {"deepseek", "gemini", "claude_api", "claude_cli"}:
+                return route
+
+    if provider_fallback == "claude":
+        return "claude_api"
+    return provider_fallback
 
 
 def _read_llm_provider_config(cfg: dict) -> dict:
@@ -205,10 +269,14 @@ def call_llm(prompt: str, max_tokens: int = 4096) -> str:
     cfg = _load_llm_config()
     llm_cfg = _read_llm_provider_config(cfg)
 
-    provider = _resolve_provider(llm_cfg)
+    route = _resolve_anchor_route(cfg, _resolve_provider(llm_cfg))
+    provider = "claude" if route == "claude_api" else route
     model = llm_cfg.get("model")
     api_key = llm_cfg.get("api_key", "")
     endpoint = llm_cfg.get("endpoint")
+
+    if route == "claude_cli":
+        return _call_claude_cli(prompt, cfg)
 
     if not api_key:
         if provider == "deepseek":

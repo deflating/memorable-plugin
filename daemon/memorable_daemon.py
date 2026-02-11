@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import logging
+import os
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR = Path.home() / ".memorable" / "data"
 TRANSCRIPTS_DIR = DATA_DIR / "transcripts"
+PID_FILE = DATA_DIR / "daemon.pid"
 
 MACHINE_ID = socket.gethostname()
 
@@ -106,6 +108,24 @@ class MemorableDaemon:
             logger.exception("Note generation failed for session %s", session_id)
 
 
+def write_pid_file():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
+    logger.info("PID file written: %s", PID_FILE)
+
+
+def clear_pid_file():
+    try:
+        if not PID_FILE.exists():
+            return
+        current = PID_FILE.read_text(encoding="utf-8").strip()
+        if current == str(os.getpid()):
+            PID_FILE.unlink()
+            logger.info("PID file cleared: %s", PID_FILE)
+    except OSError:
+        logger.exception("Failed to clear PID file")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Memorable background daemon")
     parser.add_argument("--no-transcript", action="store_true", help="Disable conversation transcript logging")
@@ -130,13 +150,17 @@ def main():
     logger.info("  Notes: %s", "enabled" if not args.no_notes else "disabled")
     logger.info("  Machine: %s", MACHINE_ID)
 
-    watch_transcripts(
-        on_chunk=daemon.on_chunk if not args.no_transcript else None,
-        on_human_message=None,
-        on_session_idle=daemon.on_session_idle,
-        chunk_every=10,
-        idle_timeout=args.idle_timeout,
-    )
+    write_pid_file()
+    try:
+        watch_transcripts(
+            on_chunk=daemon.on_chunk if not args.no_transcript else None,
+            on_human_message=None,
+            on_session_idle=daemon.on_session_idle,
+            chunk_every=10,
+            idle_timeout=args.idle_timeout,
+        )
+    finally:
+        clear_pid_file()
 
 
 if __name__ == "__main__":

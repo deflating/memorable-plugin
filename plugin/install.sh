@@ -37,6 +37,15 @@ if [ ! -f "$DATA_DIR/config.json" ]; then
     "api_key": "",
     "model": "deepseek-chat"
   },
+  "llm_routing": {
+    "session_notes": "deepseek",
+    "now_md": "deepseek",
+    "anchors": "deepseek"
+  },
+  "claude_cli": {
+    "command": "claude",
+    "prompt_flag": "-p"
+  },
   "daemon": {
     "enabled": false,
     "idle_threshold": 300
@@ -120,7 +129,12 @@ def is_memorable_entry(entry):
         if not isinstance(cmd, str):
             continue
         # Match Memorable hooks even if plugin location changed since last install.
-        if 'hooks/scripts/session_start.py' in cmd or 'hooks/scripts/user_prompt.py' in cmd:
+        if (
+            'hooks/scripts/session_start.py' in cmd
+            or 'hooks/scripts/user_prompt.py' in cmd
+            or 'hooks/scripts/session_end.py' in cmd
+            or 'hooks/scripts/pre_compact.py' in cmd
+        ):
             return True
     return False
 
@@ -135,6 +149,20 @@ for event, entries in memorable.items():
             if not is_memorable_entry(e)
         ]
         existing[event] = cleaned + entries
+
+# Also remove stale Memorable entries from events no longer managed
+# (e.g. SessionEnd removed from installer defaults).
+for event in list(existing.keys()):
+    if event in memorable:
+        continue
+    entries = existing.get(event)
+    if not isinstance(entries, list):
+        continue
+    cleaned = [e for e in entries if not is_memorable_entry(e)]
+    if cleaned:
+        existing[event] = cleaned
+    else:
+        del existing[event]
 
 with open('$HOOKS_FILE', 'w') as f:
     json.dump(existing, f, indent=2)

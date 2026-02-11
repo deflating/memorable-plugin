@@ -98,6 +98,7 @@ Set `server_port`, then restart `python3 plugin/server.py`.
 
 - Confirm `~/.memorable/data/config.json` has `llm_provider`.
 - Ensure `endpoint`, `model`, and `api_key` are set.
+- Confirm `llm_routing.anchors` is set to the provider you want (`deepseek`, `claude`/`claude_cli`, `claude_api`, or `gemini`).
 - Restart server/hooks after config updates.
 
 ### Import/reset requests fail

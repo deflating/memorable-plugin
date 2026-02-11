@@ -12,6 +12,7 @@ import math
 import os
 import re
 import socket
+import subprocess
 import time
 import urllib.request
 import urllib.error
@@ -21,12 +22,16 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 DATA_DIR = Path.home() / ".memorable" / "data"
-CONFIG_PATH = Path.home() / ".memorable" / "config.json"
+CONFIG_PATH = DATA_DIR / "config.json"
+LEGACY_CONFIG_PATH = Path.home() / ".memorable" / "config.json"
 ERROR_LOG = Path.home() / ".memorable" / "hook-errors.log"
 
-# Default summarizer config
+# Default LLM config
 DEFAULT_PROVIDER = "deepseek"
 DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_DEEPSEEK_ENDPOINT = "https://api.deepseek.com/v1"
+DEFAULT_CLAUDE_CLI_COMMAND = "claude"
+DEFAULT_CLAUDE_CLI_PROMPT_FLAG = "-p"
 
 # Max chars of transcript to send to the LLM
 MAX_TRANSCRIPT_CHARS = 80_000
@@ -41,12 +46,30 @@ def log_error(msg: str):
 
 
 def get_config() -> dict:
+    cfg = {}
     try:
         if CONFIG_PATH.exists():
-            return json.loads(CONFIG_PATH.read_text())
+            loaded = json.loads(CONFIG_PATH.read_text())
+            if isinstance(loaded, dict):
+                cfg = loaded
+    except Exception:
+        cfg = {}
+
+    # Backward compatibility: keep reading legacy root config if present.
+    try:
+        if LEGACY_CONFIG_PATH.exists():
+            legacy = json.loads(LEGACY_CONFIG_PATH.read_text())
+            if isinstance(legacy, dict):
+                # Preserve canonical values, but keep legacy summarizer block
+                # available for fallback during migration.
+                if "summarizer" in legacy and "summarizer" not in cfg:
+                    cfg["summarizer"] = legacy["summarizer"]
+                if not cfg:
+                    cfg = legacy
     except Exception:
         pass
-    return {}
+
+    return cfg
 
 
 def get_machine_id(cfg: dict) -> str:
@@ -236,9 +259,23 @@ emotional_weight: float 0.0-1.0. Use 0.1-0.3 for routine technical sessions, 0.4
 # -- LLM callers ----------------------------------------------------------
 
 
-def call_deepseek(prompt: str, api_key: str, model: str = "deepseek-chat") -> str:
+def _build_deepseek_chat_url(endpoint: str) -> str:
+    endpoint = (endpoint or DEFAULT_DEEPSEEK_ENDPOINT).strip().rstrip("/")
+    if endpoint.endswith("/chat/completions"):
+        return endpoint
+    if endpoint.endswith("/v1"):
+        return endpoint + "/chat/completions"
+    return endpoint + "/chat/completions"
+
+
+def call_deepseek(
+    prompt: str,
+    api_key: str,
+    model: str = DEFAULT_MODEL,
+    endpoint: str = DEFAULT_DEEPSEEK_ENDPOINT,
+) -> str:
     """Call DeepSeek API directly via HTTP."""
-    url = "https://api.deepseek.com/v1/chat/completions"
+    url = _build_deepseek_chat_url(endpoint)
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
@@ -293,12 +330,126 @@ def call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5-202510
     return data["content"][0]["text"]
 
 
-def call_llm(prompt: str, cfg: dict) -> str:
-    """Call the configured LLM provider."""
+def call_claude_cli(prompt: str, cfg: dict) -> str:
+    """Call Claude CLI via `claude -p <prompt>`."""
+    command = DEFAULT_CLAUDE_CLI_COMMAND
+    prompt_flag = DEFAULT_CLAUDE_CLI_PROMPT_FLAG
+
+    cli_cfg = cfg.get("claude_cli", {})
+    if isinstance(cli_cfg, dict):
+        command = (cli_cfg.get("command") or command).strip() or command
+        prompt_flag = (cli_cfg.get("prompt_flag") or prompt_flag).strip() or prompt_flag
+
+    cmd = [command, prompt_flag, prompt]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=240,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError(
+            f"Claude CLI not found: '{command}'. Install Claude CLI or set claude_cli.command."
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("Claude CLI timed out while generating output.") from exc
+
+    if proc.returncode != 0:
+        err = (proc.stderr or "").strip()
+        raise RuntimeError(
+            f"Claude CLI failed (exit {proc.returncode}). "
+            f"{err if err else 'No stderr output from claude CLI.'}"
+        )
+
+    output = (proc.stdout or "").strip()
+    if not output:
+        raise RuntimeError("Claude CLI returned empty output.")
+    return output
+
+
+def _infer_provider(provider_hint: str, endpoint: str, model: str) -> str:
+    hint = (provider_hint or "").strip().lower()
+    if hint in {"deepseek", "gemini", "claude"}:
+        return hint
+
+    endpoint_hint = (endpoint or "").strip().lower()
+    model_hint = (model or "").strip().lower()
+    combined = f"{endpoint_hint} {model_hint}"
+
+    if "anthropic" in combined or "claude" in combined:
+        return "claude"
+    if "googleapis" in combined or "generativelanguage" in combined or "gemini" in combined:
+        return "gemini"
+    if "deepseek" in combined:
+        return "deepseek"
+    return DEFAULT_PROVIDER
+
+
+def _normalize_route_name(route: str) -> str:
+    value = (route or "").strip().lower().replace(" ", "_")
+    if value in {"claude", "claude-cli", "claude_cli"}:
+        return "claude_cli"
+    if value in {"claude-api", "claude_api"}:
+        return "claude_api"
+    return value
+
+
+def _resolve_task_route(cfg: dict, task: str, provider_fallback: str) -> str:
+    routing = cfg.get("llm_routing", {})
+    if isinstance(routing, dict):
+        route_raw = routing.get(task)
+        if isinstance(route_raw, str):
+            route = _normalize_route_name(route_raw)
+            if route in {"deepseek", "gemini", "claude_api", "claude_cli"}:
+                return route
+
+    if provider_fallback == "claude":
+        return "claude_api"
+    return provider_fallback
+
+
+def _resolve_llm_settings(cfg: dict) -> dict:
+    llm_provider = cfg.get("llm_provider", {})
+    if not isinstance(llm_provider, dict):
+        llm_provider = {}
+
+    # Legacy migration fallback.
     summarizer = cfg.get("summarizer", {})
-    provider = summarizer.get("provider", DEFAULT_PROVIDER)
-    model = summarizer.get("model")
-    api_key = summarizer.get("api_key", "")
+    if not isinstance(summarizer, dict):
+        summarizer = {}
+
+    endpoint = (llm_provider.get("endpoint") or summarizer.get("endpoint") or "").strip()
+    model = (llm_provider.get("model") or summarizer.get("model") or "").strip()
+    api_key = (llm_provider.get("api_key") or summarizer.get("api_key") or "").strip()
+    provider_hint = llm_provider.get("provider") or summarizer.get("provider") or ""
+    provider = _infer_provider(provider_hint, endpoint, model)
+
+    enabled = True
+    if "enabled" in summarizer:
+        enabled = bool(summarizer.get("enabled", True))
+
+    return {
+        "provider": provider,
+        "endpoint": endpoint,
+        "model": model,
+        "api_key": api_key,
+        "enabled": enabled,
+    }
+
+
+def call_llm(prompt: str, cfg: dict, task: str = "session_notes") -> str:
+    """Call the configured LLM provider for a specific task."""
+    settings = _resolve_llm_settings(cfg)
+    route = _resolve_task_route(cfg, task, settings["provider"])
+    provider = "claude" if route == "claude_api" else route
+    model = settings["model"]
+    endpoint = settings["endpoint"]
+    api_key = settings["api_key"]
+
+    if route == "claude_cli":
+        return call_claude_cli(prompt, cfg)
 
     # Fall back to env vars if no key in config
     if not api_key:
@@ -310,18 +461,25 @@ def call_llm(prompt: str, cfg: dict) -> str:
             api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
     if not api_key:
-        raise ValueError(f"No API key found for provider '{provider}'. "
-                         f"Set it in ~/.memorable/config.json under summarizer.api_key "
-                         f"or as an environment variable.")
+        raise ValueError(
+            f"No API key found for provider '{provider}'. "
+            f"Set ~/.memorable/data/config.json (llm_provider.api_key) "
+            f"or use an environment variable."
+        )
 
     if provider == "deepseek":
-        return call_deepseek(prompt, api_key, model or "deepseek-chat")
+        return call_deepseek(
+            prompt,
+            api_key,
+            model or DEFAULT_MODEL,
+            endpoint or DEFAULT_DEEPSEEK_ENDPOINT,
+        )
     elif provider == "gemini":
         return call_gemini(prompt, api_key, model or "gemini-2.5-flash")
     elif provider == "claude":
         return call_claude(prompt, api_key, model or "claude-haiku-4-5-20251001")
     else:
-        raise ValueError(f"Unknown summarizer provider: {provider}")
+        raise ValueError(f"Unknown LLM provider: {provider}")
 
 
 # -- Metadata parsing ------------------------------------------------------
@@ -520,7 +678,7 @@ def generate_rolling_summary(cfg: dict, notes_dir: Path):
     prompt_text = ROLLING_SUMMARY_PROMPT.replace("{date}", today)
     prompt_text += "\n\nHere are the session notes:\n\n" + notes_text
 
-    summary = call_llm(prompt_text, cfg)
+    summary = call_llm(prompt_text, cfg, task="now_md")
 
     # Write to seeds/now.md (replaces the old now.md entirely)
     now_path = DATA_DIR / "seeds" / "now.md"
@@ -547,10 +705,9 @@ def generate_note(session_id: str, transcript_path: str, machine_id: str = None)
     if machine_id is None:
         machine_id = get_machine_id(cfg)
 
-    # Check if summarizer is configured
-    summarizer = cfg.get("summarizer", {})
-    if not summarizer.get("enabled", True):
-        logger.info("Summarizer disabled in config")
+    llm_settings = _resolve_llm_settings(cfg)
+    if not llm_settings.get("enabled", True):
+        logger.info("Note generation disabled in config")
         return False
 
     # Parse the transcript
@@ -563,7 +720,7 @@ def generate_note(session_id: str, transcript_path: str, machine_id: str = None)
 
     # Build LLM prompt and call
     prompt = build_llm_prompt(parsed, session_id)
-    raw_response = call_llm(prompt, cfg)
+    raw_response = call_llm(prompt, cfg, task="session_notes")
 
     # Parse note text and metadata
     note_text, topic_tags, emotional_weight = parse_meta(raw_response)

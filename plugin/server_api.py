@@ -898,6 +898,76 @@ def parse_llm_provider_patch(raw):
     return patch, None
 
 
+_ALLOWED_LLM_ROUTE_KEYS = {"session_notes", "now_md", "anchors"}
+
+
+def _normalize_llm_route(value: str) -> str:
+    v = value.strip().lower().replace(" ", "_")
+    if v in {"claude", "claude-cli", "claude_cli"}:
+        return "claude_cli"
+    if v in {"claude-api", "claude_api"}:
+        return "claude_api"
+    return v
+
+
+def parse_llm_routing_patch(raw):
+    if not isinstance(raw, dict):
+        return None, error_response(
+            "INVALID_LLM_ROUTING",
+            "Invalid llm_routing",
+            "Send llm_routing as an object.",
+        )
+    patch = {}
+    for key, value in raw.items():
+        if key not in _ALLOWED_LLM_ROUTE_KEYS:
+            return None, error_response(
+                "INVALID_LLM_ROUTING_KEY",
+                f"Invalid llm_routing field: {key}",
+                "Allowed llm_routing fields: session_notes, now_md, anchors.",
+            )
+        parsed, err = parse_string_setting(value, f"llm_routing.{key}")
+        if err:
+            return None, err
+        normalized = _normalize_llm_route(parsed)
+        if normalized not in {"deepseek", "gemini", "claude_api", "claude_cli"}:
+            return None, error_response(
+                "INVALID_LLM_ROUTING_VALUE",
+                f"Invalid llm_routing.{key}",
+                "Allowed values: deepseek, gemini, claude_cli (or claude), claude_api.",
+            )
+        patch[key] = normalized
+    return patch, None
+
+
+def parse_claude_cli_patch(raw):
+    if not isinstance(raw, dict):
+        return None, error_response(
+            "INVALID_CLAUDE_CLI",
+            "Invalid claude_cli",
+            "Send claude_cli as an object.",
+        )
+    allowed = {"command", "prompt_flag"}
+    patch = {}
+    for key, value in raw.items():
+        if key not in allowed:
+            return None, error_response(
+                "INVALID_CLAUDE_CLI_KEY",
+                f"Invalid claude_cli field: {key}",
+                "Allowed claude_cli fields: command, prompt_flag.",
+            )
+        parsed, err = parse_string_setting(value, f"claude_cli.{key}")
+        if err:
+            return None, err
+        if not parsed.strip():
+            return None, error_response(
+                settings_error_code(f"claude_cli.{key}"),
+                f"Invalid claude_cli.{key}",
+                f"Send claude_cli.{key} as a non-empty string.",
+            )
+        patch[key] = parsed
+    return patch, None
+
+
 def parse_daemon_patch(raw):
     if not isinstance(raw, dict):
         return None, error_response(
@@ -931,14 +1001,22 @@ def parse_daemon_patch(raw):
 
 
 def parse_settings_patch(body: dict):
-    allowed_keys = {"llm_provider", "token_budget", "daemon", "server_port", "data_dir"}
+    allowed_keys = {
+        "llm_provider",
+        "llm_routing",
+        "claude_cli",
+        "token_budget",
+        "daemon",
+        "server_port",
+        "data_dir",
+    }
     patch = {}
     for key in body.keys():
         if key not in allowed_keys:
             return None, error_response(
                 "INVALID_SETTINGS_KEY",
                 f"Invalid settings field: {key}",
-                "Allowed fields: llm_provider, token_budget, daemon, server_port, data_dir.",
+                "Allowed fields: llm_provider, llm_routing, claude_cli, token_budget, daemon, server_port, data_dir.",
             )
 
     if "token_budget" in body:
@@ -964,6 +1042,18 @@ def parse_settings_patch(body: dict):
         if err:
             return None, err
         patch["llm_provider"] = parsed
+
+    if "llm_routing" in body:
+        parsed, err = parse_llm_routing_patch(body["llm_routing"])
+        if err:
+            return None, err
+        patch["llm_routing"] = parsed
+
+    if "claude_cli" in body:
+        parsed, err = parse_claude_cli_patch(body["claude_cli"])
+        if err:
+            return None, err
+        patch["claude_cli"] = parsed
 
     if "daemon" in body:
         parsed, err = parse_daemon_patch(body["daemon"])
@@ -992,6 +1082,20 @@ def handle_post_settings(body: dict):
             llm_cfg = {}
         llm_cfg.update(patch["llm_provider"])
         config["llm_provider"] = llm_cfg
+
+    if "llm_routing" in patch:
+        routing_cfg = config.get("llm_routing", {})
+        if not isinstance(routing_cfg, dict):
+            routing_cfg = {}
+        routing_cfg.update(patch["llm_routing"])
+        config["llm_routing"] = routing_cfg
+
+    if "claude_cli" in patch:
+        cli_cfg = config.get("claude_cli", {})
+        if not isinstance(cli_cfg, dict):
+            cli_cfg = {}
+        cli_cfg.update(patch["claude_cli"])
+        config["claude_cli"] = cli_cfg
 
     if "daemon" in patch:
         daemon_cfg = config.get("daemon", {})

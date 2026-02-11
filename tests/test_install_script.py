@@ -37,6 +37,8 @@ class InstallScriptTests(unittest.TestCase):
             self.assertIn("token_budget", config)
             self.assertIn("server_port", config)
             self.assertIn("llm_provider", config)
+            self.assertIn("llm_routing", config)
+            self.assertIn("claude_cli", config)
             self.assertIn("daemon", config)
             self.assertIn("context_files", config)
 
@@ -49,6 +51,7 @@ class InstallScriptTests(unittest.TestCase):
             self.assertIn("SessionStart", hooks)
             self.assertIn("PreCompact", hooks)
             self.assertIn("UserPromptSubmit", hooks)
+            self.assertNotIn("SessionEnd", hooks)
 
             session_start_cmds = [
                 h["command"]
@@ -100,6 +103,18 @@ class InstallScriptTests(unittest.TestCase):
                                         "type": "command",
                                         "command": "python3 /old/path/hooks/scripts/user_prompt.py",
                                         "timeout": 5,
+                                    }
+                                ],
+                            }
+                        ],
+                        "SessionEnd": [
+                            {
+                                "matcher": "*",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": "python3 /old/path/hooks/scripts/session_end.py",
+                                        "timeout": 30,
                                     }
                                 ],
                             }
@@ -160,7 +175,7 @@ class InstallScriptTests(unittest.TestCase):
                     f"python3 {PLUGIN_DIR}/hooks/scripts/user_prompt.py",
                 ),
             )
-
+            self.assertNotIn("SessionEnd", hooks)
             # Ensure stale entries from old paths are gone.
             all_cmds = [
                 h.get("command", "")
@@ -174,6 +189,7 @@ class InstallScriptTests(unittest.TestCase):
             self.assertNotIn("python3 /old/path/hooks/scripts/session_start.py", all_cmds)
             self.assertNotIn("python3 /old/path/hooks/scripts/session_start.py --compact", all_cmds)
             self.assertNotIn("python3 /old/path/hooks/scripts/user_prompt.py", all_cmds)
+            self.assertNotIn("python3 /old/path/hooks/scripts/session_end.py", all_cmds)
 
 
 if __name__ == "__main__":

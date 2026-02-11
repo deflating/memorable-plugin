@@ -157,6 +157,14 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(400, status)
         self.assertEqual("INVALID_LLM_PROVIDER_MODEL", data["error"]["code"])
 
+        status, data = server_api.handle_post_settings({"llm_routing": {"now_md": 123}})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_LLM_ROUTING_NOW_MD", data["error"]["code"])
+
+        status, data = server_api.handle_post_settings({"claude_cli": {"command": 123}})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_CLAUDE_CLI_COMMAND", data["error"]["code"])
+
     def test_handle_post_settings_rejects_invalid_ranges(self):
         status, data = server_api.handle_post_settings({"server_port": 70000})
         self.assertEqual(400, status)
@@ -166,10 +174,16 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(400, status)
         self.assertEqual("INVALID_DAEMON_IDLE_THRESHOLD", data["error"]["code"])
 
+        status, data = server_api.handle_post_settings({"llm_routing": {"now_md": "banana"}})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_LLM_ROUTING_VALUE", data["error"]["code"])
+
     def test_handle_post_settings_applies_valid_patch(self):
         captured = {}
         existing = {
             "llm_provider": {"endpoint": "https://api.deepseek.com/v1", "api_key": "", "model": "deepseek-chat"},
+            "llm_routing": {"session_notes": "deepseek", "now_md": "deepseek", "anchors": "deepseek"},
+            "claude_cli": {"command": "claude", "prompt_flag": "-p"},
             "token_budget": 200000,
             "daemon": {"enabled": False, "idle_threshold": 300},
             "server_port": 7777,
@@ -183,6 +197,8 @@ class ServerApiTests(unittest.TestCase):
                 "token_budget": 123456,
                 "daemon": {"enabled": True, "idle_threshold": 120},
                 "llm_provider": {"model": "deepseek-reasoner"},
+                "llm_routing": {"now_md": "claude"},
+                "claude_cli": {"command": "claude", "prompt_flag": "-p"},
             }
         )
         self.assertEqual(200, status)
@@ -192,6 +208,8 @@ class ServerApiTests(unittest.TestCase):
         self.assertTrue(captured["config"]["daemon"]["enabled"])
         self.assertEqual(120, captured["config"]["daemon"]["idle_threshold"])
         self.assertEqual("deepseek-reasoner", captured["config"]["llm_provider"]["model"])
+        self.assertEqual("claude_cli", captured["config"]["llm_routing"]["now_md"])
+        self.assertEqual("claude", captured["config"]["claude_cli"]["command"])
 
     def test_import_zip_rejects_unsafe_member_paths(self):
         payload = io.BytesIO()

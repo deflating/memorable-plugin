@@ -29,7 +29,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/Users/mattkennelly/.pyenv/shims:/usr/local/bin:/usr/bin:/bin</string>
+        <string>/Users/mattkennelly/.local/bin:/Users/mattkennelly/.pyenv/shims:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
 </dict>
 </plist>

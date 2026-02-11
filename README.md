@@ -105,6 +105,12 @@ Config path: `~/.memorable/data/config.json`
 
 Important keys:
 - `llm_provider` (`endpoint`, `api_key`, `model`)
+- `llm_routing` (`session_notes`, `now_md`, `anchors`) with values:
+  - `deepseek`
+  - `claude_cli` (or `claude`) to use `claude -p`
+  - `claude_api`
+  - `gemini`
+- `claude_cli` (`command`, `prompt_flag`) defaults to `claude` + `-p`
 - `token_budget`
 - `daemon` (`enabled`, `idle_threshold`)
 - `server_port`

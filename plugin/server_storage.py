@@ -25,6 +25,15 @@ DEFAULT_CONFIG = {
         "api_key": "",
         "model": "deepseek-chat",
     },
+    "llm_routing": {
+        "session_notes": "deepseek",
+        "now_md": "deepseek",
+        "anchors": "deepseek",
+    },
+    "claude_cli": {
+        "command": "claude",
+        "prompt_flag": "-p",
+    },
     "token_budget": 200000,
     "daemon": {
         "enabled": False,
