@@ -10,12 +10,9 @@
   const DEFAULT_COGNITIVE_OPTIONS = [
     { key: 'adhd', label: 'ADHD' },
     { key: 'autism', label: 'Autism' },
-    { key: 'anxiety', label: 'Anxiety' },
-    { key: 'depression', label: 'Depression' },
     { key: 'dyslexia', label: 'Dyslexia' },
-    { key: 'ocd', label: 'OCD' },
-    { key: 'ptsd', label: 'PTSD' },
-    { key: 'bipolar', label: 'Bipolar' }
+    { key: 'dyscalculia', label: 'Dyscalculia' },
+    { key: 'dyspraxia', label: 'Dyspraxia' }
   ];
 
   const DEFAULT_COGNITIVE_STYLE_DIMS = [
@@ -639,7 +636,7 @@
 
   // Preview section heading → form section ID mapping
   const PREVIEW_TO_SECTION = {
-    'about': 'about', 'neurotype': 'cognitive', 'cognitive-style': 'cogStyle',
+    'about': 'about', 'neurodivergence': 'cognitive', 'neurotype': 'cognitive', 'cognitive-style': 'cogStyle',
     'values': 'values', 'interests': 'interests', 'people': 'people',
     'projects': 'projects', 'communication-preferences': 'communication',
     'character-traits': 'traits', 'behaviors': 'behaviors',
@@ -678,7 +675,7 @@
     if (sec['cognitive']) {
       const activeCog = u.cognitiveOptions.filter(k => u.cognitiveActive[k]).map(k => getCognitiveLabel(k));
       if (activeCog.length) {
-        md += `## Neurotype\n\n${activeCog.join(', ')}\n\n`;
+        md += `## Neurodivergence\n\n${activeCog.join(', ')}\n\n`;
       }
     }
 
@@ -887,8 +884,8 @@
       state.enabledSections['about'] = true;
     }
 
-    // Parse Neurotype (also accept old "Cognitive Style" heading for neurotype toggles)
-    const neurotypeSrc = getSection(sections, 'Neurotype') || getSection(sections, 'Cognitive Style');
+    // Parse Neurodivergence (also accept old "Neurotype" / "Cognitive Style" headings)
+    const neurotypeSrc = getSection(sections, 'Neurodivergence') || getSection(sections, 'Neurotype') || getSection(sections, 'Cognitive Style');
     if (neurotypeSrc) {
       state.enabledSections['cognitive'] = true;
       // Neurotype is comma-separated labels (not bullet list)
@@ -914,7 +911,7 @@
 
     // Parse Cognitive Style (spectrum dimensions)
     // If we already consumed "Cognitive Style" as neurotype above, check for a separate one
-    const cogStyleSrc = getSection(sections, 'Neurotype') ? getSection(sections, 'Cognitive Style') : null;
+    const cogStyleSrc = (getSection(sections, 'Neurodivergence') || getSection(sections, 'Neurotype')) ? getSection(sections, 'Cognitive Style') : null;
     if (cogStyleSrc) {
       state.enabledSections['cogStyle'] = true;
       const lines = cogStyleSrc.split('\n').filter(l => l.trim().startsWith('-'));
@@ -1001,7 +998,7 @@
       });
     }
 
-    const knownSections = ['about', 'neurotype', 'cognitive style', 'values', 'interests', 'people', 'projects'];
+    const knownSections = ['about', 'neurodivergence', 'neurotype', 'cognitive style', 'values', 'interests', 'people', 'projects'];
     Object.entries(sections).forEach(([title, content]) => {
       if (title.startsWith('_')) return;
       if (knownSections.includes(title.toLowerCase())) return;
@@ -4011,7 +4008,7 @@
         </div>
       `)}
 
-      ${renderSection('cognitive', 'Neurotype', 'Neurodivergence and cognitive differences', 'sand', ICON.sparkle, `
+      ${renderSection('cognitive', 'Neurodivergence', 'Select any that apply', 'sand', ICON.sparkle, `
         <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;">Select any that apply. This helps the agent adapt its communication style.</p>
         <div class="toggle-group" id="cognitive-toggles">
           ${u.cognitiveOptions.map(k => {
