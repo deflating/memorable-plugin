@@ -3039,6 +3039,38 @@ select {
 }
 
 /* ============================================
+   Contextual Prompts & Ghost Preview (MEM-83)
+   ============================================ */
+.section-prompt {
+  font-size: 0.84rem;
+  font-style: italic;
+  color: var(--text-muted);
+  padding: 0 0 4px;
+  transition: opacity 300ms ease;
+}
+.ghost-preview {
+  opacity: 0.4;
+  font-size: 0.82rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-muted);
+  line-height: 1.7;
+  padding: 8px 12px;
+  background: var(--cream);
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border-light);
+  transition: opacity 400ms ease-in-out;
+}
+.ghost-preview.ghost-realizing {
+  opacity: 0;
+  animation: ghostPulse 600ms ease-in-out;
+}
+@keyframes ghostPulse {
+  0% { opacity: 0.4; border-color: var(--border-light); }
+  40% { opacity: 0.8; border-color: var(--terracotta); box-shadow: 0 0 8px var(--terracotta-muted); }
+  100% { opacity: 0; border-color: var(--terracotta-light); }
+}
+
+/* ============================================
    Toggle Groups, Switch Rows, Sliders, Tags
    (Seeds form components)
    ============================================ */
