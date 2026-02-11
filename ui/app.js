@@ -608,10 +608,10 @@
       });
     }
 
-    const knownSections = ['About', 'Cognitive Style', 'Values', 'Communication Preferences', 'People', 'Projects'];
+    const knownSections = ['about', 'cognitive style', 'values', 'communication preferences', 'people', 'projects'];
     Object.entries(sections).forEach(([title, content]) => {
       if (title.startsWith('_')) return;
-      if (knownSections.includes(title)) return;
+      if (knownSections.includes(title.toLowerCase())) return;
       u.customSections.push({ title, content: content.trim() });
     });
   }
@@ -727,10 +727,10 @@
       });
     }
 
-    const knownSections = ['Character Traits', 'Behaviors', 'Avoid', 'When User Is Low', 'Technical Style'];
+    const knownSections = ['character traits', 'behaviors', 'avoid', 'when user is low', 'technical style'];
     Object.entries(sections).forEach(([title, content]) => {
       if (title.startsWith('_')) return;
-      if (knownSections.includes(title)) return;
+      if (knownSections.includes(title.toLowerCase())) return;
       a.customSections.push({ title, content: content.trim() });
     });
   }
