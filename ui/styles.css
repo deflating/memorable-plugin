@@ -3,6 +3,22 @@
    Warm, earthy, human design
    ============================================ */
 
+/* --- SVG Icon Defaults --- */
+svg { vertical-align: middle; flex-shrink: 0; }
+.toggle-remove svg, .tag-remove svg, .switch-remove-btn svg, .slider-remove-btn svg { width: 10px; height: 10px; }
+.inline-add-confirm svg, .inline-add-cancel svg { width: 12px; height: 12px; }
+.btn-icon svg, .btn-small svg { width: 14px; height: 14px; }
+.reorder-handle svg, .drag-handle svg { width: 14px; height: 14px; opacity: 0.4; }
+.section-chevron svg { width: 12px; height: 12px; }
+.tab-icon svg { width: 14px; height: 14px; }
+.settings-section-icon svg { width: 16px; height: 16px; }
+.empty-state-icon svg, .notes-empty-icon svg { width: 28px; height: 28px; }
+.quick-action-icon svg { width: 16px; height: 16px; }
+.semantic-upload-icon svg, .file-drop-zone-icon svg { width: 24px; height: 24px; }
+.memory-insights-chevron svg, .token-budget-chevron svg { width: 10px; height: 10px; }
+.preview-anchor svg { width: 12px; height: 12px; }
+.add-item-btn svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+
 /* --- Reset & Base --- */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -2633,6 +2649,91 @@ p { color: var(--text-secondary); }
   border-bottom-color: rgba(192, 57, 43, 0.15);
 }
 
+/* --- Provider Cards (Summarisation) --- */
+.provider-card {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--cream);
+  transition: all var(--transition-fast);
+}
+
+.provider-card + .provider-card {
+  margin-top: 8px;
+}
+
+.provider-card:hover {
+  border-color: var(--border);
+}
+
+.provider-card.active {
+  border-color: var(--sage);
+  background: var(--warm-white);
+}
+
+.provider-card.active .provider-card-header {
+  border-bottom-color: var(--border-light);
+}
+
+.provider-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast);
+  border-radius: var(--radius-md);
+}
+
+.provider-card.expanded .provider-card-header {
+  border-bottom: 1px solid var(--border-light);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.provider-card-header:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+html.dark .provider-card-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.provider-card-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.provider-status {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.provider-status-configured {
+  background: rgba(111, 143, 114, 0.15);
+  color: var(--sage-dark);
+}
+
+.provider-status-not-configured {
+  background: rgba(154, 142, 132, 0.12);
+  color: var(--text-muted);
+}
+
+.provider-card-body {
+  padding: 16px;
+}
+
+.provider-card-body .settings-row {
+  padding: 10px 0;
+}
+
+.provider-card-body .settings-row:first-child {
+  padding-top: 0;
+}
+
 /* ============================================
    Cards (general)
    ============================================ */
@@ -3197,6 +3298,11 @@ select {
   font-size: 10px;
   color: transparent;
   background: var(--warm-white);
+}
+.toggle-item .toggle-check svg {
+  width: 10px;
+  height: 10px;
+  stroke: currentColor;
 }
 
 .toggle-item.active .toggle-check {

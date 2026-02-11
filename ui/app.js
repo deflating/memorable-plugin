@@ -105,6 +105,43 @@
     'agent-name', 'agent-about', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'
   ];
 
+  // ---- Icons (inline SVG, feather style) ----
+  const _i = (d) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  const ICON = {
+    star:     _i('<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>'),
+    edit:     _i('<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>'),
+    sparkle:  _i('<path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5z"/>'),
+    settings: _i('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>'),
+    scale:    _i('<path d="M16 3l5 5-5 5"/><path d="M21 8H9"/><path d="M8 21l-5-5 5-5"/><path d="M3 16h12"/>'),
+    heart:    _i('<path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>'),
+    users:    _i('<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>'),
+    folder:   _i('<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>'),
+    code:     _i('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'),
+    chat:     _i('<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>'),
+    sliders:  _i('<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>'),
+    check:    _i('<polyline points="20 6 9 17 4 12"/>'),
+    x:        _i('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
+    plus:     _i('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>'),
+    ban:      _i('<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>'),
+    circle:   _i('<circle cx="12" cy="12" r="10"/>'),
+    penTool:  _i('<path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/>'),
+    fileText: _i('<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>'),
+    file:     _i('<path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/>'),
+    search:   _i('<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>'),
+    alert:    _i('<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+    moon:     _i('<path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>'),
+    sun:      _i('<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'),
+    book:     _i('<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>'),
+    user:     _i('<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>'),
+    link:     _i('<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>'),
+    plug:     _i('<path d="M12 2v6"/><path d="M6 8h12"/><path d="M8 8v4a4 4 0 008 0V8"/><path d="M12 16v6"/>'),
+    compass:  _i('<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>'),
+    chevDown: _i('<polyline points="6 9 12 15 18 9"/>'),
+    grip:     _i('<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>'),
+    upload:   _i('<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
+    clipboard:_i('<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>'),
+  };
+
   // ---- Materiality: Content Density ----
   function getSectionDensity(sectionId) {
     const u = state.user;
@@ -1636,7 +1673,7 @@
     } else {
       notesHtml = `
         <div class="empty-state" style="padding:24px;">
-          <div class="empty-state-icon">&#128221;</div>
+          <div class="empty-state-icon">${ICON.fileText}</div>
           <h3>No session notes yet</h3>
           <p>Notes will appear here as sessions are recorded by the <span title="Background process that watches sessions and auto-generates notes.">daemon</span>.</p>
         </div>
@@ -1700,15 +1737,15 @@
           <p>Complete these steps to start seeing useful memory right away.</p>
           <div class="dashboard-setup-list">
             <div class="dashboard-setup-item complete">
-              <span class="setup-mark">&#10003;</span>
+              <span class="setup-mark">${ICON.check}</span>
               <span>Seed files are created and available at session start.</span>
             </div>
             <div class="dashboard-setup-item ${daemonEnabled ? 'complete' : ''}">
-              <span class="setup-mark">${daemonEnabled ? '&#10003;' : '&#9675;'}</span>
+              <span class="setup-mark">${daemonEnabled ? '${ICON.check}' : '${ICON.circle}'}</span>
               <span>Enable daemon note capture.</span>
             </div>
             <div class="dashboard-setup-item ${hasFirstNote ? 'complete' : ''}">
-              <span class="setup-mark">${hasFirstNote ? '&#10003;' : '&#9675;'}</span>
+              <span class="setup-mark">${hasFirstNote ? '${ICON.check}' : '${ICON.circle}'}</span>
               <span>Capture your first session note.</span>
             </div>
           </div>
@@ -1849,19 +1886,19 @@
           <h2>Quick Actions</h2>
           <div class="quick-actions">
             <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('configure')">
-              <span class="quick-action-icon">&#128196;</span>
+              <span class="quick-action-icon">${ICON.file}</span>
               Edit Seeds
             </button>
             <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('memories'); window.memorableApp.setMemoriesSubTab('semantic')">
-              <span class="quick-action-icon">&#128193;</span>
+              <span class="quick-action-icon">${ICON.folder}</span>
               Semantic Memory
             </button>
             <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('memories')">
-              <span class="quick-action-icon">&#128269;</span>
+              <span class="quick-action-icon">${ICON.search}</span>
               Search Sessions
             </button>
             <button class="quick-action-btn" onclick="window.memorableApp.navigateTo('settings')">
-              <span class="quick-action-icon">&#9881;</span>
+              <span class="quick-action-icon">${ICON.settings}</span>
               Settings
             </button>
           </div>
@@ -2187,7 +2224,7 @@
       if (ns.fetchError) {
         notesHtml = `
           <div class="notes-empty">
-            <div class="notes-empty-icon">&#9888;</div>
+            <div class="notes-empty-icon">${ICON.alert}</div>
             <h3>Could not load session notes</h3>
             <p>Memories may be unavailable while the local server is offline.</p>
             <div class="notes-empty-actions">
@@ -2199,7 +2236,7 @@
       } else if (ns.search || ns.tag || ns.session || ns.machine || ns.archived !== 'exclude') {
         notesHtml = `
           <div class="notes-empty">
-            <div class="notes-empty-icon">&#128221;</div>
+            <div class="notes-empty-icon">${ICON.fileText}</div>
             <h3>No notes match your filters</h3>
             <p>Try a different search term, tag, or clear active filters.</p>
           </div>
@@ -2207,7 +2244,7 @@
       } else if (!daemonEnabled) {
         notesHtml = `
           <div class="notes-empty">
-            <div class="notes-empty-icon">&#128164;</div>
+            <div class="notes-empty-icon">${ICON.moon}</div>
             <h3>Session notes are not capturing yet</h3>
             <p>Enable the <span title="Background process that watches sessions and auto-generates notes.">daemon</span> to start generating notes from new sessions.</p>
             <div class="notes-empty-actions">
@@ -2219,7 +2256,7 @@
       } else {
         notesHtml = `
           <div class="notes-empty">
-            <div class="notes-empty-icon">&#128221;</div>
+            <div class="notes-empty-icon">${ICON.fileText}</div>
             <h3>No session notes yet</h3>
             <p>Run one Claude session, then come back here to review what was captured.</p>
             <div class="notes-empty-actions">
@@ -2338,12 +2375,7 @@
     const resetFiltersHtml = hasActiveFilters
       ? '<button type="button" class="notes-reset-btn" id="notes-reset-filters-btn">Reset filters</button>'
       : '';
-    const notesGuideHtml = ns.total > 0 ? `
-      <div class="notes-review-guide">
-        <strong>Review flow:</strong>
-        <span>Open recent notes, pin what should stick, archive noise, then reset filters.</span>
-      </div>
-    ` : '';
+    const notesGuideHtml = '';
 
     const notesContentHtml = `
       <div class="notes-main">
@@ -2602,7 +2634,7 @@
     if (!data || !data.files) {
       container.innerHTML = `
         <div class="notes-empty">
-          <div class="notes-empty-icon">&#9888;</div>
+          <div class="notes-empty-icon">${ICON.alert}</div>
           <h3>Could not load working memory</h3>
           <p>Make sure the local server is running, then retry.</p>
           <div class="notes-empty-actions">
@@ -2622,7 +2654,7 @@
     if (!nowContent) {
       container.innerHTML = `
         <div class="notes-empty">
-          <div class="notes-empty-icon">&#128203;</div>
+          <div class="notes-empty-icon">${ICON.clipboard}</div>
           <h3>No working memory yet</h3>
           <p>The now.md file will be created automatically by the <span title="Background process that watches sessions and auto-generates notes.">daemon</span> as sessions are processed.</p>
         </div>
@@ -2653,7 +2685,7 @@
     if (!filesData || !seedsData) {
       container.innerHTML = `
         <div class="notes-empty" style="padding:24px;">
-          <div class="notes-empty-icon">&#9888;</div>
+          <div class="notes-empty-icon">${ICON.alert}</div>
           <h3>Could not load semantic memory</h3>
           <p>Check that the local server is running, then retry.</p>
           <div class="notes-empty-actions">
@@ -2701,7 +2733,7 @@
     // Upload zone
     const uploadHtml = `
       <div class="semantic-upload-zone" id="semantic-dropzone">
-        <div class="semantic-upload-icon">&#128196;</div>
+        <div class="semantic-upload-icon">${ICON.upload}</div>
         <p>Drop a document here, or click to upload</p>
         <p class="semantic-upload-hint">Markdown, plain text, or any text document</p>
         <input type="file" id="semantic-file-input" accept=".md,.txt,.text,.markdown,.rst,.org" multiple style="display:none">
@@ -2759,7 +2791,7 @@
       filesHtml = `
         <div class="semantic-section-header">Knowledge Documents</div>
         <div class="notes-empty" style="padding:24px;">
-          <div class="notes-empty-icon">&#128218;</div>
+          <div class="notes-empty-icon">${ICON.book}</div>
           <h3>No documents yet</h3>
           <p>Upload your first knowledge document to make long-lived context available at startup.</p>
           <div class="notes-empty-actions">
@@ -3115,6 +3147,53 @@
     }
   }
 
+  function renderProviderCards(llm) {
+    const providers = [
+      { id: 'deepseek', name: 'DeepSeek', defaultModel: 'deepseek-chat', keyPlaceholder: 'sk-...' },
+      { id: 'gemini', name: 'Gemini', defaultModel: 'gemini-2.5-flash', keyPlaceholder: 'AI...' },
+      { id: 'claude', name: 'Claude', defaultModel: 'claude-haiku-4-5-20251001', keyPlaceholder: 'sk-ant-...' },
+    ];
+    const activeProvider = llm.provider || 'deepseek';
+    return providers.map(p => {
+      const isActive = activeProvider === p.id;
+      const hasKey = isActive && !!(llm.api_key);
+      const statusText = hasKey ? 'Configured' : 'Not configured';
+      const statusClass = hasKey ? 'configured' : 'not-configured';
+      const expanded = state._expandedProvider === p.id;
+      return `
+        <div class="provider-card ${expanded ? 'expanded' : ''} ${isActive ? 'active' : ''}" data-provider="${p.id}">
+          <div class="provider-card-header" data-toggle-provider="${p.id}">
+            <div class="provider-card-name">${p.name}</div>
+            <span class="provider-status provider-status-${statusClass}">${statusText}</span>
+          </div>
+          ${expanded ? `
+          <div class="provider-card-body">
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-label">API Key</div>
+                <div class="settings-row-desc">Stored locally, never sent anywhere</div>
+              </div>
+              <div class="settings-row-control">
+                <input type="password" class="provider-apikey" data-provider="${p.id}" value="${esc(isActive ? (llm.api_key || '') : '')}" placeholder="${p.keyPlaceholder}">
+              </div>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-label">Model</div>
+              </div>
+              <div class="settings-row-control">
+                <input type="text" class="provider-model" data-provider="${p.id}" value="${esc(isActive ? (llm.model || p.defaultModel) : p.defaultModel)}" placeholder="${p.defaultModel}">
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+              <button class="btn btn-primary btn-small provider-save-btn" data-provider="${p.id}">Save &amp; activate</button>
+            </div>
+          </div>
+          ` : ''}
+        </div>`;
+    }).join('');
+  }
+
   function renderSettingsPage(container) {
     const s = state.settingsCache || {};
     const llm = s.llm_provider || {};
@@ -3192,7 +3271,7 @@
         <div class="settings-grid">
           <div class="settings-section">
             <div class="settings-section-header">
-              <div class="settings-section-icon ochre">&#9788;</div>
+              <div class="settings-section-icon ochre">${ICON.sun}</div>
               <h3>Appearance</h3>
             </div>
             <div class="settings-section-body">
@@ -3214,94 +3293,25 @@
 
           <div class="settings-section">
             <div class="settings-section-header">
-              <div class="settings-section-icon terracotta">&#9881;</div>
-              <h3>LLM Provider</h3>
+              <div class="settings-section-icon terracotta">${ICON.settings}</div>
+              <h3>Summarisation</h3>
             </div>
             <div class="settings-section-body">
-              <div class="settings-row">
-                <div class="settings-row-info">
-                  <div class="settings-row-label">API Endpoint</div>
-                  <div class="settings-row-desc">e.g. https://api.deepseek.com/v1</div>
-                </div>
-                <div class="settings-row-control">
-                  <input type="text" id="settings-llm-endpoint" value="${esc(llm.endpoint || '')}" placeholder="https://api.deepseek.com/v1">
-                </div>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-info">
-                  <div class="settings-row-label">API Key</div>
-                  <div class="settings-row-desc">Stored locally, never sent anywhere</div>
-                </div>
-                <div class="settings-row-control">
-                  <input type="password" id="settings-llm-apikey" value="${esc(llm.api_key || '')}" placeholder="sk-...">
-                </div>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-info">
-                  <div class="settings-row-label">Model</div>
-                  <div class="settings-row-desc">e.g. deepseek-chat, gpt-4o-mini</div>
-                </div>
-                <div class="settings-row-control">
-                  <input type="text" id="settings-llm-model" value="${esc(llm.model || '')}" placeholder="deepseek-chat">
-                </div>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-info">
-                  <div class="settings-row-label">Session Notes Route</div>
-                  <div class="settings-row-desc">Provider used for daemon session note generation</div>
-                </div>
-                <div class="settings-row-control">
-                  <select id="settings-route-session-notes">
-                    ${routeSelect(routing.session_notes || 'deepseek')}
-                  </select>
-                </div>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-info">
-                  <div class="settings-row-label">now.md Route</div>
-                  <div class="settings-row-desc">Provider used for rolling now.md synthesis</div>
-                </div>
-                <div class="settings-row-control">
-                  <select id="settings-route-now-md">
-                    ${routeSelect(routing.now_md || 'deepseek')}
-                  </select>
-                </div>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-info">
-                  <div class="settings-row-label">Anchors Route</div>
-                  <div class="settings-row-desc">Provider used by Semantic tab on-demand anchor processing</div>
-                </div>
-                <div class="settings-row-control">
-                  <select id="settings-route-anchors">
-                    ${routeSelect(routing.anchors || 'deepseek')}
-                  </select>
-                </div>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-info">
-                  <div class="settings-row-label">Claude CLI Command</div>
-                  <div class="settings-row-desc">Used when route is Claude CLI</div>
-                </div>
-                <div class="settings-row-control">
-                  <input type="text" id="settings-claude-command" value="${esc(claudeCli.command || 'claude')}" placeholder="claude">
-                </div>
-              </div>
-              <div class="settings-row">
-                <div class="settings-row-info">
-                  <div class="settings-row-label">Claude Prompt Flag</div>
-                  <div class="settings-row-desc">Default: -p (for claude -p \"...\")</div>
-                </div>
-                <div class="settings-row-control">
-                  <input type="text" id="settings-claude-prompt-flag" value="${esc(claudeCli.prompt_flag || '-p')}" placeholder="-p">
-                </div>
-              </div>
+              ${renderProviderCards(llm)}
             </div>
+          </div>
+          <div style="display:none"><!-- hidden routing/CLI fields for backward compat -->
+              <select id="settings-route-session-notes"><option value="${esc(routing.session_notes || 'deepseek')}" selected></option></select>
+              <select id="settings-route-now-md"><option value="${esc(routing.now_md || 'deepseek')}" selected></option></select>
+              <select id="settings-route-anchors"><option value="${esc(routing.anchors || 'deepseek')}" selected></option></select>
+              <input type="text" id="settings-claude-command" value="${esc(claudeCli.command || 'claude')}">
+              <input type="text" id="settings-claude-prompt-flag" value="${esc(claudeCli.prompt_flag || '-p')}">
+              <input type="text" id="settings-llm-endpoint" value="${esc(llm.endpoint || '')}">
           </div>
 
           <div class="settings-section">
             <div class="settings-section-header">
-              <div class="settings-section-icon sage">&#9783;</div>
+              <div class="settings-section-icon sage">${ICON.book}</div>
               <h3>Token Budget</h3>
             </div>
             <div class="settings-section-body">
@@ -3319,7 +3329,7 @@
 
           <div class="settings-section">
             <div class="settings-section-header">
-              <div class="settings-section-icon sand">&#9672;</div>
+              <div class="settings-section-icon sand">${ICON.compass}</div>
               <h3 title="Background process that watches sessions and auto-generates notes.">Daemon</h3>
             </div>
             <div class="settings-section-body">
@@ -3350,7 +3360,7 @@
 
           <div class="settings-section">
             <div class="settings-section-header">
-              <div class="settings-section-icon ochre">&#128193;</div>
+              <div class="settings-section-icon ochre">${ICON.folder}</div>
               <h3>Data</h3>
             </div>
             <div class="settings-section-body">
@@ -3383,7 +3393,7 @@
         <div class="settings-grid" style="margin-top:20px;">
           <div class="settings-section">
             <div class="settings-section-header">
-              <div class="settings-section-icon sage">&#128268;</div>
+              <div class="settings-section-icon sage">${ICON.plug}</div>
               <h3>Backups</h3>
             </div>
             <div class="settings-section-body">
@@ -3445,11 +3455,6 @@
 
   function buildSettingsPayload() {
     return {
-      llm_provider: {
-        endpoint: getInputValue('settings-llm-endpoint'),
-        api_key: getInputValue('settings-llm-apikey'),
-        model: getInputValue('settings-llm-model'),
-      },
       llm_routing: {
         session_notes: getInputValue('settings-route-session-notes'),
         now_md: getInputValue('settings-route-now-md'),
@@ -3619,6 +3624,40 @@
     });
 
     bindById('settings-save-btn', 'click', handleSettingsSave);
+
+    // Provider card toggle/save
+    container.querySelectorAll('[data-toggle-provider]').forEach(el => {
+      el.addEventListener('click', () => {
+        const provider = el.dataset.toggleProvider;
+        state._expandedProvider = state._expandedProvider === provider ? null : provider;
+        renderSettingsPage(container);
+      });
+    });
+    container.querySelectorAll('.provider-save-btn').forEach(el => {
+      el.addEventListener('click', async () => {
+        const provider = el.dataset.provider;
+        const card = el.closest('.provider-card');
+        const apiKey = card.querySelector('.provider-apikey').value;
+        const model = card.querySelector('.provider-model').value;
+        const llmPayload = { provider, api_key: apiKey, model };
+        await runMutationAction(
+          () => apiFetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ llm_provider: llmPayload }),
+          }),
+          {
+            onSuccess: (result) => {
+              if (result.settings) state.settingsCache = result.settings;
+              state._expandedProvider = null;
+            },
+            successMessage: `${provider.charAt(0).toUpperCase() + provider.slice(1)} activated`,
+            errorMessage: 'Failed to save provider',
+          }
+        );
+        renderSettingsPage(container);
+      });
+    });
     bindById('settings-export-btn', 'click', handleSettingsExport);
     bindById('settings-import-btn', 'click', () => {
       const fileInput = document.getElementById('settings-import-input');
@@ -3636,10 +3675,10 @@
           <div class="seeds-header-row">
             <div class="seeds-sub-nav">
               <button class="seeds-tab ${state.activeFile === 'user' ? 'active' : ''}" data-seed-file="user">
-                <span class="tab-icon">&#9786;</span>user.md
+                <span class="tab-icon">${ICON.user}</span>user.md
               </button>
               <button class="seeds-tab ${state.activeFile === 'agent' ? 'active' : ''}" data-seed-file="agent">
-                <span class="tab-icon">&#9881;</span>agent.md
+                <span class="tab-icon">${ICON.settings}</span>agent.md
               </button>
             </div>
             <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
@@ -3864,7 +3903,7 @@
         const semanticTokens = semantics.reduce((s, b) => s + b.tokens, 0);
 
         const detailRows = breakdown.map(b => {
-          const icon = b.type === 'seed' ? '&#128203;' : '&#9875;';
+          const icon = b.type === 'seed' ? ICON.clipboard : ICON.link;
           const depthLabel = b.type === 'semantic' && b.depth !== undefined
             ? `<span class="depth-badge">depth ${b.depth}</span>` : '';
           return `
@@ -3880,7 +3919,7 @@
             <div class="token-budget-header">
               <span class="token-budget-label">
                 Context Budget
-                <span class="token-budget-chevron">&#9660;</span>
+                <span class="token-budget-chevron">${ICON.chevDown}</span>
               </span>
               <span class="token-budget-total">${formatTokens(total)} / ${formatTokens(maxTokens)} tokens</span>
             </div>
@@ -3948,7 +3987,7 @@
               <input type="checkbox" ${enabled ? 'checked' : ''} data-section-toggle="${id}">
               <span class="section-toggle-track"></span>
             </label>
-            <span class="section-chevron" onclick="window.seedApp.toggleSection('section-${id}')">&#9660;</span>
+            <span class="section-chevron" onclick="window.seedApp.toggleSection('section-${id}')">${ICON.chevDown}</span>
           </div>
         </div>
         <div class="section-body">
@@ -3964,7 +4003,7 @@
     container.innerHTML = `
       ${renderPresetBar()}
 
-      ${renderSection('identity', 'Identity', 'Who you are', 'terracotta', '&#9733;', `
+      ${renderSection('identity', 'Identity', 'Who you are', 'terracotta', ICON.star, `
         <div class="form-row">
           <div class="form-group">
             <label>Name</label>
@@ -3987,13 +4026,13 @@
         </div>
       `)}
 
-      ${renderSection('about', 'About', 'A brief bio or description', 'sage', '&#9998;', `
+      ${renderSection('about', 'About', 'A brief bio or description', 'sage', ICON.edit, `
         <div class="form-group">
           <textarea data-bind="user.about" rows="4" placeholder="Tell the agent about yourself. What matters to you? What should it know?">${esc(u.about)}</textarea>
         </div>
       `)}
 
-      ${renderSection('cognitive', 'Neurotype', 'Neurodivergence and cognitive differences', 'sand', '&#10024;', `
+      ${renderSection('cognitive', 'Neurotype', 'Neurodivergence and cognitive differences', 'sand', ICON.sparkle, `
         <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;">Select any that apply. This helps the agent adapt its communication style.</p>
         <div class="toggle-group" id="cognitive-toggles">
           ${u.cognitiveOptions.map(k => {
@@ -4001,19 +4040,19 @@
             const isCustom = !isDefaultCognitive(k);
             return `
               <div class="toggle-item ${active ? 'active' : ''}" data-cognitive="${k}">
-                <span class="toggle-check">${active ? '&#10003;' : ''}</span>
+                <span class="toggle-check">${active ? '${ICON.check}' : ''}</span>
                 ${getCognitiveLabel(k)}
-                ${isCustom ? `<button class="toggle-remove" data-remove-cognitive="${k}" title="Remove">&#10005;</button>` : ''}
+                ${isCustom ? `<button class="toggle-remove" data-remove-cognitive="${k}" title="Remove">${ICON.x}</button>` : ''}
               </div>
             `;
           }).join('')}
           <div class="toggle-item custom-toggle" id="add-cognitive-btn">
-            <span style="font-size:0.9em;">&#43;</span> Add custom...
+            ${ICON.plus} Add custom...
           </div>
         </div>
       `)}
 
-      ${renderSection('cogStyle', 'Cognitive Style', 'How you think and process information', 'clay', '&#9881;', `
+      ${renderSection('cogStyle', 'Cognitive Style', 'How you think and process information', 'clay', ICON.settings, `
         <div class="spectrum-group" id="cogstyle-spectrums">
           ${DEFAULT_COGNITIVE_STYLE_DIMS.concat(u.cognitiveStyleDims || []).map(d => {
             const val = u.cognitiveStyle[d.key] || 'balanced';
@@ -4026,15 +4065,15 @@
                   <button class="spectrum-pill ${val === 'balanced' ? 'active' : ''}" data-val="balanced">Balanced</button>
                   <button class="spectrum-pill ${val === 'right' ? 'active' : ''}" data-val="right">${d.right}</button>
                 </div>
-                ${isCustom ? `<button class="btn btn-icon btn-danger-ghost btn-small" data-remove-cogstyle="${d.key}" title="Remove">&#10005;</button>` : ''}
+                ${isCustom ? `<button class="btn btn-icon btn-danger-ghost btn-small" data-remove-cogstyle="${d.key}" title="Remove">${ICON.x}</button>` : ''}
               </div>
             `;
           }).join('')}
         </div>
-        <button class="add-item-btn" id="add-cogstyle-btn" style="margin-top:12px;">&#43; Add custom dimension...</button>
+        <button class="add-item-btn" id="add-cogstyle-btn" style="margin-top:12px;">${ICON.plus} Add custom dimension...</button>
       `)}
 
-      ${renderSection('values', 'Values', 'Ranked preferences that guide responses', 'terracotta', '&#9878;', `
+      ${renderSection('values', 'Values', 'Ranked preferences that guide responses', 'terracotta', ICON.scale, `
         <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;">What matters more? Left side is preferred over right side.</p>
         <div class="value-pairs" id="value-pairs">
           ${u.values.map((v, i) => `
@@ -4042,18 +4081,18 @@
               <input type="text" value="${esc(v.higher)}" data-pair="higher" placeholder="More important">
               <span class="separator">&gt;</span>
               <input type="text" value="${esc(v.lower)}" data-pair="lower" placeholder="Less important">
-              <button class="btn btn-icon btn-danger-ghost" data-remove-value="${i}" title="Remove">&#10005;</button>
+              <button class="btn btn-icon btn-danger-ghost" data-remove-value="${i}" title="Remove">${ICON.x}</button>
             </div>
           `).join('')}
         </div>
-        <button class="add-item-btn" id="add-value-btn">&#43; Add value pair</button>
+        <button class="add-item-btn" id="add-value-btn">${ICON.plus} Add value pair</button>
       `)}
 
-      ${renderSection('interests', 'Interests', 'Things you care about', 'sage', '&#9733;', `
+      ${renderSection('interests', 'Interests', 'Things you care about', 'sage', ICON.star, `
         <div class="repeatable-list" id="interests-list" data-reorder-list="interests">
           ${u.interests.length ? u.interests.map((item, i) => `
             <div class="repeatable-item" data-reorder-item="${i}">
-              <div class="reorder-handle" data-reorder-handle>&#8942;&#8942;</div>
+              <div class="reorder-handle" data-reorder-handle>${ICON.grip}</div>
               <div class="item-fields">
                 <div class="form-row">
                   <div class="form-group" style="flex:1">
@@ -4066,56 +4105,56 @@
                   <textarea data-interest="${i}" data-field="context" rows="2" placeholder="Level, focus areas, what Claude should know...">${esc(item.context)}</textarea>
                 </div>
               </div>
-              <button class="btn btn-icon btn-danger-ghost" data-remove-interest="${i}" title="Remove">&#10005;</button>
+              <button class="btn btn-icon btn-danger-ghost" data-remove-interest="${i}" title="Remove">${ICON.x}</button>
             </div>
           `).join('') : `
             <div class="empty-state">
-              <div class="empty-state-icon">&#9733;</div>
+              <div class="empty-state-icon">${ICON.star}</div>
               <h3>No interests added yet</h3>
               <p>Add things you care about so the agent knows when to go deeper or when to skim.</p>
             </div>
           `}
         </div>
-        <button class="add-item-btn" id="add-interest-btn">&#43; Add interest</button>
+        <button class="add-item-btn" id="add-interest-btn">${ICON.plus} Add interest</button>
       `)}
 
-      ${renderSection('people', 'People', 'People the agent should know about', 'clay', '&#9824;', `
+      ${renderSection('people', 'People', 'People the agent should know about', 'clay', ICON.users, `
         <div class="repeatable-list" id="people-list" data-reorder-list="people">
           ${u.people.length ? u.people.map((p, i) => renderPersonItem(p, i)).join('') : `
             <div class="empty-state">
-              <div class="empty-state-icon">&#128101;</div>
+              <div class="empty-state-icon">${ICON.users}</div>
               <h3>No people added yet</h3>
               <p>Add people the agent should know about &mdash; family, friends, colleagues, or anyone relevant to your conversations.</p>
             </div>
           `}
         </div>
-        <button class="add-item-btn" id="add-person-btn">&#43; Add person</button>
+        <button class="add-item-btn" id="add-person-btn">${ICON.plus} Add person</button>
       `)}
 
-      ${renderSection('projects', 'Projects', 'Active projects and their context', 'sand', '&#128193;', `
+      ${renderSection('projects', 'Projects', 'Active projects and their context', 'sand', ICON.folder, `
         <div class="repeatable-list" id="projects-list" data-reorder-list="projects">
           ${u.projects.length ? u.projects.map((p, i) => renderProjectItem(p, i)).join('') : `
             <div class="empty-state">
-              <div class="empty-state-icon">&#128194;</div>
+              <div class="empty-state-icon">${ICON.folder}</div>
               <h3>No projects added yet</h3>
               <p>Add projects you're working on so the agent has context about your work.</p>
             </div>
           `}
         </div>
-        <button class="add-item-btn" id="add-project-btn">&#43; Add project</button>
+        <button class="add-item-btn" id="add-project-btn">${ICON.plus} Add project</button>
       `)}
 
-      ${renderSection('user-custom', 'Custom Sections', 'Add your own sections', 'terracotta', '&#43;', `
+      ${renderSection('user-custom', 'Custom Sections', 'Add your own sections', 'terracotta', ICON.plus, `
         <div class="custom-sections" id="user-custom-sections" data-reorder-list="user-custom">
           ${u.customSections.length ? u.customSections.map((s, i) => renderCustomSectionItem(s, i, 'user')).join('') : `
             <div class="empty-state">
-              <div class="empty-state-icon">&#9997;</div>
+              <div class="empty-state-icon">${ICON.penTool}</div>
               <h3>No custom sections</h3>
               <p>Add anything else the agent should know &mdash; health context, work environment, preferences, routines, or any other relevant information.</p>
             </div>
           `}
         </div>
-        <button class="add-item-btn" id="add-user-custom-btn">&#43; Add custom section</button>
+        <button class="add-item-btn" id="add-user-custom-btn">${ICON.plus} Add custom section</button>
       `)}
     `;
 
@@ -4133,59 +4172,59 @@
     container.innerHTML = `
       ${renderPresetBar()}
 
-      ${renderSection('agent-name', 'Name', 'What the agent calls itself', 'sage', '&#9881;', `
+      ${renderSection('agent-name', 'Name', 'What the agent calls itself', 'sage', ICON.settings, `
         <div class="form-group">
           <label>Agent Name</label>
           <input type="text" data-bind="agent.name" value="${esc(a.name)}" placeholder="e.g. Claude, Aria, Helper">
         </div>
       `)}
 
-      ${renderSection('agent-about', 'About', 'Who is this agent and what is it for', 'sage', '&#9998;', `
+      ${renderSection('agent-about', 'About', 'Who is this agent and what is it for', 'sage', ICON.edit, `
         <div class="form-group">
           <textarea data-bind="agent.about" rows="4" placeholder="Describe who this agent is, its role, personality, or purpose.">${esc(a.about)}</textarea>
         </div>
       `)}
 
-      ${renderSection('communication', 'Communication Preferences', 'How the agent should talk to you', 'sage', '&#128172;', `
+      ${renderSection('communication', 'Communication Preferences', 'How the agent should talk to you', 'sage', ICON.chat, `
         <div id="communication-switches">
           ${a.communicationOptions.map(k => {
             const isCustom = !isDefaultComm(k);
             return renderSwitchRowWithRemove('agent.communicationActive.' + k, getCommLabel(k), getCommDesc(k), !!a.communicationActive[k], isCustom ? k : null, 'comm');
           }).join('')}
         </div>
-        <button class="add-item-btn" id="add-comm-btn" style="margin-top:12px;">&#43; Add custom preference...</button>
+        <button class="add-item-btn" id="add-comm-btn" style="margin-top:12px;">${ICON.plus} Add custom preference...</button>
       `)}
 
-      ${renderSection('traits', 'Character Traits', 'Personality sliders', 'terracotta', '&#9734;', `
+      ${renderSection('traits', 'Character Traits', 'Personality sliders', 'terracotta', ICON.sliders, `
         <div id="trait-sliders">
           ${a.traitOptions.map(key => renderSlider(key, getTraitLabel(key), a.traits[key] || 50, getTraitEndpoints(key), !isDefaultTrait(key))).join('')}
         </div>
-        <button class="add-item-btn" id="add-trait-btn" style="margin-top:12px;">&#43; Add custom trait...</button>
+        <button class="add-item-btn" id="add-trait-btn" style="margin-top:12px;">${ICON.plus} Add custom trait...</button>
       `)}
 
-      ${renderSection('behaviors', 'Behaviors', 'What the agent should do', 'sage', '&#10003;', `
+      ${renderSection('behaviors', 'Behaviors', 'What the agent should do', 'sage', ICON.check, `
         <div class="toggle-group" id="behavior-toggles">
           ${a.behaviorOptions.map(k => {
             const active = a.behaviorsActive[k];
             const isCustom = !isDefaultBehavior(k);
             return `
               <div class="toggle-item ${active ? 'active' : ''}" data-behavior="${k}">
-                <span class="toggle-check">${active ? '&#10003;' : ''}</span>
+                <span class="toggle-check">${active ? '${ICON.check}' : ''}</span>
                 ${getBehaviorLabel(k)}
-                ${isCustom ? `<button class="toggle-remove" data-remove-behavior="${k}" title="Remove">&#10005;</button>` : ''}
+                ${isCustom ? `<button class="toggle-remove" data-remove-behavior="${k}" title="Remove">${ICON.x}</button>` : ''}
               </div>
             `;
           }).join('')}
           <div class="toggle-item custom-toggle" id="add-behavior-btn">
-            <span style="font-size:0.9em;">&#43;</span> Add custom...
+            ${ICON.plus} Add custom...
           </div>
         </div>
       `)}
 
-      ${renderSection('avoid', 'Avoid', 'Things the agent should not do', 'sand', '&#10007;', `
+      ${renderSection('avoid', 'Avoid', 'Things the agent should not do', 'sand', ICON.ban, `
         <div class="tag-list" id="avoid-tags">
           ${a.avoid.length ? a.avoid.map((item, i) => `
-            <span class="tag">${esc(item)}<button class="tag-remove" data-remove-avoid="${i}">&#10005;</button></span>
+            <span class="tag">${esc(item)}<button class="tag-remove" data-remove-avoid="${i}">${ICON.x}</button></span>
           `).join('') : ''}
         </div>
         ${a.avoid.length === 0 ? `
@@ -4197,37 +4236,37 @@
         </div>
       `)}
 
-      ${renderSection('when-low', 'When User Is Low', 'How to behave when the user seems down', 'clay', '&#9829;', `
+      ${renderSection('when-low', 'When User Is Low', 'How to behave when the user seems down', 'clay', ICON.heart, `
         <div id="when-low-switches">
           ${a.whenLowOptions.map(k => {
             const isCustom = !isDefaultWhenLow(k);
             return renderSwitchRowWithRemove('agent.whenLowActive.' + k, getWhenLowLabel(k), getWhenLowDesc(k), !!a.whenLowActive[k], isCustom ? k : null, 'whenlow');
           }).join('')}
         </div>
-        <button class="add-item-btn" id="add-whenlow-btn" style="margin-top:12px;">&#43; Add custom behavior...</button>
+        <button class="add-item-btn" id="add-whenlow-btn" style="margin-top:12px;">${ICON.plus} Add custom behavior...</button>
       `)}
 
-      ${renderSection('tech-style', 'Technical Style', 'Code and technical preferences', 'terracotta', '&#128187;', `
+      ${renderSection('tech-style', 'Technical Style', 'Code and technical preferences', 'terracotta', ICON.code, `
         <div id="tech-style-switches">
           ${a.techStyleOptions.map(k => {
             const isCustom = !isDefaultTech(k);
             return renderSwitchRowWithRemove('agent.techStyleActive.' + k, getTechLabel(k), getTechDesc(k), !!a.techStyleActive[k], isCustom ? k : null, 'techstyle');
           }).join('')}
         </div>
-        <button class="add-item-btn" id="add-techstyle-btn" style="margin-top:12px;">&#43; Add custom preference...</button>
+        <button class="add-item-btn" id="add-techstyle-btn" style="margin-top:12px;">${ICON.plus} Add custom preference...</button>
       `)}
 
-      ${renderSection('agent-custom', 'Custom Sections', 'Add your own sections', 'sage', '&#43;', `
+      ${renderSection('agent-custom', 'Custom Sections', 'Add your own sections', 'sage', ICON.plus, `
         <div class="custom-sections" id="agent-custom-sections" data-reorder-list="agent-custom">
           ${a.customSections.length ? a.customSections.map((s, i) => renderCustomSectionItem(s, i, 'agent')).join('') : `
             <div class="empty-state">
-              <div class="empty-state-icon">&#9997;</div>
+              <div class="empty-state-icon">${ICON.penTool}</div>
               <h3>No custom sections</h3>
               <p>Add anything else you want the agent to know about itself &mdash; role context, special instructions, domain expertise, etc.</p>
             </div>
           `}
         </div>
-        <button class="add-item-btn" id="add-agent-custom-btn">&#43; Add custom section</button>
+        <button class="add-item-btn" id="add-agent-custom-btn">${ICON.plus} Add custom section</button>
       `)}
     `;
 
@@ -4252,7 +4291,7 @@
             <input type="checkbox" data-bind="${bind}" ${checked ? 'checked' : ''}>
             <span class="switch-track"></span>
           </label>
-          ${removeKey ? `<button class="switch-remove-btn" data-remove-switchrow="${removeKey}" data-remove-type="${removeType}" title="Remove">&#10005;</button>` : ''}
+          ${removeKey ? `<button class="switch-remove-btn" data-remove-switchrow="${removeKey}" data-remove-type="${removeType}" title="Remove">${ICON.x}</button>` : ''}
         </div>
       </div>
     `;
@@ -4266,7 +4305,7 @@
           <span class="slider-label">${label}</span>
           <span style="display:flex;align-items:center;gap:4px;">
             <span class="slider-value" id="slider-val-${key}">${desc}</span>
-            ${removable ? `<button class="slider-remove-btn" data-remove-trait="${key}" title="Remove">&#10005;</button>` : ''}
+            ${removable ? `<button class="slider-remove-btn" data-remove-trait="${key}" title="Remove">${ICON.x}</button>` : ''}
           </span>
         </div>
         <input type="range" min="0" max="100" value="${value}" data-trait="${key}">
@@ -4283,10 +4322,10 @@
       <div class="repeatable-item reorder-item" draggable="true" data-reorder-group="people" data-reorder-index="${i}" data-person-index="${i}">
         <div class="repeatable-item-header">
           <div class="repeatable-item-title">
-            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">&#8942;&#8942;</span>
+            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">${ICON.grip}</span>
             <strong style="font-size:0.88rem;">${p.name || 'New person'}</strong>
           </div>
-          <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-person="${i}" title="Remove">&#10005;</button>
+          <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-person="${i}" title="Remove">${ICON.x}</button>
         </div>
         <div class="repeatable-item-fields">
           <div class="repeatable-item-row">
@@ -4313,10 +4352,10 @@
       <div class="repeatable-item reorder-item" draggable="true" data-reorder-group="projects" data-reorder-index="${i}" data-project-index="${i}">
         <div class="repeatable-item-header">
           <div class="repeatable-item-title">
-            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">&#8942;&#8942;</span>
+            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">${ICON.grip}</span>
             <strong style="font-size:0.88rem;">${p.name || 'New project'}</strong>
           </div>
-          <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-project="${i}" title="Remove">&#10005;</button>
+          <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-project="${i}" title="Remove">${ICON.x}</button>
         </div>
         <div class="repeatable-item-fields">
           <div class="repeatable-item-row">
@@ -4350,10 +4389,10 @@
       <div class="custom-section-item reorder-item" draggable="true" data-reorder-group="${group}" data-reorder-index="${i}" data-custom-index="${i}" data-custom-type="${type}">
         <div class="repeatable-item-header">
           <div class="repeatable-item-title">
-            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">&#8942;&#8942;</span>
+            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">${ICON.grip}</span>
             <strong style="font-size:0.88rem;">${s.title || 'New section'}</strong>
           </div>
-          <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-custom="${i}" data-custom-type="${type}" title="Remove">&#10005;</button>
+          <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-custom="${i}" data-custom-type="${type}" title="Remove">${ICON.x}</button>
         </div>
         <div class="form-group">
           <label>Section Title</label>
@@ -4442,7 +4481,7 @@
         const key = el.dataset.cognitive;
         state.user.cognitiveActive[key] = !state.user.cognitiveActive[key];
         el.classList.toggle('active');
-        el.querySelector('.toggle-check').innerHTML = state.user.cognitiveActive[key] ? '&#10003;' : '';
+        el.querySelector('.toggle-check').innerHTML = state.user.cognitiveActive[key] ? '${ICON.check}' : '';
         renderPreview();
         debouncedSave();
       });
@@ -4669,7 +4708,7 @@
         const key = el.dataset.behavior;
         state.agent.behaviorsActive[key] = !state.agent.behaviorsActive[key];
         el.classList.toggle('active');
-        el.querySelector('.toggle-check').innerHTML = state.agent.behaviorsActive[key] ? '&#10003;' : '';
+        el.querySelector('.toggle-check').innerHTML = state.agent.behaviorsActive[key] ? '${ICON.check}' : '';
         renderPreview();
         debouncedSave();
       });
@@ -4961,8 +5000,8 @@
     form.className = 'inline-add-form';
     form.innerHTML = `
       <input type="text" placeholder="Type a name..." autofocus>
-      <button class="inline-add-confirm" title="Add">&#10003;</button>
-      <button class="inline-add-cancel" title="Cancel">&#10005;</button>
+      <button class="inline-add-confirm" title="Add">${ICON.check}</button>
+      <button class="inline-add-cancel" title="Cancel">${ICON.x}</button>
     `;
 
     targetEl.parentNode.insertBefore(form, targetEl);
@@ -5005,8 +5044,8 @@
       <input type="text" placeholder="Dimension name..." autofocus>
       <input type="text" placeholder="Left endpoint...">
       <input type="text" placeholder="Right endpoint...">
-      <button class="inline-add-confirm" title="Add">&#10003;</button>
-      <button class="inline-add-cancel" title="Cancel">&#10005;</button>
+      <button class="inline-add-confirm" title="Add">${ICON.check}</button>
+      <button class="inline-add-cancel" title="Cancel">${ICON.x}</button>
     `;
 
     targetEl.parentNode.insertBefore(form, targetEl);
@@ -5056,7 +5095,7 @@
         <div class="modal">
           <div class="modal-header">
             <h3>Import ${fileType}.md</h3>
-            <button class="btn btn-icon btn-ghost" id="import-close-btn" title="Close">&#10005;</button>
+            <button class="btn btn-icon btn-ghost" id="import-close-btn" title="Close">${ICON.x}</button>
           </div>
           <div class="modal-body">
             <div class="import-tabs">
@@ -5068,7 +5107,7 @@
             </div>
             <div id="import-tab-upload" style="display:none;">
               <div class="file-drop-zone" id="file-drop-zone">
-                <div class="file-drop-zone-icon">&#128196;</div>
+                <div class="file-drop-zone-icon">${ICON.upload}</div>
                 <p>Drop a .md file here, or click to browse</p>
                 <input type="file" id="import-file-input" accept=".md,.txt,.markdown">
               </div>
@@ -5387,8 +5426,8 @@
         inList = false;
       }
 
-      if (h3) { htmlLines.push(`<h3 data-preview-section="${slugify(h3[1])}">${inlineFmt(h3[1])}<span class="preview-anchor" title="Jump to form section">&#128279;</span></h3>`); }
-      else if (h2) { htmlLines.push(`<h2 data-preview-section="${slugify(h2[1])}">${inlineFmt(h2[1])}<span class="preview-anchor" title="Jump to form section">&#128279;</span></h2>`); }
+      if (h3) { htmlLines.push(`<h3 data-preview-section="${slugify(h3[1])}">${inlineFmt(h3[1])}<span class="preview-anchor" title="Jump to form section">${ICON.link}</span></h3>`); }
+      else if (h2) { htmlLines.push(`<h2 data-preview-section="${slugify(h2[1])}">${inlineFmt(h2[1])}<span class="preview-anchor" title="Jump to form section">${ICON.link}</span></h2>`); }
       else if (h1) { htmlLines.push(`<h1 data-preview-section="${slugify(h1[1])}">${inlineFmt(h1[1])}</h1>`); }
       else if (hr) { htmlLines.push('<hr>'); }
       else if (bq) { htmlLines.push(`<blockquote>${inlineFmt(bq[1])}</blockquote>`); }
