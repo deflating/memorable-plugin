@@ -309,6 +309,27 @@
     setTimeout(() => el.classList.remove('visible'), 2200);
   }
 
+  // ---- Save Indicator ----
+  let saveStateTimer = null;
+
+  function setSaveState(newState) {
+    document.querySelectorAll('.save-indicator').forEach(el => {
+      clearTimeout(saveStateTimer);
+      el.className = 'save-indicator save-state-' + newState;
+
+      if (newState === 'idle') {
+        el.innerHTML = '<span class="dot"></span> Auto-save on';
+      } else if (newState === 'saving') {
+        el.innerHTML = '<span class="dot saving-pulse"></span> Saving\u2026';
+      } else if (newState === 'saved') {
+        el.innerHTML = '<span class="dot saved-dot"></span> Saved';
+        saveStateTimer = setTimeout(() => setSaveState('idle'), 2000);
+      } else if (newState === 'error') {
+        el.innerHTML = '<span class="dot error-dot"></span> Save failed <a href="#" class="save-retry-link" onclick="event.preventDefault(); window.memorableApp.retrySave();">Retry</a>';
+      }
+    });
+  }
+
   // ---- Make a safe key from a label ----
   function labelToKey(label) {
     return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '') || ('custom_' + Date.now());
@@ -2052,7 +2073,7 @@
         <button class="view-toggle-btn ${state.activeView === 'markdown' ? 'active' : ''}" data-view="markdown">Markdown</button>
       </div>
       <div class="action-buttons">
-        <span class="save-indicator"><span class="dot"></span> Auto-saved</span>
+        <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
         <button class="btn" onclick="window.memorableApp.showImportModal()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           Import
@@ -2110,7 +2131,7 @@
             <span style="font-size:0.88rem;color:var(--text-muted);">${state.files.length} file${state.files.length !== 1 ? 's' : ''}</span>
           </div>
           <div class="action-buttons">
-            <span class="save-indicator"><span class="dot"></span> Auto-saved</span>
+            <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
           </div>
         </div>
         <div class="files-content" id="files-content"></div>
@@ -3689,13 +3710,18 @@
     return md;
   }
 
-  const debouncedSave = debounce(() => saveToLocalStorage(), 500);
+  const debouncedSave = debounce(() => {
+    setSaveState('saving');
+    saveToLocalStorage();
+  }, 500);
 
   // ---- localStorage ----
   function saveToLocalStorage() {
     try {
       localStorage.setItem('seedConfigurator', JSON.stringify(state));
+      setSaveState('saved');
     } catch (e) {
+      setSaveState('error');
       showToast('Failed to save locally: storage quota exceeded', 'error');
     }
   }
@@ -3856,6 +3882,11 @@
 
     showImportModal() {
       showImportModal();
+    },
+
+    retrySave() {
+      setSaveState('saving');
+      saveToLocalStorage();
     },
 
     copyToClipboard(file) {
