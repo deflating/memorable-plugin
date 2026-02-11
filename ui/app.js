@@ -1120,6 +1120,18 @@
     }
   }
 
+  function bindById(id, event, handler) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener(event, handler);
+  }
+
+  function bindAll(root, selector, event, handler) {
+    root.querySelectorAll(selector).forEach((el) => {
+      el.addEventListener(event, (ev) => handler(ev, el));
+    });
+  }
+
   // ---- Server Status ----
   async function checkServerStatus() {
     try {
@@ -2015,173 +2027,127 @@
       </div>
     `;
 
-    // --- Event bindings ---
+    const refreshNotes = () => fetchNotesPage(false).then(() => renderNotesPage(container));
 
-    // Search
-    const searchInput = document.getElementById('notes-search-input');
-    if (searchInput) {
-      searchInput.addEventListener('input', debounce(() => {
-        ns.search = searchInput.value.trim();
-        ns.expandedIdx = null;
-        fetchNotesPage(false).then(() => renderNotesPage(container));
-      }, 300));
-    }
+    bindById('notes-search-input', 'input', debounce((event) => {
+      ns.search = event.target.value.trim();
+      ns.expandedIdx = null;
+      refreshNotes();
+    }, 300));
 
-    // Tag filter
-    const tagFilter = document.getElementById('notes-tag-filter');
-    if (tagFilter) {
-      tagFilter.addEventListener('change', () => {
-        ns.tag = tagFilter.value;
-        ns.expandedIdx = null;
-        fetchNotesPage(false).then(() => renderNotesPage(container));
-      });
-    }
-
-    const archiveFilter = document.getElementById('notes-archive-filter');
-    if (archiveFilter) {
-      archiveFilter.addEventListener('change', () => {
-        ns.archived = archiveFilter.value || 'exclude';
-        ns.expandedIdx = null;
-        loadNotes().then(() => renderNotesPage(container));
-      });
-    }
-
-    // Sort buttons
-    container.querySelectorAll('.notes-sort-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        ns.sort = btn.dataset.sort;
-        ns.expandedIdx = null;
-        fetchNotesPage(false).then(() => renderNotesPage(container));
-      });
+    bindById('notes-tag-filter', 'change', (event) => {
+      ns.tag = event.target.value;
+      ns.expandedIdx = null;
+      refreshNotes();
     });
 
-    // Machine tabs
-    container.querySelectorAll('.notes-device-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        ns.machine = tab.dataset.machine;
-        ns.expandedIdx = null;
-        fetchNotesPage(false).then(() => renderNotesPage(container));
-      });
+    bindById('notes-archive-filter', 'change', (event) => {
+      ns.archived = event.target.value || 'exclude';
+      ns.expandedIdx = null;
+      loadNotes().then(() => renderNotesPage(container));
     });
 
-    container.querySelectorAll('.memory-insights-row-btn').forEach(btn => {
-      btn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const session = String(btn.dataset.session || '').trim();
-        if (!session) return;
-        ns.session = ns.session.toLowerCase() === session.toLowerCase() ? '' : session;
-        ns.expandedIdx = null;
-        fetchNotesPage(false).then(() => renderNotesPage(container));
-      });
+    bindAll(container, '.notes-sort-btn', 'click', (_event, btn) => {
+      ns.sort = btn.dataset.sort;
+      ns.expandedIdx = null;
+      refreshNotes();
     });
 
-    const clearSessionFilterBtn = document.getElementById('notes-session-filter-clear');
-    if (clearSessionFilterBtn) {
-      clearSessionFilterBtn.addEventListener('click', () => {
-        ns.session = '';
-        ns.expandedIdx = null;
-        fetchNotesPage(false).then(() => renderNotesPage(container));
-      });
-    }
-
-    const retryNotesBtn = document.getElementById('notes-retry-btn');
-    if (retryNotesBtn) {
-      retryNotesBtn.addEventListener('click', () => {
-        fetchNotesPage(false).then(() => renderNotesPage(container));
-      });
-    }
-
-    const enableDaemonBtn = document.getElementById('notes-enable-daemon-btn');
-    if (enableDaemonBtn) {
-      enableDaemonBtn.addEventListener('click', () => {
-        window.memorableApp.enableDaemon();
-      });
-    }
-
-    const openSettingsBtn = document.getElementById('notes-open-settings-btn');
-    if (openSettingsBtn) {
-      openSettingsBtn.addEventListener('click', () => {
-        window.memorableApp.navigateTo('settings');
-      });
-    }
-
-    const resetFiltersBtn = document.getElementById('notes-reset-filters-btn');
-    if (resetFiltersBtn) {
-      resetFiltersBtn.addEventListener('click', () => {
-        ns.search = '';
-        ns.tag = '';
-        ns.machine = '';
-        ns.session = '';
-        ns.archived = 'exclude';
-        ns.sort = 'date';
-        ns.expandedIdx = null;
-        loadNotes().then(() => renderNotesPage(container));
-      });
-    }
-
-    container.querySelectorAll('.note-action-btn').forEach(btn => {
-      btn.addEventListener('click', async (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (notesState.actionBusy) return;
-
-        const idx = Number.parseInt(btn.dataset.noteIdx || '', 10);
-        if (!Number.isFinite(idx)) return;
-        const note = ns.notes[idx];
-        if (!note) return;
-
-        const action = String(btn.dataset.action || '').trim();
-        if (!action) return;
-
-        const payload = {};
-        if (action === 'retag') {
-          const current = Array.isArray(note.tags) ? note.tags.join(', ') : '';
-          const raw = window.prompt('Edit tags (comma-separated):', current);
-          if (raw === null) return;
-          payload.tags = raw
-            .split(',')
-            .map(t => t.trim())
-            .filter(Boolean);
-        }
-
-        const ok = await mutateNoteReview(note, action, payload);
-        if (ok) {
-          ns.expandedIdx = null;
-          renderNotesPage(container);
-        }
-      });
+    bindAll(container, '.notes-device-tab', 'click', (_event, tab) => {
+      ns.machine = tab.dataset.machine;
+      ns.expandedIdx = null;
+      refreshNotes();
     });
 
-    // Card accordion — only one expanded at a time
-    container.querySelectorAll('.note-card').forEach(card => {
-      card.addEventListener('click', (e) => {
-        // Don't collapse when clicking links in expanded content
-        if (e.target.closest('a')) return;
-
-        const idx = parseInt(card.dataset.noteIdx, 10);
-        if (ns.expandedIdx === idx) {
-          ns.expandedIdx = null;
-          card.classList.remove('expanded');
-        } else {
-          // Collapse previous
-          const prev = container.querySelector('.note-card.expanded');
-          if (prev) prev.classList.remove('expanded');
-          ns.expandedIdx = idx;
-          card.classList.add('expanded');
-        }
-      });
+    bindAll(container, '.memory-insights-row-btn', 'click', (event, btn) => {
+      event.stopPropagation();
+      const session = String(btn.dataset.session || '').trim();
+      if (!session) return;
+      ns.session = ns.session.toLowerCase() === session.toLowerCase() ? '' : session;
+      ns.expandedIdx = null;
+      refreshNotes();
     });
 
-    // Load more
-    const loadMoreBtn = container.querySelector('.notes-load-more-btn');
-    if (loadMoreBtn) {
-      loadMoreBtn.addEventListener('click', async () => {
-        loadMoreBtn.textContent = 'Loading\u2026';
-        loadMoreBtn.disabled = true;
-        await fetchNotesPage(true);
+    bindById('notes-session-filter-clear', 'click', () => {
+      ns.session = '';
+      ns.expandedIdx = null;
+      refreshNotes();
+    });
+
+    bindById('notes-retry-btn', 'click', () => {
+      refreshNotes();
+    });
+
+    bindById('notes-enable-daemon-btn', 'click', () => {
+      window.memorableApp.enableDaemon();
+    });
+
+    bindById('notes-open-settings-btn', 'click', () => {
+      window.memorableApp.navigateTo('settings');
+    });
+
+    bindById('notes-reset-filters-btn', 'click', () => {
+      ns.search = '';
+      ns.tag = '';
+      ns.machine = '';
+      ns.session = '';
+      ns.archived = 'exclude';
+      ns.sort = 'date';
+      ns.expandedIdx = null;
+      loadNotes().then(() => renderNotesPage(container));
+    });
+
+    bindAll(container, '.note-action-btn', 'click', async (event, btn) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (notesState.actionBusy) return;
+
+      const idx = Number.parseInt(btn.dataset.noteIdx || '', 10);
+      if (!Number.isFinite(idx)) return;
+      const note = ns.notes[idx];
+      if (!note) return;
+
+      const action = String(btn.dataset.action || '').trim();
+      if (!action) return;
+
+      const payload = {};
+      if (action === 'retag') {
+        const current = Array.isArray(note.tags) ? note.tags.join(', ') : '';
+        const raw = window.prompt('Edit tags (comma-separated):', current);
+        if (raw === null) return;
+        payload.tags = raw
+          .split(',')
+          .map(t => t.trim())
+          .filter(Boolean);
+      }
+
+      const ok = await mutateNoteReview(note, action, payload);
+      if (ok) {
+        ns.expandedIdx = null;
         renderNotesPage(container);
-      });
-    }
+      }
+    });
+
+    bindAll(container, '.note-card', 'click', (event, card) => {
+      if (event.target.closest('a')) return;
+      const idx = Number.parseInt(card.dataset.noteIdx, 10);
+      if (ns.expandedIdx === idx) {
+        ns.expandedIdx = null;
+        card.classList.remove('expanded');
+        return;
+      }
+      const prev = container.querySelector('.note-card.expanded');
+      if (prev) prev.classList.remove('expanded');
+      ns.expandedIdx = idx;
+      card.classList.add('expanded');
+    });
+
+    bindAll(container, '.notes-load-more-btn', 'click', async (_event, loadMoreBtn) => {
+      loadMoreBtn.textContent = 'Loading\u2026';
+      loadMoreBtn.disabled = true;
+      await fetchNotesPage(true);
+      renderNotesPage(container);
+    });
   }
 
   // ---- Memories Page (with sub-tabs) ----
