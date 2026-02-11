@@ -56,6 +56,7 @@ IMPORT_CONFIRM_TOKEN = "IMPORT"
 MAX_IMPORT_SIZE = 100 * 1024 * 1024
 MAX_IMPORT_FILES = 5000
 MAX_IMPORT_UNCOMPRESSED = 300 * 1024 * 1024
+NOTE_USAGE_PATH = DATA_DIR / "note_usage.json"
 
 
 # -- Notes -----------------------------------------------------------------
@@ -644,6 +645,100 @@ def handle_get_status():
         "total_seed_tokens": total_tokens,
         "file_count": file_count,
         "data_dir": str(DATA_DIR),
+    }
+
+
+def handle_get_memory_insights():
+    """GET /api/memory/insights — summarize note load/reference effectiveness."""
+    usage_notes = {}
+    if NOTE_USAGE_PATH.exists():
+        try:
+            raw = json.loads(NOTE_USAGE_PATH.read_text(encoding="utf-8"))
+            if isinstance(raw, dict) and isinstance(raw.get("notes"), dict):
+                usage_notes = raw.get("notes", {})
+        except Exception:
+            usage_notes = {}
+
+    rows = []
+    total_loaded = 0
+    total_referenced = 0
+
+    for key, rec in usage_notes.items():
+        if not isinstance(rec, dict):
+            continue
+        try:
+            loaded = int(rec.get("loaded_count", 0))
+        except (TypeError, ValueError):
+            loaded = 0
+        try:
+            referenced = int(rec.get("referenced_count", 0))
+        except (TypeError, ValueError):
+            referenced = 0
+
+        loaded = max(0, loaded)
+        referenced = max(0, referenced)
+        total_loaded += loaded
+        total_referenced += referenced
+
+        short = str(rec.get("session_short", "")).strip()
+        if not short:
+            short = str(rec.get("session", "")).strip()[:8]
+        if not short:
+            short = str(key).strip()[:8] or "unknown"
+
+        ratio = 0.0 if loaded <= 0 else referenced / float(loaded)
+        rows.append(
+            {
+                "key": str(key),
+                "session": short,
+                "loaded": loaded,
+                "referenced": referenced,
+                "reference_rate": round(ratio, 4),
+            }
+        )
+
+    rows.sort(
+        key=lambda r: (
+            r["referenced"],
+            r["reference_rate"],
+            r["loaded"],
+        ),
+        reverse=True,
+    )
+
+    low_eff_rows = [
+        r for r in rows
+        if r["loaded"] >= 3 and r["reference_rate"] < 0.2
+    ]
+    low_eff_rows.sort(key=lambda r: (r["loaded"], -r["reference_rate"]), reverse=True)
+
+    never_ref_count = sum(1 for r in rows if r["loaded"] >= 3 and r["referenced"] == 0)
+    reference_rate = 0.0 if total_loaded <= 0 else total_referenced / float(total_loaded)
+
+    suggestions = []
+    if not rows:
+        suggestions.append("No effectiveness data yet. Run a few sessions to collect baseline usage.")
+    if never_ref_count > 0:
+        suggestions.append(
+            f"{never_ref_count} frequently loaded note(s) were never referenced. Consider lowering their salience or archiving."
+        )
+    if low_eff_rows:
+        suggestions.append(
+            "Some notes have low reference yield relative to load count. Consider refining tags or summaries."
+        )
+    if reference_rate >= 0.6 and total_loaded >= 10:
+        suggestions.append("Memory reference yield is strong. Keep current note selection strategy.")
+
+    return 200, {
+        "tracked_notes": len(rows),
+        "total_loaded": total_loaded,
+        "total_referenced": total_referenced,
+        "reference_rate": round(reference_rate, 4),
+        "never_referenced_count": never_ref_count,
+        "low_effectiveness_count": len(low_eff_rows),
+        "top_referenced": rows[:5],
+        "high_load_low_reference": low_eff_rows[:5],
+        "suggestions": suggestions,
     }
 
 

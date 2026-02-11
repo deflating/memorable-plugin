@@ -916,6 +916,120 @@ p { color: var(--text-secondary); }
 /* ============================================
    Session Notes Page
    ============================================ */
+.memory-insights-card {
+  background: var(--warm-white);
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--sage);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.memory-insights-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+
+.memory-insights-header h3 {
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.memory-insights-sub {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.memory-insights-metrics {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.memory-insights-metric {
+  min-width: 90px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--cream);
+}
+
+.memory-insights-value {
+  display: block;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.memory-insights-label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.memory-insights-columns {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.memory-insights-column h4 {
+  margin: 0 0 4px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.memory-insights-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.78rem;
+  padding: 2px 0;
+}
+
+.memory-insights-session {
+  font-family: 'SF Mono', monospace;
+  color: var(--text-primary);
+}
+
+.memory-insights-row-meta {
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.memory-insights-empty {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.memory-insights-suggestions {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-light);
+  padding-top: 8px;
+}
+
+.memory-insights-suggestions p {
+  margin: 0 0 4px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
+  .memory-insights-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
 .notes-toolbar {
   display: flex;
   align-items: center;

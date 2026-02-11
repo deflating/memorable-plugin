@@ -1494,6 +1494,7 @@
     notes: [],
     tags: [],
     machines: [],
+    insights: null,
     total: 0,
     offset: 0,
     pageSize: 50,
@@ -1506,13 +1507,15 @@
   };
 
   async function loadNotes() {
-    // Fetch tags and machines in parallel
-    const [tagsData, machinesData] = await Promise.all([
+    // Fetch tags, machines, and memory insights in parallel
+    const [tagsData, machinesData, insightsData] = await Promise.all([
       apiFetch('/api/notes/tags'),
       apiFetch('/api/machines'),
+      apiFetch('/api/memory/insights'),
     ]);
     notesState.tags = Array.isArray(tagsData && tagsData.tags) ? tagsData.tags : [];
     notesState.machines = Array.isArray(machinesData && machinesData.machines) ? machinesData.machines : [];
+    notesState.insights = (insightsData && typeof insightsData === 'object') ? insightsData : null;
 
     // Fetch first page of notes
     await fetchNotesPage(false);
@@ -1564,6 +1567,7 @@
 
   function renderNotesPage(container) {
     const ns = notesState;
+    const mi = ns.insights;
 
     // Machine tabs
     let machineTabsHtml = '';
@@ -1678,8 +1682,82 @@
       `;
     }
 
+    let insightsHtml = '';
+    if (mi && typeof mi === 'object') {
+      const tracked = Number(mi.tracked_notes || 0);
+      const loaded = Number(mi.total_loaded || 0);
+      const referenced = Number(mi.total_referenced || 0);
+      const refRate = Math.max(0, Math.min(100, Math.round(Number(mi.reference_rate || 0) * 100)));
+
+      if (tracked > 0) {
+        const top = Array.isArray(mi.top_referenced) ? mi.top_referenced : [];
+        const low = Array.isArray(mi.high_load_low_reference) ? mi.high_load_low_reference : [];
+        const suggestions = Array.isArray(mi.suggestions) ? mi.suggestions : [];
+        const topRows = top.map((r) => `
+          <div class="memory-insights-row">
+            <span class="memory-insights-session">${esc(r.session || 'unknown')}</span>
+            <span class="memory-insights-row-meta">${Number(r.referenced || 0)} / ${Number(r.loaded || 0)} refs</span>
+          </div>
+        `).join('');
+        const lowRows = low.map((r) => `
+          <div class="memory-insights-row">
+            <span class="memory-insights-session">${esc(r.session || 'unknown')}</span>
+            <span class="memory-insights-row-meta">${Number(r.loaded || 0)} loads, ${Math.round(Number(r.reference_rate || 0) * 100)}% yield</span>
+          </div>
+        `).join('');
+
+        insightsHtml = `
+          <div class="memory-insights-card">
+            <div class="memory-insights-header">
+              <h3>Memory Effectiveness</h3>
+              <span class="memory-insights-sub">How often loaded notes are referenced later</span>
+            </div>
+            <div class="memory-insights-metrics">
+              <div class="memory-insights-metric">
+                <span class="memory-insights-value">${loaded}</span>
+                <span class="memory-insights-label">Loads</span>
+              </div>
+              <div class="memory-insights-metric">
+                <span class="memory-insights-value">${referenced}</span>
+                <span class="memory-insights-label">References</span>
+              </div>
+              <div class="memory-insights-metric">
+                <span class="memory-insights-value">${refRate}%</span>
+                <span class="memory-insights-label">Yield</span>
+              </div>
+            </div>
+            <div class="memory-insights-columns">
+              <div class="memory-insights-column">
+                <h4>Top referenced</h4>
+                ${topRows || '<p class="memory-insights-empty">No reference activity yet.</p>'}
+              </div>
+              <div class="memory-insights-column">
+                <h4>High load, low yield</h4>
+                ${lowRows || '<p class="memory-insights-empty">No low-yield notes detected.</p>'}
+              </div>
+            </div>
+            ${suggestions.length ? `
+              <div class="memory-insights-suggestions">
+                ${suggestions.slice(0, 2).map(s => `<p>${esc(s)}</p>`).join('')}
+              </div>
+            ` : ''}
+          </div>
+        `;
+      } else {
+        insightsHtml = `
+          <div class="memory-insights-card">
+            <div class="memory-insights-header">
+              <h3>Memory Effectiveness</h3>
+              <span class="memory-insights-sub">Run a few sessions to collect usage data.</span>
+            </div>
+          </div>
+        `;
+      }
+    }
+
     container.innerHTML = `
       <div class="notes-page">
+        ${insightsHtml}
         <div class="notes-header-row">
           <span class="notes-count">${ns.total} note${ns.total !== 1 ? 's' : ''}</span>
         </div>

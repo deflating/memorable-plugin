@@ -19,11 +19,13 @@ class ServerApiTests(unittest.TestCase):
     def setUp(self):
         self.orig_notes_dir = server_api.NOTES_DIR
         self.orig_files_dir = server_api.FILES_DIR
+        self.orig_note_usage_path = server_api.NOTE_USAGE_PATH
         self.orig_load_config = server_api.load_config
 
     def tearDown(self):
         server_api.NOTES_DIR = self.orig_notes_dir
         server_api.FILES_DIR = self.orig_files_dir
+        server_api.NOTE_USAGE_PATH = self.orig_note_usage_path
         server_api.load_config = self.orig_load_config
 
     def test_load_all_notes_survives_non_string_note_rows(self):
@@ -93,6 +95,45 @@ class ServerApiTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             server_api._import_zip_payload(payload.getvalue())
+
+    def test_handle_get_memory_insights_summarizes_usage(self):
+        with tempfile.TemporaryDirectory() as td:
+            usage_path = Path(td) / "note_usage.json"
+            usage_path.write_text(
+                json.dumps(
+                    {
+                        "notes": {
+                            "a1": {
+                                "session_short": "sess-a1",
+                                "loaded_count": 6,
+                                "referenced_count": 1,
+                            },
+                            "b2": {
+                                "session_short": "sess-b2",
+                                "loaded_count": 4,
+                                "referenced_count": 3,
+                            },
+                            "c3": {
+                                "session_short": "sess-c3",
+                                "loaded_count": 3,
+                                "referenced_count": 0,
+                            },
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            server_api.NOTE_USAGE_PATH = usage_path
+
+            status, data = server_api.handle_get_memory_insights()
+            self.assertEqual(200, status)
+            self.assertEqual(3, data["tracked_notes"])
+            self.assertEqual(13, data["total_loaded"])
+            self.assertEqual(4, data["total_referenced"])
+            self.assertEqual(1, data["never_referenced_count"])
+            self.assertEqual(2, data["low_effectiveness_count"])
+            self.assertEqual("sess-b2", data["top_referenced"][0]["session"])
+            self.assertEqual("sess-a1", data["high_load_low_reference"][0]["session"])
 
 
 if __name__ == "__main__":

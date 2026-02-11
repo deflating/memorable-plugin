@@ -46,6 +46,15 @@ class ServerHttpBodyValidationTests(unittest.TestCase):
         conn.close()
         return status, payload
 
+    def _get_json(self, path: str):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
+        conn.request("GET", path)
+        resp = conn.getresponse()
+        payload = json.loads(resp.read().decode("utf-8"))
+        status = resp.status
+        conn.close()
+        return status, payload
+
     def test_malformed_json_returns_400(self):
         status, payload = self._post_settings(b'{"token_budget":')
         self.assertEqual(400, status)
@@ -60,6 +69,11 @@ class ServerHttpBodyValidationTests(unittest.TestCase):
         status, payload = self._post_settings(b'"' + (b"A" * 80) + b'"')
         self.assertEqual(413, status)
         self.assertEqual("UPLOAD_TOO_LARGE", payload["error"]["code"])
+
+    def test_memory_insights_route_returns_200(self):
+        status, payload = self._get_json("/api/memory/insights")
+        self.assertEqual(200, status)
+        self.assertIn("tracked_notes", payload)
 
 
 if __name__ == "__main__":
