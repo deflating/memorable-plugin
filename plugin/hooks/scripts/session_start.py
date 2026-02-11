@@ -39,6 +39,7 @@ MIN_SALIENCE = 0.05
 MAX_SALIENT_NOTES = 8
 RECENCY_CEILING = 3  # Always include this many most-recent notes
 CURRENT_MACHINE = platform.node().split(".")[0].strip().lower()
+AUTO_NOW_MARKER = "<!-- memorable:auto-now -->"
 
 
 def load_config() -> dict:
@@ -486,6 +487,110 @@ def _format_notes(scored: list[tuple[float, dict]]) -> str:
     return "\n".join(parts)
 
 
+def _note_summary(entry: dict) -> str:
+    text = _note_text(entry)
+    for line in text.splitlines():
+        stripped = line.strip().lstrip("#").strip()
+        if stripped and stripped.lower() != "summary":
+            return stripped
+    return "No summary"
+
+
+def _extract_open_threads(entries: list[dict]) -> list[str]:
+    threads = []
+    seen = set()
+    for entry in entries:
+        text = _note_text(entry)
+        for line in text.splitlines():
+            cleaned = line.strip().lstrip("-*").strip()
+            if not cleaned:
+                continue
+            if not _ACTION_CUE_RE.search(cleaned):
+                continue
+            key = cleaned.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            threads.append(cleaned)
+            if len(threads) >= 6:
+                return threads
+    return threads
+
+
+def _generate_now_markdown(entries: list[dict]) -> str:
+    """Create a deterministic rolling now.md from recent+salient notes."""
+    now_iso = _utc_now_iso()
+
+    by_recency = sorted(entries, key=_note_timestamp, reverse=True)
+    highlights = by_recency[:6]
+
+    tag_counts: dict[str, int] = {}
+    for entry in entries:
+        tags = entry.get("topic_tags", [])
+        if not isinstance(tags, list):
+            continue
+        for tag in tags:
+            t = str(tag).strip()
+            if t:
+                tag_counts[t] = tag_counts.get(t, 0) + 1
+
+    top_tags = sorted(tag_counts.items(), key=lambda kv: kv[1], reverse=True)[:6]
+    open_threads = _extract_open_threads(entries)
+
+    lines = [
+        "# Working Memory",
+        "",
+        AUTO_NOW_MARKER,
+        "",
+        f"_Auto-updated from session notes on {now_iso}_",
+        "",
+        "## Active Themes",
+        "",
+    ]
+
+    if top_tags:
+        for tag, count in top_tags:
+            lines.append(f"- {tag} ({count})")
+    else:
+        lines.append("- No clear themes yet")
+
+    lines.extend(["", "## Recent Session Highlights", ""])
+    if highlights:
+        for entry in highlights:
+            ts = _note_timestamp(entry)[:10]
+            summary = _note_summary(entry)
+            sid = str(entry.get("session", "")).strip()[:8]
+            sid_suffix = f" [{sid}]" if sid else ""
+            lines.append(f"- {ts}{sid_suffix}: {summary}")
+    else:
+        lines.append("- No recent highlights yet")
+
+    lines.extend(["", "## Open Threads", ""])
+    if open_threads:
+        for item in open_threads:
+            lines.append(f"- {item}")
+    else:
+        lines.append("- No explicit open threads detected")
+
+    return "\n".join(lines).strip() + "\n"
+
+
+def _maybe_update_now_md(selected_entries: list[dict]):
+    """Auto-update now.md only if missing or previously auto-managed."""
+    try:
+        SEEDS_DIR.mkdir(parents=True, exist_ok=True)
+        now_path = SEEDS_DIR / "now.md"
+        if now_path.exists():
+            existing = now_path.read_text(encoding="utf-8")
+            if AUTO_NOW_MARKER not in existing:
+                return
+
+        content = _generate_now_markdown(selected_entries)
+        now_path.write_text(content, encoding="utf-8")
+    except Exception:
+        pass
+
+
 def main():
     try:
         # Read stdin (hook input)
@@ -518,6 +623,7 @@ def main():
             if entries:
                 selected = _select_notes(entries)
                 if selected:
+                    _maybe_update_now_md([entry for _, entry in selected])
                     formatted = _format_notes(selected)
                     print(f"\n[Memorable] Most salient session notes ({len(entries)} total in {notes_dir}/):")
                     print(formatted)
