@@ -178,17 +178,150 @@ def _normalize_note(obj: dict) -> dict:
     else:
         should_not_try = []
 
+    raw_tags = obj.get("topic_tags", [])
+    if isinstance(raw_tags, list):
+        tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+    else:
+        tags = []
+
+    raw_conflicts = obj.get("conflicts_with", [])
+    if isinstance(raw_conflicts, list):
+        conflicts_with = [str(item).strip() for item in raw_conflicts if str(item).strip()]
+    else:
+        conflicts_with = []
+
     return {
         "date": obj.get("ts", ""),
         "summary": summary,
         "content": note_text,
-        "tags": obj.get("topic_tags", []),
+        "tags": tags,
         "salience": obj.get("salience", 0),
         "session": obj.get("session", ""),
         "machine": obj.get("machine", ""),
         "message_count": obj.get("message_count", 0),
         "should_not_try": should_not_try,
+        "conflicts_with": conflicts_with,
     }
+
+
+_TOOL_POSITIVE_RE = re.compile(
+    r"\b(?:use|using|uses|used|adopted|switched to|migrated to|moved to|replaced with)\s+([a-z0-9][a-z0-9._+-]{1,30})\b",
+    re.IGNORECASE,
+)
+_TOOL_NEGATIVE_RE = re.compile(
+    r"\b(?:no longer use|stopped using|don't use|do not use|avoid)\s+([a-z0-9][a-z0-9._+-]{1,30})\b",
+    re.IGNORECASE,
+)
+_TOOL_TRANSITION_RE = re.compile(
+    r"\b(?:switched to|migrated to|moved to|replaced)\b",
+    re.IGNORECASE,
+)
+_TOOL_STOPWORDS = {
+    "the", "and", "with", "that", "this", "from", "into", "tool", "stack",
+    "framework", "library", "system", "project", "code", "new", "old",
+}
+
+
+def _session_ref(note: dict) -> str:
+    session = str(note.get("session", "")).strip()
+    if session:
+        return session[:8]
+    date = str(note.get("date", "")).strip()
+    return date[:10] if date else "unknown"
+
+
+def _extract_tool_signals(text: str) -> dict:
+    if not isinstance(text, str):
+        text = str(text)
+
+    positive = []
+    for m in _TOOL_POSITIVE_RE.finditer(text):
+        tok = m.group(1).lower().strip()
+        if tok and tok not in _TOOL_STOPWORDS:
+            positive.append(tok)
+
+    negative = {
+        m.group(1).lower().strip()
+        for m in _TOOL_NEGATIVE_RE.finditer(text)
+        if m.group(1).lower().strip() and m.group(1).lower().strip() not in _TOOL_STOPWORDS
+    }
+
+    return {
+        "positive": set(positive),
+        "negative": negative,
+        "primary": positive[0] if positive else "",
+        "transition": bool(_TOOL_TRANSITION_RE.search(text)),
+    }
+
+
+def _signals_conflict(a: dict, b: dict) -> bool:
+    if (a["negative"] & b["positive"]) or (b["negative"] & a["positive"]):
+        return True
+
+    a_primary = a.get("primary", "")
+    b_primary = b.get("primary", "")
+    if (
+        a_primary
+        and b_primary
+        and a_primary != b_primary
+        and (a.get("transition") or b.get("transition"))
+    ):
+        return True
+
+    return False
+
+
+def _annotate_conflicts(notes: list[dict]) -> list[dict]:
+    if not notes:
+        return notes
+
+    for n in notes:
+        existing = n.get("conflicts_with", [])
+        if not isinstance(existing, list):
+            existing = []
+        n["conflicts_with"] = {str(x).strip() for x in existing if str(x).strip()}
+
+    tag_to_indices: dict[str, list[int]] = {}
+    for idx, note in enumerate(notes):
+        tags = note.get("tags", [])
+        if not isinstance(tags, list):
+            continue
+        for tag in tags:
+            t = str(tag).strip().lower()
+            if not t:
+                continue
+            tag_to_indices.setdefault(t, []).append(idx)
+
+    candidate_pairs: set[tuple[int, int]] = set()
+    for indices in tag_to_indices.values():
+        if len(indices) < 2:
+            continue
+        ordered = sorted(set(indices))
+        for i in range(len(ordered)):
+            for j in range(i + 1, len(ordered)):
+                candidate_pairs.add((ordered[i], ordered[j]))
+
+    signals_cache = {
+        i: _extract_tool_signals(notes[i].get("content", ""))
+        for i in range(len(notes))
+    }
+
+    for i, j in candidate_pairs:
+        a = notes[i]
+        b = notes[j]
+        # Require at least one reasonably salient note in the pair.
+        if max(a.get("salience", 0), b.get("salience", 0)) < 1.0:
+            continue
+        if not _signals_conflict(signals_cache[i], signals_cache[j]):
+            continue
+
+        a["conflicts_with"].add(_session_ref(b))
+        b["conflicts_with"].add(_session_ref(a))
+
+    for n in notes:
+        n["conflicts_with"] = sorted(n["conflicts_with"])
+
+    return notes
 
 
 def load_all_notes() -> list[dict]:
@@ -215,7 +348,7 @@ def load_all_notes() -> list[dict]:
                         continue
         except Exception:
             continue
-    return notes
+    return _annotate_conflicts(notes)
 
 
 def handle_get_notes(query_params: dict):
@@ -243,10 +376,13 @@ def handle_get_notes(query_params: dict):
             tag_str = " ".join(tags) if isinstance(tags, list) else ""
             anti = n.get("should_not_try", [])
             anti_str = " ".join(anti) if isinstance(anti, list) else ""
+            conflicts = n.get("conflicts_with", [])
+            conflicts_str = " ".join(conflicts) if isinstance(conflicts, list) else ""
             if (
                 search_lower in text.lower()
                 or search_lower in tag_str.lower()
                 or search_lower in anti_str.lower()
+                or search_lower in conflicts_str.lower()
             ):
                 filtered.append(n)
         notes = filtered
