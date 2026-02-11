@@ -232,6 +232,7 @@
         { higher: 'Clarity', lower: 'Reassurance' }
       ],
       cognitiveStyle: {},  // key -> 'left' | 'balanced' | 'right'
+      cognitiveStyleDims: [],  // custom dims: [{key, label, left, right}]
       interests: [],       // [{name: '', context: ''}]
       people: [],
       projects: [],
@@ -697,7 +698,8 @@
 
     // Cognitive Style
     if (sec['cogStyle']) {
-      const dims = DEFAULT_COGNITIVE_STYLE_DIMS.filter(d => u.cognitiveStyle[d.key] && u.cognitiveStyle[d.key] !== 'balanced');
+      const allDims = DEFAULT_COGNITIVE_STYLE_DIMS.concat(u.cognitiveStyleDims || []);
+      const dims = allDims.filter(d => u.cognitiveStyle[d.key] && u.cognitiveStyle[d.key] !== 'balanced');
       if (dims.length) {
         md += '## Cognitive Style\n\n';
         dims.forEach(d => {
@@ -927,10 +929,18 @@
         if (match) {
           const dimLabel = match[1].trim();
           const valLabel = match[2].trim();
+          // Check built-in dims first
           const dim = DEFAULT_COGNITIVE_STYLE_DIMS.find(d => d.label.toLowerCase() === dimLabel.toLowerCase());
           if (dim) {
             if (valLabel.toLowerCase() === dim.left.toLowerCase()) u.cognitiveStyle[dim.key] = 'left';
             else if (valLabel.toLowerCase() === dim.right.toLowerCase()) u.cognitiveStyle[dim.key] = 'right';
+          } else {
+            // Custom dimension — reconstruct it
+            const key = labelToKey(dimLabel);
+            if (!u.cognitiveStyleDims.some(d => d.key === key)) {
+              u.cognitiveStyleDims.push({ key, label: dimLabel, left: valLabel, right: '(unknown)' });
+            }
+            u.cognitiveStyle[key] = 'left'; // We only know the chosen side
           }
         }
       });
@@ -2578,7 +2588,7 @@
     wrapper.innerHTML = `
       <div class="page-header">
         <h1>Memories</h1>
-        <p>Episodic, working, and semantic memory</p>
+        <p>Session notes, current context, and reference documents</p>
       </div>
       ${subTabBar}
       <div class="memories-content" id="memories-content"></div>
@@ -3577,13 +3587,16 @@
     container.innerHTML = `
       <div class="seeds-page">
         <div class="seeds-header">
-          <div class="seeds-sub-nav">
-            <button class="seeds-tab ${state.activeFile === 'user' ? 'active' : ''}" data-seed-file="user">
-              <span class="tab-icon">&#9786;</span>user.md
-            </button>
-            <button class="seeds-tab ${state.activeFile === 'agent' ? 'active' : ''}" data-seed-file="agent">
-              <span class="tab-icon">&#9881;</span>agent.md
-            </button>
+          <div class="seeds-header-row">
+            <div class="seeds-sub-nav">
+              <button class="seeds-tab ${state.activeFile === 'user' ? 'active' : ''}" data-seed-file="user">
+                <span class="tab-icon">&#9786;</span>user.md
+              </button>
+              <button class="seeds-tab ${state.activeFile === 'agent' ? 'active' : ''}" data-seed-file="agent">
+                <span class="tab-icon">&#9881;</span>agent.md
+              </button>
+            </div>
+            <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
           </div>
           <div class="seeds-view-controls" id="seeds-view-controls"></div>
         </div>
@@ -3627,13 +3640,13 @@
         <button class="view-toggle-btn ${state.activeView === 'form' ? 'active' : ''}" data-view="form">Form Editor</button>
         <button class="view-toggle-btn ${state.activeView === 'markdown' ? 'active' : ''}" data-view="markdown">Markdown</button>
       </div>
-      <span class="seed-sync-indicator ${seedStatus.className}" title="${esc(seedStatus.title)}">
-        <span class="dot"></span>${esc(seedStatus.text)}
-      </span>
-      <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
-      <button class="btn btn-primary" id="seed-deploy-btn" title="Write current user.md and agent.md to deployed seed files">
-        Deploy
-      </button>
+      <div class="seeds-actions">
+        <span class="seed-sync-indicator ${seedStatus.className}" title="${esc(seedStatus.title)}">
+          <span class="dot"></span>${esc(seedStatus.text)}
+        </span>
+        <button class="btn btn-primary" id="seed-deploy-btn" title="Write current user.md and agent.md to deployed seed files">
+          Deploy
+        </button>
       <button class="btn" onclick="window.memorableApp.showImportModal()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         Import
@@ -3646,6 +3659,7 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Download
       </button>
+      </div>
     `;
 
     controls.querySelectorAll('.view-toggle-btn').forEach(btn => {
@@ -4203,8 +4217,9 @@
 
       ${renderSection('cogStyle', 'Cognitive Style', 'How you think and process information', 'clay', '&#9881;', `
         <div class="spectrum-group" id="cogstyle-spectrums">
-          ${DEFAULT_COGNITIVE_STYLE_DIMS.map(d => {
+          ${DEFAULT_COGNITIVE_STYLE_DIMS.concat(u.cognitiveStyleDims || []).map(d => {
             const val = u.cognitiveStyle[d.key] || 'balanced';
+            const isCustom = !DEFAULT_COGNITIVE_STYLE_DIMS.some(dd => dd.key === d.key);
             return `
               <div class="spectrum-row">
                 <div class="spectrum-label">${d.label}</div>
@@ -4213,10 +4228,12 @@
                   <button class="spectrum-pill ${val === 'balanced' ? 'active' : ''}" data-val="balanced">Balanced</button>
                   <button class="spectrum-pill ${val === 'right' ? 'active' : ''}" data-val="right">${d.right}</button>
                 </div>
+                ${isCustom ? `<button class="btn btn-icon btn-danger-ghost btn-small" data-remove-cogstyle="${d.key}" title="Remove">&#10005;</button>` : ''}
               </div>
             `;
           }).join('')}
         </div>
+        <button class="add-item-btn" id="add-cogstyle-btn" style="margin-top:12px;">&#43; Add custom dimension...</button>
       `)}
 
       ${renderSection('values', 'Values', 'Ranked preferences that guide responses', 'terracotta', '&#9878;', `
@@ -4713,6 +4730,32 @@
       });
     });
 
+    // Remove custom cognitive style dim
+    container.querySelectorAll('[data-remove-cogstyle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.removeCogstyle;
+        state.user.cognitiveStyleDims = (state.user.cognitiveStyleDims || []).filter(d => d.key !== key);
+        delete state.user.cognitiveStyle[key];
+        render();
+      });
+    });
+
+    // Add custom cognitive style dim
+    const addCogStyleBtn = document.getElementById('add-cogstyle-btn');
+    if (addCogStyleBtn) {
+      addCogStyleBtn.addEventListener('click', () => {
+        showTripleAdd(addCogStyleBtn, (label, left, right) => {
+          const key = labelToKey(label);
+          if (!state.user.cognitiveStyleDims) state.user.cognitiveStyleDims = [];
+          if (!state.user.cognitiveStyleDims.some(d => d.key === key) && !DEFAULT_COGNITIVE_STYLE_DIMS.some(d => d.key === key)) {
+            state.user.cognitiveStyleDims.push({ key, label, left, right });
+            state.user.cognitiveStyle[key] = 'balanced';
+          }
+          render();
+        });
+      });
+    }
+
     // Interests
     container.querySelectorAll('[data-interest]').forEach(el => {
       const handler = () => {
@@ -5154,6 +5197,61 @@
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); confirm(); }
       if (e.key === 'Escape') { cancel(); }
+    });
+
+    form.querySelector('.inline-add-confirm').addEventListener('click', confirm);
+    form.querySelector('.inline-add-cancel').addEventListener('click', cancel);
+  }
+
+  function showTripleAdd(targetEl, onConfirm) {
+    const existing = targetEl.parentNode.querySelector('.inline-add-form');
+    if (existing) {
+      existing.querySelector('input').focus();
+      return;
+    }
+
+    const form = document.createElement('div');
+    form.className = 'inline-add-form triple-add-form';
+    form.innerHTML = `
+      <input type="text" placeholder="Dimension name..." autofocus>
+      <input type="text" placeholder="Left endpoint...">
+      <input type="text" placeholder="Right endpoint...">
+      <button class="inline-add-confirm" title="Add">&#10003;</button>
+      <button class="inline-add-cancel" title="Cancel">&#10005;</button>
+    `;
+
+    targetEl.parentNode.insertBefore(form, targetEl);
+
+    const inputs = form.querySelectorAll('input');
+    inputs[0].focus();
+
+    function confirm() {
+      const label = inputs[0].value.trim();
+      const left = inputs[1].value.trim();
+      const right = inputs[2].value.trim();
+      if (label && left && right) {
+        onConfirm(label, left, right);
+      } else {
+        cancel();
+      }
+    }
+
+    function cancel() {
+      form.remove();
+    }
+
+    inputs.forEach((input, i) => {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (i < inputs.length - 1) {
+            inputs[i + 1].focus();
+          } else {
+            confirm();
+          }
+        }
+        if (e.key === 'Escape') { cancel(); }
+      });
     });
 
     form.querySelector('.inline-add-confirm').addEventListener('click', confirm);
@@ -5655,6 +5753,7 @@
 
     // Ensure new user fields exist
     if (!u.cognitiveStyle) u.cognitiveStyle = {};
+    if (!Array.isArray(u.cognitiveStyleDims)) u.cognitiveStyleDims = [];
     if (!Array.isArray(u.interests)) u.interests = [];
 
     // Ensure agent communication exists
