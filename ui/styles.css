@@ -221,8 +221,8 @@ p { color: var(--text-secondary); }
 .top-nav-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-right: 32px;
+  gap: 10px;
+  margin-right: 36px;
   flex-shrink: 0;
   text-decoration: none;
   cursor: pointer;
@@ -258,11 +258,11 @@ p { color: var(--text-secondary); }
 }
 
 .top-nav-link {
-  padding: 6px 14px;
+  padding: 7px 16px;
   border-radius: var(--radius-md);
   color: var(--nav-text);
   text-decoration: none;
-  font-size: 0.86rem;
+  font-size: 0.92rem;
   font-weight: 500;
   transition: all var(--transition-fast);
   white-space: nowrap;
@@ -2448,6 +2448,9 @@ p { color: var(--text-secondary); }
 }
 
 .seeds-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 10px 24px;
   border: none;
   background: none;
@@ -3101,7 +3104,7 @@ select {
 .section-icon.clay { background: rgba(184,146,106,0.15); color: var(--clay-dark); }
 
 .section-title {
-  font-size: 0.92rem;
+  font-size: 0.96rem;
   font-weight: 600;
 }
 
@@ -4109,27 +4112,29 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .preview-content h1 {
-  font-size: 1.4rem;
+  font-size: 1.5rem;
   margin-bottom: 8px;
   padding-bottom: 8px;
   border-bottom: 2px solid var(--border-light);
+  color: var(--plum-dark);
 }
 
 .preview-content h2 {
-  font-size: 1.15rem;
+  font-size: 1.2rem;
   margin-top: 1.4em;
   margin-bottom: 6px;
   color: var(--terracotta-dark);
 }
 
 .preview-content h3 {
-  font-size: 0.95rem;
+  font-size: 1rem;
   margin-top: 1em;
   margin-bottom: 4px;
 }
 
 .preview-content p {
   margin-bottom: 0.6em;
+  font-size: 0.92rem;
   color: var(--text-secondary);
 }
 
