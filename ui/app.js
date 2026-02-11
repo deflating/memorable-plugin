@@ -5913,9 +5913,8 @@
     if (!state.enabledSections) {
       state.enabledSections = {};
     }
-    if (!state.collapsedSections || typeof state.collapsedSections !== 'object') {
-      state.collapsedSections = {};
-    }
+    // Always start with sections expanded
+    state.collapsedSections = {};
     const allSections = USER_SECTION_IDS.concat(AGENT_SECTION_IDS);
     allSections.forEach(id => {
       if (state.enabledSections[id] === undefined) state.enabledSections[id] = true;
