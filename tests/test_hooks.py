@@ -38,7 +38,7 @@ class SessionStartArchiveTests(unittest.TestCase):
                     fh.write(json.dumps(row) + "\n")
                 fh.write("{not-json}\n")
 
-            archived_count = session_start._archive_low_salience_notes(notes_dir, now)
+            archived_count = session_start.archive_low_salience_notes(notes_dir, now)
 
             self.assertEqual(1, archived_count)
             updated_lines = notes_file.read_text(encoding="utf-8").strip().splitlines()
@@ -75,7 +75,7 @@ class SessionStartArchiveTests(unittest.TestCase):
                 return original_open(self, *args, **kwargs)
 
             with mock.patch("pathlib.Path.open", new=fail_archive_append):
-                archived_count = session_start._archive_low_salience_notes(notes_dir, now)
+                archived_count = session_start.archive_low_salience_notes(notes_dir, now)
 
             self.assertEqual(0, archived_count)
             self.assertEqual(original_content, notes_file.read_text(encoding="utf-8"))
@@ -159,7 +159,7 @@ class SessionStartSelectionTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            entries = session_start._load_all_notes(notes_dir)
+            entries = session_start.load_all_notes(notes_dir)
             self.assertEqual(1, len(entries))
             self.assertEqual("active", entries[0]["note"])
 
@@ -172,9 +172,9 @@ class SessionStartSelectionTests(unittest.TestCase):
             "topic_tags": ["release"],
         }
 
-        normal = session_start._effective_salience(dict(base), {})
-        pinned = session_start._effective_salience({**base, "pinned": True}, {})
-        archived = session_start._effective_salience({**base, "archived": True}, {})
+        normal = session_start.effective_salience(dict(base), {})
+        pinned = session_start.effective_salience({**base, "pinned": True}, {})
+        archived = session_start.effective_salience({**base, "archived": True}, {})
 
         self.assertGreater(pinned, normal)
         self.assertEqual(session_start.MIN_SALIENCE, archived)

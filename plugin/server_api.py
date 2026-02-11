@@ -66,7 +66,7 @@ NOTE_SALIENCE_MAX = 3.0
 # -- Notes -----------------------------------------------------------------
 
 
-def _is_internal_context_artifact(filename: str) -> bool:
+def is_internal_context_artifact(filename: str) -> bool:
     """Return True for internal helper files in the context directory."""
     return filename.endswith(".anchored") or filename.startswith(".cache-")
 
@@ -180,7 +180,7 @@ def iter_note_rows():
             continue
 
 
-def _normalize_note(obj: dict, note_id: str = "") -> dict:
+def normalize_note(obj: dict, note_id: str = "") -> dict:
     """Map raw JSONL note fields to the shape the UI expects.
 
     JSONL has: ts, session, note, topic_tags, salience, ...
@@ -233,7 +233,7 @@ _TOOL_STOPWORDS = {
 }
 
 
-def _session_ref(note: dict) -> str:
+def session_ref(note: dict) -> str:
     session = str(note.get("session", "")).strip()
     if session:
         return session[:8]
@@ -241,7 +241,7 @@ def _session_ref(note: dict) -> str:
     return date[:10] if date else "unknown"
 
 
-def _extract_tool_signals(text: str) -> dict:
+def extract_tool_signals(text: str) -> dict:
     if not isinstance(text, str):
         text = str(text)
 
@@ -265,7 +265,7 @@ def _extract_tool_signals(text: str) -> dict:
     }
 
 
-def _signals_conflict(a: dict, b: dict) -> bool:
+def signals_conflict(a: dict, b: dict) -> bool:
     if (a["negative"] & b["positive"]) or (b["negative"] & a["positive"]):
         return True
 
@@ -282,7 +282,7 @@ def _signals_conflict(a: dict, b: dict) -> bool:
     return False
 
 
-def _annotate_conflicts(notes: list[dict]) -> list[dict]:
+def annotate_conflicts(notes: list[dict]) -> list[dict]:
     if not notes:
         return notes
 
@@ -313,7 +313,7 @@ def _annotate_conflicts(notes: list[dict]) -> list[dict]:
                 candidate_pairs.add((ordered[i], ordered[j]))
 
     signals_cache = {
-        i: _extract_tool_signals(notes[i].get("content", ""))
+        i: extract_tool_signals(notes[i].get("content", ""))
         for i in range(len(notes))
     }
 
@@ -323,11 +323,11 @@ def _annotate_conflicts(notes: list[dict]) -> list[dict]:
         # Require at least one reasonably salient note in the pair.
         if max(a.get("salience", 0), b.get("salience", 0)) < 1.0:
             continue
-        if not _signals_conflict(signals_cache[i], signals_cache[j]):
+        if not signals_conflict(signals_cache[i], signals_cache[j]):
             continue
 
-        a["conflicts_with"].add(_session_ref(b))
-        b["conflicts_with"].add(_session_ref(a))
+        a["conflicts_with"].add(session_ref(b))
+        b["conflicts_with"].add(session_ref(a))
 
     for n in notes:
         n["conflicts_with"] = sorted(n["conflicts_with"])
@@ -343,11 +343,11 @@ def load_all_notes(include_archived: bool = True) -> list[dict]:
     """
     notes = []
     for row in iter_note_rows() or []:
-        normalized = _normalize_note(row["obj"], row["id"])
+        normalized = normalize_note(row["obj"], row["id"])
         if not include_archived and normalized.get("archived"):
             continue
         notes.append(normalized)
-    return _annotate_conflicts(notes)
+    return annotate_conflicts(notes)
 
 
 def handle_get_notes(query_params: dict):
@@ -548,7 +548,7 @@ def rewrite_note_review_file(jsonl_path: Path, request: dict):
             continue
         changed = apply_note_review_action(note_obj, request["action"], request["tags"])
         updated_lines.append(json.dumps(note_obj, ensure_ascii=False))
-        matched_note = _normalize_note(note_obj, row_id)
+        matched_note = normalize_note(note_obj, row_id)
         if changed:
             append_audit("notes.review", {"id": row_id, "action": request["action"], "source": jsonl_path.name})
     if matched_note is None:
@@ -767,7 +767,7 @@ def handle_post_settings(body: dict):
 # -- Status ----------------------------------------------------------------
 
 
-def _get_daemon_status() -> dict:
+def get_daemon_status() -> dict:
     """Return daemon pid/running status based on daemon.pid and process liveness."""
     status = {"running": False, "pid": None}
     pid_file = DATA_DIR / "daemon.pid"
@@ -788,7 +788,7 @@ def _get_daemon_status() -> dict:
     return status
 
 
-def _check_config_validity() -> dict:
+def check_config_validity() -> dict:
     """Validate on-disk config schema for health checks."""
     if not CONFIG_PATH.exists():
         return {"exists": False, "valid": True, "error": None}
@@ -818,7 +818,7 @@ def _check_config_validity() -> dict:
     return {"exists": True, "valid": True, "error": None}
 
 
-def _parse_iso_timestamp(value) -> datetime | None:
+def parse_iso_timestamp(value) -> datetime | None:
     if not value:
         return None
     try:
@@ -830,7 +830,7 @@ def _parse_iso_timestamp(value) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
-def _latest_transcript_activity() -> datetime | None:
+def latest_transcript_activity() -> datetime | None:
     transcripts_dir = DATA_DIR / "transcripts"
     if not transcripts_dir.is_dir():
         return None
@@ -848,7 +848,7 @@ def _latest_transcript_activity() -> datetime | None:
     return latest
 
 
-def _daemon_health_snapshot(
+def daemon_health_snapshot(
     *,
     daemon_enabled: bool,
     daemon_status: dict,
@@ -938,7 +938,7 @@ def handle_get_status():
                             continue
                         if not isinstance(obj, dict):
                             continue
-                        dt = _parse_iso_timestamp(obj.get("ts") or obj.get("first_ts"))
+                        dt = parse_iso_timestamp(obj.get("ts") or obj.get("first_ts"))
                         if dt and (last_note_dt is None or dt > last_note_dt):
                             last_note_dt = dt
             except Exception:
@@ -963,10 +963,10 @@ def handle_get_status():
     # Seed files present
     seeds_present = SEEDS_DIR.is_dir() and any(SEEDS_DIR.glob("*.md"))
 
-    daemon_status = _get_daemon_status()
+    daemon_status = get_daemon_status()
     daemon_running = bool(daemon_status.get("running"))
-    last_transcript_dt = _latest_transcript_activity()
-    daemon_health = _daemon_health_snapshot(
+    last_transcript_dt = latest_transcript_activity()
+    daemon_health = daemon_health_snapshot(
         daemon_enabled=daemon_enabled,
         daemon_status=daemon_status,
         idle_threshold=idle_threshold,
@@ -992,7 +992,7 @@ def handle_get_status():
         file_count = sum(
             1
             for f in FILES_DIR.iterdir()
-            if f.is_file() and not _is_internal_context_artifact(f.name)
+            if f.is_file() and not is_internal_context_artifact(f.name)
         )
 
     return 200, {
@@ -1125,8 +1125,8 @@ def handle_get_health():
     seeds["present"] = any(seeds["required"].values())
 
     usage = shutil.disk_usage(DATA_DIR)
-    config_health = _check_config_validity()
-    daemon = _get_daemon_status()
+    config_health = check_config_validity()
+    daemon = get_daemon_status()
 
     return 200, {
         "ok": config_health["valid"],
@@ -1162,7 +1162,7 @@ def handle_get_files():
         if not f.is_file():
             continue
         # Skip internal helper artifacts.
-        if _is_internal_context_artifact(f.name):
+        if is_internal_context_artifact(f.name):
             continue
         try:
             stat = f.stat()
@@ -1671,7 +1671,7 @@ def handle_get_budget():
 # -- Export / reset --------------------------------------------------------
 
 
-def _build_export_zip() -> bytes:
+def build_export_zip() -> bytes:
     """Create an in-memory ZIP of all files under DATA_DIR."""
     ensure_dirs()
     buf = io.BytesIO()
@@ -1687,7 +1687,7 @@ def _build_export_zip() -> bytes:
 def handle_get_export():
     """GET /api/export — download a ZIP archive of all local data."""
     try:
-        payload = _build_export_zip()
+        payload = build_export_zip()
     except Exception:
         return 500, error_response(
             "EXPORT_BUILD_FAILED",
@@ -1700,7 +1700,7 @@ def handle_get_export():
     return 200, {"filename": filename, "payload": payload}
 
 
-def _safe_archive_member_path(name: str) -> Path | None:
+def safe_archive_member_path(name: str) -> Path | None:
     """Return a safe relative archive path or None if unsafe/invalid."""
     if not name:
         return None
@@ -1713,7 +1713,7 @@ def _safe_archive_member_path(name: str) -> Path | None:
     return Path(*parts)
 
 
-def _import_zip_payload(payload: bytes) -> int:
+def import_zip_payload(payload: bytes) -> int:
     """Replace DATA_DIR contents with files from ZIP payload.
 
     Returns number of restored files.
@@ -1733,7 +1733,7 @@ def _import_zip_payload(payload: bytes) -> int:
             raise ValueError(f"Archive has too many files (max {MAX_IMPORT_FILES})")
 
         for member in members:
-            rel = _safe_archive_member_path(member.filename)
+            rel = safe_archive_member_path(member.filename)
             if rel is None:
                 raise ValueError(f"Unsafe path in archive: {member.filename}")
 
@@ -1820,7 +1820,7 @@ def handle_post_import(handler):
 
     payload = handler.rfile.read(length)
     try:
-        restored_files = _import_zip_payload(payload)
+        restored_files = import_zip_payload(payload)
     except ValueError as e:
         return 400, error_response(
             "INVALID_IMPORT_ARCHIVE",

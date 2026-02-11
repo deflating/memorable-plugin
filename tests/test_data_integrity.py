@@ -145,7 +145,7 @@ class DataIntegrityTests(unittest.TestCase):
         server_api.shutil.copytree = explode_copytree
         try:
             with self.assertRaises(RuntimeError):
-                server_api._import_zip_payload(payload)
+                server_api.import_zip_payload(payload)
         finally:
             server_api.shutil.copytree = original_copytree
 

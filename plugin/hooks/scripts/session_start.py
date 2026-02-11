@@ -67,195 +67,195 @@ def sanitize_filename(filename: str) -> str:
     return "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
 
 
-def extract_at_depth(anchored_text: str, max_depth: int) -> str:
-    """Extract content from anchored text up to max_depth, stripping markers."""
-    if max_depth < 0:
-        return anchored_text
+def apply_anchor_marker(
+    match: re.Match,
+    anchored_text: str,
+    max_depth: int,
+    result: list[str],
+    depth_stack: list[int],
+    pos: int,
+) -> int:
+    level_str = match.group(1)
+    start = match.start()
+    end = match.end()
+    if level_str:
+        level = int(level_str[0])
+        if depth_stack and depth_stack[-1] <= max_depth:
+            result.append(anchored_text[pos:start])
+        elif not depth_stack and pos == 0:
+            before = anchored_text[:start].strip()
+            if before:
+                result.append(before + " ")
+        depth_stack.append(level)
+        return end
+    if depth_stack and depth_stack[-1] <= max_depth:
+        result.append(anchored_text[pos:start])
+    if depth_stack:
+        depth_stack.pop()
+    return end
 
-    result = []
-    pos = 0
-    depth_stack = []
 
-    for match in _ANCHOR_RE.finditer(anchored_text):
-        level_str = match.group(1)
-        start = match.start()
-        end = match.end()
-
-        if level_str:
-            level = int(level_str[0])
-            if depth_stack and depth_stack[-1] <= max_depth:
-                result.append(anchored_text[pos:start])
-            elif not depth_stack and pos == 0:
-                before = anchored_text[:start].strip()
-                if before:
-                    result.append(before + " ")
-            depth_stack.append(level)
-            pos = end
-        else:
-            if depth_stack:
-                if depth_stack[-1] <= max_depth:
-                    result.append(anchored_text[pos:start])
-                depth_stack.pop()
-            pos = end
-
+def append_trailing_extracted_text(
+    anchored_text: str,
+    max_depth: int,
+    result: list[str],
+    depth_stack: list[int],
+    pos: int,
+):
     if depth_stack and depth_stack[-1] <= max_depth:
         result.append(anchored_text[pos:])
-    elif not depth_stack:
+        return
+    if not depth_stack:
         trailing = anchored_text[pos:].strip()
         if trailing:
             result.append(trailing)
 
-    text = "".join(result).strip()
+
+def compact_extracted_text(parts: list[str]) -> str:
+    text = "".join(parts).strip()
     text = re.sub(r" {2,}", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text
+    return re.sub(r"\n{3,}", "\n\n", text)
+
+
+def extract_at_depth(anchored_text: str, max_depth: int) -> str:
+    """Extract content from anchored text up to max_depth, stripping markers."""
+    if max_depth < 0:
+        return anchored_text
+    result = []
+    pos = 0
+    depth_stack = []
+    for match in _ANCHOR_RE.finditer(anchored_text):
+        pos = apply_anchor_marker(match, anchored_text, max_depth, result, depth_stack, pos)
+    append_trailing_extracted_text(anchored_text, max_depth, result, depth_stack, pos)
+    return compact_extracted_text(result)
 
 
 def prepare_context_file(filename: str, depth: int) -> str | None:
-    """Prepare a context file for loading, returning the path to read.
-
-    For anchored files with a specific depth, extracts content and writes
-    a cached version. Returns the path Claude should read.
-    """
     safe_filename = sanitize_filename(filename)
     if not safe_filename:
         return None
-
     raw_path = FILES_DIR / safe_filename
     anchored_path = FILES_DIR / f"{safe_filename}.anchored"
-
-    # If anchored version exists and depth is set (not full/-1)
     if anchored_path.is_file() and depth >= 0:
         anchored_text = anchored_path.read_text(encoding="utf-8")
         extracted = extract_at_depth(anchored_text, depth)
-
-        # Write to a cached extraction file
         cache_path = FILES_DIR / f".cache-{safe_filename}-depth{depth}.md"
         cache_path.write_text(extracted, encoding="utf-8")
         return str(cache_path)
-
-    # Full depth or no anchored version — serve raw file
     if raw_path.is_file():
         return str(raw_path)
-
     return None
 
 
-def collect_files(config: dict) -> list[str]:
-    """Collect all files that should be read, in order."""
+def core_seed_paths() -> list[str]:
     paths = []
-
-    # Core seed files
     for name in ("user.md", "agent.md", "now.md"):
         path = SEEDS_DIR / name
         if path.is_file():
             paths.append(str(path))
-
-    # Additional context files from config
-    for entry in config.get("context_files", []):
-        if not entry.get("enabled", True):
-            continue
-        filename = sanitize_filename(entry.get("filename", ""))
-        if not filename:
-            continue
-
-        # Skip if already covered by seeds above
-        seed_path = SEEDS_DIR / filename
-        if seed_path.is_file() and str(seed_path) in paths:
-            continue
-
-        depth = entry.get("depth", -1)
-        prepared = prepare_context_file(filename, depth)
-        if prepared:
-            paths.append(prepared)
-            continue
-
-        # Fallback: check seeds dir
-        if seed_path.is_file():
-            paths.append(str(seed_path))
-
     return paths
 
 
-def _effective_salience(entry: dict, usage_notes: dict | None = None) -> float:
+def resolve_context_entry_path(entry: dict, existing_paths: set[str]) -> str | None:
+    if not entry.get("enabled", True):
+        return None
+    filename = sanitize_filename(entry.get("filename", ""))
+    if not filename:
+        return None
+    seed_path = SEEDS_DIR / filename
+    if seed_path.is_file() and str(seed_path) in existing_paths:
+        return None
+    prepared = prepare_context_file(filename, entry.get("depth", -1))
+    if prepared:
+        return prepared
+    if seed_path.is_file():
+        return str(seed_path)
+    return None
+
+
+def collect_files(config: dict) -> list[str]:
+    paths = core_seed_paths()
+    seen = set(paths)
+    for entry in config.get("context_files", []):
+        resolved = resolve_context_entry_path(entry, seen)
+        if not resolved:
+            continue
+        paths.append(resolved)
+        seen.add(resolved)
+    return paths
+
+
+def parse_float(value, fallback: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def entry_emotional_weight(entry: dict) -> float:
+    weight = parse_float(entry.get("emotional_weight", 0.3), 0.3)
+    return max(0.0, min(1.0, weight))
+
+
+def entry_age_days(entry: dict) -> float:
+    last_ref = entry.get("last_referenced", entry.get("ts", ""))
+    dt = parse_iso_datetime(last_ref)
+    if not dt:
+        return 30.0
+    return (datetime.now(timezone.utc) - dt).total_seconds() / 86400
+
+
+def effective_salience(entry: dict, usage_notes: dict | None = None) -> float:
     """Calculate effective salience with decay + density + actionability."""
     if bool(entry.get("archived", False)):
         return MIN_SALIENCE
-
-    try:
-        salience = float(entry.get("salience", 1.0))
-    except (TypeError, ValueError):
-        salience = 1.0
-
-    try:
-        emotional_weight = float(entry.get("emotional_weight", 0.3))
-    except (TypeError, ValueError):
-        emotional_weight = 0.3
-    emotional_weight = max(0.0, min(1.0, emotional_weight))
-
-    last_ref = entry.get("last_referenced", entry.get("ts", ""))
-    try:
-        ts_clean = str(last_ref).replace("Z", "+00:00")
-        dt = datetime.fromisoformat(ts_clean)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        days = (datetime.now(timezone.utc) - dt).total_seconds() / 86400
-    except (ValueError, TypeError):
-        days = 30
-
+    salience = parse_float(entry.get("salience", 1.0), 1.0)
+    emotional_weight = entry_emotional_weight(entry)
+    days = entry_age_days(entry)
     adjusted_days = days * (1.0 - emotional_weight * 0.5)
     decayed = salience * (DECAY_FACTOR ** adjusted_days)
     if bool(entry.get("pinned", False)):
         decayed += PINNED_SALIENCE_BOOST
     base = max(MIN_SALIENCE, decayed)
-    density_mult = _information_density_multiplier(entry)
-    actionability_mult = _actionability_multiplier(entry)
-    context_mult = _time_machine_context_multiplier(entry)
-    reference_mult = _reference_effectiveness_multiplier(entry, usage_notes or {})
+    density_mult = information_density_multiplier(entry)
+    actionability_mult = actionability_multiplier(entry)
+    context_mult = time_machine_context_multiplier(entry)
+    reference_mult = reference_effectiveness_multiplier(entry, usage_notes or {})
     return max(
         MIN_SALIENCE,
         base * density_mult * actionability_mult * context_mult * reference_mult,
     )
 
 
-def _note_text(entry: dict) -> str:
+def note_text(entry: dict) -> str:
     text = entry.get("note", "")
     return text if isinstance(text, str) else str(text)
 
 
-def _information_density_multiplier(entry: dict) -> float:
-    """Score notes by signal per token (short dense > long rambling)."""
-    text = _note_text(entry).strip()
+def information_density_multiplier(entry: dict) -> float:
+    text = note_text(entry).strip()
     if not text:
         return 1.0
-
     words = _WORD_RE.findall(text.lower())
     if not words:
         return 1.0
-
     word_count = len(words)
     unique_ratio = len(set(words)) / word_count
     est_tokens = max(1, len(text) // 4)
     words_per_token = word_count / est_tokens
-
     lexical_score = max(0.0, min(1.0, (unique_ratio - 0.25) / 0.55))
     density_score = max(0.0, min(1.0, words_per_token / 0.85))
-
-    # Softly penalize extremely long notes unless they are exceptionally dense.
     token_penalty = 0.0
     if est_tokens > 450:
         token_penalty = min(0.25, (est_tokens - 450) / 2200)
-
     score = (0.55 * lexical_score) + (0.45 * density_score) - token_penalty
     score = max(0.0, min(1.0, score))
-
-    # 0.80x .. 1.30x
     return 0.8 + (0.5 * score)
 
 
-def _actionability_multiplier(entry: dict) -> float:
+def actionability_multiplier(entry: dict) -> float:
     """Boost notes with clear next actions, blockers, or explicit action items."""
-    text = _note_text(entry)
+    text = note_text(entry)
     score = 0.0
 
     if _ACTION_CUE_RE.search(text):
@@ -278,55 +278,40 @@ def _actionability_multiplier(entry: dict) -> float:
     return 1.0 + (0.35 * score)
 
 
-def _time_machine_context_multiplier(entry: dict) -> float:
-    """Boost notes matching current machine and time-of-day usage patterns."""
+def time_machine_context_multiplier(entry: dict) -> float:
     now = datetime.now(timezone.utc)
-
-    ts = _note_timestamp(entry)
-    try:
-        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-    except (ValueError, TypeError):
-        dt = None
-
-    # Hour proximity boost: notes near current hour are more likely relevant.
+    dt = parse_iso_datetime(note_timestamp(entry))
     hour_boost = 0.0
     if dt:
         note_hour = dt.astimezone(timezone.utc).hour
         now_hour = now.hour
         delta = min((now_hour - note_hour) % 24, (note_hour - now_hour) % 24)
-        # 0h -> 1.0, 6h -> 0.0, >=6h clamped
         closeness = max(0.0, (6.0 - float(delta)) / 6.0)
         hour_boost = 0.15 * closeness
-
-    # Machine match boost: prioritize notes from same machine.
     machine_boost = 0.0
     raw_machine = str(entry.get("machine", "")).strip().lower()
     if raw_machine and CURRENT_MACHINE:
         note_machine = raw_machine.split(".")[0]
         if note_machine == CURRENT_MACHINE:
             machine_boost = 0.12
-
-    # 0.95x floor for mismatched context, up to ~1.27x for strong match.
     return 0.95 + hour_boost + machine_boost
 
 
-def _utc_now_iso() -> str:
+def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _note_key(entry: dict) -> str:
+def note_key(entry: dict) -> str:
     """Stable key used for tracking load/reference effectiveness."""
     session = str(entry.get("session", "")).strip()
-    ts = _note_timestamp(entry)
+    ts = note_timestamp(entry)
     if session:
         return f"{session}|{ts}"
-    digest = hashlib.sha1(_note_text(entry).encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha1(note_text(entry).encode("utf-8")).hexdigest()[:12]
     return f"{ts}|{digest}"
 
 
-def _load_note_usage() -> dict:
+def load_note_usage() -> dict:
     """Load note usage counters from disk."""
     try:
         if NOTE_USAGE_PATH.exists():
@@ -338,7 +323,7 @@ def _load_note_usage() -> dict:
     return {"notes": {}}
 
 
-def _save_note_usage(data: dict):
+def save_note_usage(data: dict):
     """Persist note usage counters to disk (best effort)."""
     try:
         NOTE_USAGE_PATH.write_text(
@@ -349,9 +334,9 @@ def _save_note_usage(data: dict):
         pass
 
 
-def _reference_effectiveness_multiplier(entry: dict, usage_notes: dict) -> float:
+def reference_effectiveness_multiplier(entry: dict, usage_notes: dict) -> float:
     """Boost notes that are consistently referenced after being loaded."""
-    rec = usage_notes.get(_note_key(entry))
+    rec = usage_notes.get(note_key(entry))
     if not isinstance(rec, dict):
         return 1.0
 
@@ -372,45 +357,30 @@ def _reference_effectiveness_multiplier(entry: dict, usage_notes: dict) -> float
     return 0.85 + (0.4 * ratio)
 
 
-def _record_loaded_notes(selected_entries: list[dict], usage_data: dict):
-    """Record which notes were loaded this session and increment load counts."""
-    usage_notes = usage_data.setdefault("notes", {})
-    now_iso = _utc_now_iso()
-    by_key = {}
+def clean_note_tags(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(tag).strip() for tag in value if str(tag).strip()]
 
-    for entry in selected_entries:
-        key = _note_key(entry)
-        session = str(entry.get("session", "")).strip()
-        tags = entry.get("topic_tags", [])
-        if not isinstance(tags, list):
-            tags = []
-        tags = [str(t).strip() for t in tags if str(t).strip()]
 
-        by_key[key] = {
-            "key": key,
-            "session": session,
-            "session_short": session[:8],
-            "tags": tags,
-        }
+def track_loaded_note(usage_notes: dict, entry: dict, now_iso: str) -> dict:
+    key = note_key(entry)
+    session = str(entry.get("session", "")).strip()
+    tags = clean_note_tags(entry.get("topic_tags", []))
+    rec = usage_notes.setdefault(
+        key,
+        {"loaded_count": 0, "referenced_count": 0, "first_loaded": now_iso},
+    )
+    rec["loaded_count"] = int(rec.get("loaded_count", 0)) + 1
+    rec["last_loaded"] = now_iso
+    rec["session"] = session
+    rec["session_short"] = session[:8]
+    rec["tags"] = tags
+    rec["timestamp"] = note_timestamp(entry)
+    return {"key": key, "session": session, "session_short": session[:8], "tags": tags}
 
-        rec = usage_notes.setdefault(
-            key,
-            {
-                "loaded_count": 0,
-                "referenced_count": 0,
-                "first_loaded": now_iso,
-            },
-        )
-        rec["loaded_count"] = int(rec.get("loaded_count", 0)) + 1
-        rec["last_loaded"] = now_iso
-        rec["session"] = session
-        rec["session_short"] = session[:8]
-        rec["tags"] = tags
-        rec["timestamp"] = _note_timestamp(entry)
 
-    _save_note_usage(usage_data)
-
-    # Write currently loaded notes for UserPromptSubmit matching.
+def write_current_loaded_notes(now_iso: str, by_key: dict):
     try:
         CURRENT_LOADED_NOTES_PATH.write_text(
             json.dumps(
@@ -427,12 +397,23 @@ def _record_loaded_notes(selected_entries: list[dict], usage_data: dict):
         pass
 
 
-def _note_timestamp(entry: dict) -> str:
+def record_loaded_notes(selected_entries: list[dict], usage_data: dict):
+    usage_notes = usage_data.setdefault("notes", {})
+    now_iso = utc_now_iso()
+    by_key = {}
+    for entry in selected_entries:
+        note_meta = track_loaded_note(usage_notes, entry, now_iso)
+        by_key[note_meta["key"]] = note_meta
+    save_note_usage(usage_data)
+    write_current_loaded_notes(now_iso, by_key)
+
+
+def note_timestamp(entry: dict) -> str:
     """Get the best timestamp for recency sorting."""
     return entry.get("first_ts", entry.get("ts", ""))
 
 
-def _parse_iso_datetime(value: str) -> datetime | None:
+def parse_iso_datetime(value: str) -> datetime | None:
     if not value:
         return None
     try:
@@ -444,48 +425,48 @@ def _parse_iso_datetime(value: str) -> datetime | None:
         return None
 
 
-def _note_datetime(entry: dict) -> datetime | None:
-    return _parse_iso_datetime(_note_timestamp(entry))
+def note_datetime(entry: dict) -> datetime | None:
+    return parse_iso_datetime(note_timestamp(entry))
 
 
-def _note_salience(entry: dict) -> float:
+def note_salience(entry: dict) -> float:
     try:
         return float(entry.get("salience", 0.0))
     except (TypeError, ValueError):
         return 0.0
 
 
-def _note_tags(entry: dict) -> list[str]:
+def note_tags(entry: dict) -> list[str]:
     raw = entry.get("topic_tags", [])
     if not isinstance(raw, list):
         return []
     return [str(tag).strip() for tag in raw if str(tag).strip()]
 
 
-def _is_synthesis_entry(entry: dict) -> bool:
+def is_synthesis_entry(entry: dict) -> bool:
     level = str(entry.get("synthesis_level", "")).strip().lower()
     return level in {"weekly", "monthly"}
 
 
-def _week_start(d: date) -> date:
+def week_start(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 
-def _month_start(d: date) -> date:
+def month_start(d: date) -> date:
     return date(d.year, d.month, 1)
 
 
-def _next_month_start(d: date) -> date:
+def next_month_start(d: date) -> date:
     if d.month == 12:
         return date(d.year + 1, 1, 1)
     return date(d.year, d.month + 1, 1)
 
 
-def _period_end_iso(d: date) -> str:
+def period_end_iso(d: date) -> str:
     return datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc).isoformat()
 
 
-def _load_note_maintenance_state() -> dict:
+def load_note_maintenance_state() -> dict:
     try:
         if NOTE_MAINTENANCE_PATH.exists():
             data = json.loads(NOTE_MAINTENANCE_PATH.read_text(encoding="utf-8"))
@@ -496,7 +477,7 @@ def _load_note_maintenance_state() -> dict:
     return {}
 
 
-def _save_note_maintenance_state(state: dict):
+def save_note_maintenance_state(state: dict):
     try:
         NOTE_MAINTENANCE_PATH.write_text(
             json.dumps(state, indent=2, ensure_ascii=False),
@@ -506,95 +487,98 @@ def _save_note_maintenance_state(state: dict):
         pass
 
 
-def _should_archive_entry(entry: dict, cutoff: datetime) -> bool:
-    if _is_synthesis_entry(entry):
+def should_archive_entry(entry: dict, cutoff: datetime) -> bool:
+    if is_synthesis_entry(entry):
         return False
-    if _note_salience(entry) >= ARCHIVE_MIN_SALIENCE:
+    if note_salience(entry) >= ARCHIVE_MIN_SALIENCE:
         return False
-    dt = _note_datetime(entry)
+    dt = note_datetime(entry)
     if not dt:
         return False
     return dt < cutoff
 
 
-def _archive_low_salience_notes(notes_dir: Path, now: datetime) -> int:
+def archive_source_files(notes_dir: Path):
+    excluded = {WEEKLY_SYNTHESIS_PATH.name, MONTHLY_SYNTHESIS_PATH.name}
+    return [path for path in notes_dir.glob("*.jsonl") if path.name not in excluded]
+
+
+def partition_archive_lines(jsonl_file: Path, cutoff: datetime):
+    keep_lines: list[str] = []
+    archive_lines: list[str] = []
+    original_lines: list[str] = []
+    with jsonl_file.open("r", encoding="utf-8") as fh:
+        for raw_line in fh:
+            line = raw_line.strip()
+            if not line:
+                continue
+            normalized = raw_line if raw_line.endswith("\n") else raw_line + "\n"
+            original_lines.append(normalized)
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                keep_lines.append(normalized)
+                continue
+            if should_archive_entry(obj, cutoff):
+                archive_lines.append(normalized)
+            else:
+                keep_lines.append(normalized)
+    return keep_lines, archive_lines, original_lines
+
+
+def restore_archived_source(jsonl_file: Path, original_lines: list[str], tmp_path: Path, rollback_path: Path):
+    try:
+        if original_lines:
+            with rollback_path.open("w", encoding="utf-8") as fh:
+                fh.writelines(original_lines)
+            rollback_path.replace(jsonl_file)
+    except OSError:
+        pass
+    try:
+        if tmp_path.exists():
+            tmp_path.unlink()
+    except OSError:
+        pass
+    try:
+        if rollback_path.exists():
+            rollback_path.unlink()
+    except OSError:
+        pass
+
+
+def persist_archived_lines(jsonl_file: Path, archive_dir: Path, keep_lines: list[str], archive_lines: list[str]):
+    tmp_path = jsonl_file.with_suffix(jsonl_file.suffix + ".tmp")
+    with tmp_path.open("w", encoding="utf-8") as fh:
+        fh.writelines(keep_lines)
+    tmp_path.replace(jsonl_file)
+    archive_path = archive_dir / jsonl_file.name
+    with archive_path.open("a", encoding="utf-8") as fh:
+        fh.writelines(archive_lines)
+
+
+def archive_low_salience_notes(notes_dir: Path, now: datetime) -> int:
     archive_dir = notes_dir / ARCHIVE_DIRNAME
     archive_dir.mkdir(parents=True, exist_ok=True)
-
     cutoff = now - timedelta(days=ARCHIVE_AFTER_DAYS)
     archived_count = 0
-
-    for jsonl_file in notes_dir.glob("*.jsonl"):
-        if jsonl_file.name in {
-            WEEKLY_SYNTHESIS_PATH.name,
-            MONTHLY_SYNTHESIS_PATH.name,
-        }:
-            continue
-
-        keep_lines: list[str] = []
-        archive_lines: list[str] = []
-        original_lines: list[str] = []
-
+    for jsonl_file in archive_source_files(notes_dir):
         try:
-            with jsonl_file.open("r", encoding="utf-8") as fh:
-                for raw_line in fh:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    normalized = raw_line if raw_line.endswith("\n") else raw_line + "\n"
-                    original_lines.append(normalized)
-                    try:
-                        obj = json.loads(line)
-                    except json.JSONDecodeError:
-                        keep_lines.append(normalized)
-                        continue
-
-                    if _should_archive_entry(obj, cutoff):
-                        archive_lines.append(normalized)
-                    else:
-                        keep_lines.append(normalized)
+            keep_lines, archive_lines, original_lines = partition_archive_lines(jsonl_file, cutoff)
         except OSError:
             continue
-
         if not archive_lines:
             continue
-
-        tmp_path = jsonl_file.with_suffix(jsonl_file.suffix + ".tmp")
-        rollback_path = jsonl_file.with_suffix(jsonl_file.suffix + ".rollback.tmp")
         try:
-            with tmp_path.open("w", encoding="utf-8") as fh:
-                fh.writelines(keep_lines)
-            tmp_path.replace(jsonl_file)
-
-            archive_path = archive_dir / jsonl_file.name
-            with archive_path.open("a", encoding="utf-8") as fh:
-                fh.writelines(archive_lines)
+            persist_archived_lines(jsonl_file, archive_dir, keep_lines, archive_lines)
             archived_count += len(archive_lines)
         except OSError:
-            # If archiving failed after source rewrite, restore original source
-            # so we don't lose records on partial failures.
-            try:
-                if original_lines:
-                    with rollback_path.open("w", encoding="utf-8") as fh:
-                        fh.writelines(original_lines)
-                    rollback_path.replace(jsonl_file)
-            except OSError:
-                pass
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
-            try:
-                if rollback_path.exists():
-                    rollback_path.unlink()
-            except OSError:
-                pass
-
+            tmp_path = jsonl_file.with_suffix(jsonl_file.suffix + ".tmp")
+            rollback_path = jsonl_file.with_suffix(jsonl_file.suffix + ".rollback.tmp")
+            restore_archived_source(jsonl_file, original_lines, tmp_path, rollback_path)
     return archived_count
 
 
-def _load_existing_periods(path: Path, level: str) -> set[str]:
+def load_existing_periods(path: Path, level: str) -> set[str]:
     periods: set[str] = set()
     try:
         if not path.exists():
@@ -618,7 +602,7 @@ def _load_existing_periods(path: Path, level: str) -> set[str]:
     return periods
 
 
-def _append_jsonl_entries(path: Path, entries: list[dict]):
+def append_jsonl_entries(path: Path, entries: list[dict]):
     if not entries:
         return
     try:
@@ -630,67 +614,88 @@ def _append_jsonl_entries(path: Path, entries: list[dict]):
         pass
 
 
-def _build_weekly_synthesis_entry(
-    week_start_date: date,
-    week_entries: list[dict],
-    generated_at: str,
-) -> dict | None:
-    if not week_entries:
-        return None
-
-    week_end_date = week_start_date + timedelta(days=6)
-    scored = sorted(week_entries, key=_note_salience, reverse=True)
-
+def score_entries_by_tag(entries: list[dict]):
     tag_buckets: dict[str, list[dict]] = {}
     tag_scores: dict[str, float] = {}
-    for entry in scored:
-        tags = _note_tags(entry) or ["untagged"]
-        score = max(0.0, _note_salience(entry))
+    for entry in entries:
+        tags = note_tags(entry) or ["untagged"]
+        score = max(0.0, note_salience(entry))
         for tag in tags:
             tag_buckets.setdefault(tag, []).append(entry)
             tag_scores[tag] = tag_scores.get(tag, 0.0) + score
+    return tag_buckets, tag_scores
 
-    if not tag_buckets:
-        return None
 
-    ranked_tags = sorted(
+def ranked_tags(tag_buckets: dict[str, list[dict]], tag_scores: dict[str, float], limit: int) -> list[str]:
+    ranked = sorted(
         tag_scores.items(),
         key=lambda kv: (kv[1], len(tag_buckets.get(kv[0], []))),
         reverse=True,
-    )[:MAX_WEEKLY_TAGS]
-    top_tags = [tag for tag, _ in ranked_tags]
+    )[:limit]
+    return [tag for tag, _ in ranked]
 
-    lines = [
-        "## Summary",
-        (
-            f"Weekly synthesis for {week_start_date.isoformat()} "
-            f"to {week_end_date.isoformat()}."
-        ),
-    ]
 
+def weekly_theme_lines(top_tags: list[str], tag_buckets: dict[str, list[dict]]) -> list[str]:
+    lines: list[str] = []
     for tag in top_tags:
-        lines.append("")
-        lines.append(f"### {tag}")
-        items = sorted(tag_buckets.get(tag, []), key=_note_salience, reverse=True)
+        lines.extend(["", f"### {tag}"])
+        items = sorted(tag_buckets.get(tag, []), key=note_salience, reverse=True)
         for entry in items[:MAX_WEEKLY_BULLETS_PER_TAG]:
-            ts = _note_timestamp(entry)[:10]
+            ts = note_timestamp(entry)[:10]
             sid = str(entry.get("session", "")).strip()[:8]
             sid_suffix = f" [{sid}]" if sid else ""
-            lines.append(f"- {ts}{sid_suffix}: {_note_summary(entry)}")
+            lines.append(f"- {ts}{sid_suffix}: {note_summary(entry)}")
+    return lines
 
+
+def bounded_average_salience(entries: list[dict], window: int, fallback: float) -> float:
+    baseline = entries[: min(window, len(entries))]
+    if not baseline:
+        return fallback
+    total = sum(max(0.0, note_salience(entry)) for entry in baseline)
+    return total / float(len(baseline))
+
+
+def monthly_tag_counts(entries: list[dict]) -> dict[str, int]:
+    tag_counts: dict[str, int] = {}
+    for entry in entries:
+        for tag in note_tags(entry):
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+    return tag_counts
+
+
+def top_monthly_tags(tag_counts: dict[str, int]) -> list[str]:
+    ranked = sorted(tag_counts.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)
+    return [tag for tag, _ in ranked[:MAX_WEEKLY_TAGS]]
+
+
+def monthly_theme_lines(top_tags: list[str], tag_counts: dict[str, int]) -> list[str]:
     if not top_tags:
-        lines.extend(["", "- No theme clusters identified"])
+        return ["- No recurring themes detected"]
+    return [f"- {tag} ({tag_counts.get(tag, 0)} weeks)" for tag in top_tags]
 
-    baseline = scored[: min(12, len(scored))]
-    avg_salience = (
-        sum(max(0.0, _note_salience(entry)) for entry in baseline) / float(len(baseline))
-        if baseline
-        else 0.2
-    )
 
+def monthly_highlight_lines(sorted_weeklies: list[dict]) -> list[str]:
+    lines: list[str] = []
+    for weekly in sorted_weeklies[:MAX_MONTHLY_WEEKS]:
+        period = str(weekly.get("period_start", "")).strip()[:10]
+        period_label = period if period else note_timestamp(weekly)[:10]
+        lines.append(f"- Week of {period_label}: {note_summary(weekly)}")
+    return lines
+
+
+def weekly_synthesis_payload(
+    week_start_date: date,
+    week_end_date: date,
+    week_entries: list[dict],
+    lines: list[str],
+    top_tags: list[str],
+    avg_salience: float,
+    generated_at: str,
+) -> dict:
     return {
-        "ts": _period_end_iso(week_end_date),
-        "first_ts": _period_end_iso(week_start_date),
+        "ts": period_end_iso(week_end_date),
+        "first_ts": period_end_iso(week_start_date),
         "session": f"weekly-{week_start_date.isoformat()}",
         "note": "\n".join(lines).strip(),
         "topic_tags": top_tags,
@@ -703,90 +708,18 @@ def _build_weekly_synthesis_entry(
     }
 
 
-def _create_missing_weekly_syntheses(entries: list[dict], now: datetime) -> int:
-    existing = _load_existing_periods(WEEKLY_SYNTHESIS_PATH, "weekly")
-    current_week = _week_start(now.date())
-
-    by_week: dict[date, list[dict]] = {}
-    for entry in entries:
-        if _is_synthesis_entry(entry):
-            continue
-        dt = _note_datetime(entry)
-        if not dt:
-            continue
-        week_start_date = _week_start(dt.date())
-        if week_start_date >= current_week:
-            continue
-        by_week.setdefault(week_start_date, []).append(entry)
-
-    if not by_week:
-        return 0
-
-    generated_at = _utc_now_iso()
-    new_entries = []
-    for week_start_date in sorted(by_week):
-        period_key = week_start_date.isoformat()
-        if period_key in existing:
-            continue
-        built = _build_weekly_synthesis_entry(week_start_date, by_week[week_start_date], generated_at)
-        if built:
-            new_entries.append(built)
-
-    _append_jsonl_entries(WEEKLY_SYNTHESIS_PATH, new_entries)
-    return len(new_entries)
-
-
-def _build_monthly_synthesis_entry(
+def monthly_synthesis_payload(
     month_start_date: date,
+    month_end_date: date,
     month_weeklies: list[dict],
+    lines: list[str],
+    top_tags: list[str],
+    avg_salience: float,
     generated_at: str,
-) -> dict | None:
-    if not month_weeklies:
-        return None
-
-    month_end_date = _next_month_start(month_start_date) - timedelta(days=1)
-    sorted_weeklies = sorted(month_weeklies, key=_note_timestamp, reverse=True)
-
-    tag_counts: dict[str, int] = {}
-    for entry in month_weeklies:
-        for tag in _note_tags(entry):
-            tag_counts[tag] = tag_counts.get(tag, 0) + 1
-    top_tags = [
-        tag
-        for tag, _ in sorted(tag_counts.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)[:MAX_WEEKLY_TAGS]
-    ]
-
-    lines = [
-        "## Summary",
-        (
-            f"Monthly synthesis for {month_start_date.strftime('%Y-%m')} "
-            f"from {len(month_weeklies)} weekly synthesis notes."
-        ),
-        "",
-        "### Recurring themes",
-    ]
-    if top_tags:
-        for tag in top_tags:
-            lines.append(f"- {tag} ({tag_counts.get(tag, 0)} weeks)")
-    else:
-        lines.append("- No recurring themes detected")
-
-    lines.extend(["", "### Weekly highlights"])
-    for weekly in sorted_weeklies[:MAX_MONTHLY_WEEKS]:
-        period = str(weekly.get("period_start", "")).strip()[:10]
-        period_label = period if period else _note_timestamp(weekly)[:10]
-        lines.append(f"- Week of {period_label}: {_note_summary(weekly)}")
-
-    baseline = sorted_weeklies[: min(8, len(sorted_weeklies))]
-    avg_salience = (
-        sum(max(0.0, _note_salience(entry)) for entry in baseline) / float(len(baseline))
-        if baseline
-        else 0.25
-    )
-
+) -> dict:
     return {
-        "ts": _period_end_iso(month_end_date),
-        "first_ts": _period_end_iso(month_start_date),
+        "ts": period_end_iso(month_end_date),
+        "first_ts": period_end_iso(month_start_date),
         "session": f"monthly-{month_start_date.strftime('%Y-%m')}",
         "note": "\n".join(lines).strip(),
         "topic_tags": top_tags,
@@ -799,66 +732,149 @@ def _build_monthly_synthesis_entry(
     }
 
 
-def _create_missing_monthly_syntheses(entries: list[dict], now: datetime) -> int:
-    existing = _load_existing_periods(MONTHLY_SYNTHESIS_PATH, "monthly")
-    current_month = _month_start(now.date())
+def build_weekly_synthesis_entry(
+    week_start_date: date,
+    week_entries: list[dict],
+    generated_at: str,
+) -> dict | None:
+    if not week_entries:
+        return None
+    week_end_date = week_start_date + timedelta(days=6)
+    scored = sorted(week_entries, key=note_salience, reverse=True)
+    tag_buckets, tag_scores = score_entries_by_tag(scored)
+    if not tag_buckets:
+        return None
+    top_tags = ranked_tags(tag_buckets, tag_scores, MAX_WEEKLY_TAGS)
+    lines = [
+        "## Summary",
+        f"Weekly synthesis for {week_start_date.isoformat()} to {week_end_date.isoformat()}.",
+    ]
+    lines.extend(weekly_theme_lines(top_tags, tag_buckets))
+    if not top_tags:
+        lines.extend(["", "- No theme clusters identified"])
+    avg_salience = bounded_average_salience(scored, 12, 0.2)
+    return weekly_synthesis_payload(week_start_date, week_end_date, week_entries, lines, top_tags, avg_salience, generated_at)
 
-    by_month: dict[date, list[dict]] = {}
+
+def weekly_entries_by_period(entries: list[dict], current_week: date) -> dict[date, list[dict]]:
+    grouped: dict[date, list[dict]] = {}
+    for entry in entries:
+        if is_synthesis_entry(entry):
+            continue
+        dt = note_datetime(entry)
+        if not dt:
+            continue
+        start = week_start(dt.date())
+        if start < current_week:
+            grouped.setdefault(start, []).append(entry)
+    return grouped
+
+
+def monthly_entries_by_period(entries: list[dict], current_month: date) -> dict[date, list[dict]]:
+    grouped: dict[date, list[dict]] = {}
     for entry in entries:
         if str(entry.get("synthesis_level", "")).strip().lower() != "weekly":
             continue
-        period_start = str(entry.get("period_start", "")).strip()
-        dt = _parse_iso_datetime(period_start)
-        if not dt:
-            dt = _note_datetime(entry)
+        dt = parse_iso_datetime(str(entry.get("period_start", "")).strip()) or note_datetime(entry)
         if not dt:
             continue
-        month_start_date = _month_start(dt.date())
-        if month_start_date >= current_month:
-            continue
-        by_month.setdefault(month_start_date, []).append(entry)
+        start = month_start(dt.date())
+        if start < current_month:
+            grouped.setdefault(start, []).append(entry)
+    return grouped
 
-    if not by_month:
-        return 0
 
-    generated_at = _utc_now_iso()
+def build_missing_synthesis_entries(
+    grouped: dict[date, list[dict]],
+    existing: set[str],
+    build_entry,
+    generated_at: str,
+) -> list[dict]:
     new_entries = []
-    for month_start_date in sorted(by_month):
-        period_key = month_start_date.isoformat()
-        if period_key in existing:
+    for start in sorted(grouped):
+        if start.isoformat() in existing:
             continue
-        built = _build_monthly_synthesis_entry(month_start_date, by_month[month_start_date], generated_at)
+        built = build_entry(start, grouped[start], generated_at)
         if built:
             new_entries.append(built)
+    return new_entries
 
-    _append_jsonl_entries(MONTHLY_SYNTHESIS_PATH, new_entries)
+
+def create_missing_weekly_syntheses(entries: list[dict], now: datetime) -> int:
+    existing = load_existing_periods(WEEKLY_SYNTHESIS_PATH, "weekly")
+    current_week = week_start(now.date())
+    by_week = weekly_entries_by_period(entries, current_week)
+    if not by_week:
+        return 0
+    generated_at = utc_now_iso()
+    new_entries = build_missing_synthesis_entries(by_week, existing, build_weekly_synthesis_entry, generated_at)
+    append_jsonl_entries(WEEKLY_SYNTHESIS_PATH, new_entries)
     return len(new_entries)
 
 
-def _run_hierarchical_consolidation(notes_dir: Path, entries: list[dict]) -> list[dict]:
+def build_monthly_synthesis_entry(
+    month_start_date: date,
+    month_weeklies: list[dict],
+    generated_at: str,
+) -> dict | None:
+    if not month_weeklies:
+        return None
+    month_end_date = next_month_start(month_start_date) - timedelta(days=1)
+    sorted_weeklies = sorted(month_weeklies, key=note_timestamp, reverse=True)
+    tag_counts = monthly_tag_counts(month_weeklies)
+    top_tags = top_monthly_tags(tag_counts)
+    lines = [
+        "## Summary",
+        f"Monthly synthesis for {month_start_date.strftime('%Y-%m')} from {len(month_weeklies)} weekly synthesis notes.",
+        "",
+        "### Recurring themes",
+    ]
+    lines.extend(monthly_theme_lines(top_tags, tag_counts))
+    lines.extend(["", "### Weekly highlights"])
+    lines.extend(monthly_highlight_lines(sorted_weeklies))
+    avg_salience = bounded_average_salience(sorted_weeklies, 8, 0.25)
+    return monthly_synthesis_payload(month_start_date, month_end_date, month_weeklies, lines, top_tags, avg_salience, generated_at)
+
+
+def create_missing_monthly_syntheses(entries: list[dict], now: datetime) -> int:
+    existing = load_existing_periods(MONTHLY_SYNTHESIS_PATH, "monthly")
+    current_month = month_start(now.date())
+    by_month = monthly_entries_by_period(entries, current_month)
+    if not by_month:
+        return 0
+    generated_at = utc_now_iso()
+    new_entries = build_missing_synthesis_entries(by_month, existing, build_monthly_synthesis_entry, generated_at)
+    append_jsonl_entries(MONTHLY_SYNTHESIS_PATH, new_entries)
+    return len(new_entries)
+
+
+def run_maintenance_cycle(notes_dir: Path, entries: list[dict], now: datetime):
+    archived = archive_low_salience_notes(notes_dir, now)
+    entries = load_all_notes(notes_dir)
+    weekly_created = create_missing_weekly_syntheses(entries, now)
+    if weekly_created:
+        entries = load_all_notes(notes_dir)
+    monthly_created = create_missing_monthly_syntheses(entries, now)
+    if monthly_created:
+        entries = load_all_notes(notes_dir)
+    return entries, archived, weekly_created, monthly_created
+
+
+def run_hierarchical_consolidation(notes_dir: Path, entries: list[dict]) -> list[dict]:
     """Run periodic note consolidation: archive + weekly/monthly synthesis."""
     now = datetime.now(timezone.utc)
-    state = _load_note_maintenance_state()
-    last_run = _parse_iso_datetime(state.get("last_run", ""))
+    state = load_note_maintenance_state()
+    last_run = parse_iso_datetime(state.get("last_run", ""))
     if last_run and (now - last_run) < timedelta(hours=MAINTENANCE_INTERVAL_HOURS):
         return entries
 
-    archived = 0
-    weekly_created = 0
-    monthly_created = 0
+    archived = weekly_created = monthly_created = 0
     try:
-        archived = _archive_low_salience_notes(notes_dir, now)
-        entries = _load_all_notes(notes_dir)
-        weekly_created = _create_missing_weekly_syntheses(entries, now)
-        if weekly_created:
-            entries = _load_all_notes(notes_dir)
-        monthly_created = _create_missing_monthly_syntheses(entries, now)
-        if monthly_created:
-            entries = _load_all_notes(notes_dir)
+        entries, archived, weekly_created, monthly_created = run_maintenance_cycle(notes_dir, entries, now)
     finally:
-        _save_note_maintenance_state(
+        save_note_maintenance_state(
             {
-                "last_run": _utc_now_iso(),
+                "last_run": utc_now_iso(),
                 "archived": archived,
                 "weekly_created": weekly_created,
                 "monthly_created": monthly_created,
@@ -873,7 +889,7 @@ def _run_hierarchical_consolidation(notes_dir: Path, entries: list[dict]) -> lis
     return entries
 
 
-def _load_all_notes(notes_dir: Path) -> list[dict]:
+def load_all_notes(notes_dir: Path) -> list[dict]:
     """Load all note entries from JSONL files in the notes directory."""
     entries = []
     for jsonl_file in notes_dir.glob("*.jsonl"):
@@ -897,42 +913,39 @@ def _load_all_notes(notes_dir: Path) -> list[dict]:
     return entries
 
 
-def _select_notes(entries: list[dict]) -> list[tuple[float, dict]]:
+def split_recent_and_remaining(entries: list[dict]):
+    by_recency = sorted(entries, key=lambda entry: note_timestamp(entry), reverse=True)
+    recent = by_recency[:RECENCY_CEILING]
+    recent_sessions = {entry.get("session", "") for entry in recent}
+    remaining = [entry for entry in entries if entry.get("session", "") not in recent_sessions]
+    return recent, remaining
+
+
+def score_entries(entries: list[dict], usage_notes: dict) -> list[tuple[float, dict]]:
+    scored = [(effective_salience(entry, usage_notes), entry) for entry in entries]
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored
+
+
+def select_notes(entries: list[dict]) -> list[tuple[float, dict]]:
     """Select notes with recency ceiling: always include the N most recent,
     then fill remaining slots by salience score."""
     if not entries:
         return []
-
-    usage_data = _load_note_usage()
+    usage_data = load_note_usage()
     usage_notes = usage_data.get("notes", {})
-
-    # Sort by timestamp descending to find most recent
-    by_recency = sorted(entries, key=lambda e: _note_timestamp(e), reverse=True)
-
-    # Always include the RECENCY_CEILING most recent notes
-    recent = by_recency[:RECENCY_CEILING]
-    recent_sessions = {e.get("session", "") for e in recent}
-
-    # Score all remaining notes by salience
-    remaining = [e for e in entries if e.get("session", "") not in recent_sessions]
-    scored_remaining = [(_effective_salience(e, usage_notes), e) for e in remaining]
-    scored_remaining.sort(key=lambda x: x[0], reverse=True)
-
-    # Fill remaining budget with highest-salience notes
+    recent, remaining = split_recent_and_remaining(entries)
+    scored_remaining = score_entries(remaining, usage_notes)
     budget = MAX_SALIENT_NOTES - len(recent)
     top_by_salience = scored_remaining[:budget]
-
-    # Combine: recent notes (scored) + salience notes
-    result = [(_effective_salience(e, usage_notes), e) for e in recent]
+    result = score_entries(recent, usage_notes)
     result.extend(top_by_salience)
-
-    # Sort final list by salience descending for display
-    result.sort(key=lambda x: x[0], reverse=True)
-    _record_loaded_notes([entry for _, entry in result], usage_data)
+    result.sort(key=lambda item: item[0], reverse=True)
+    record_loaded_notes([entry for _, entry in result], usage_data)
     return result
 
 
-def _format_notes(scored: list[tuple[float, dict]]) -> str:
+def format_notes(scored: list[tuple[float, dict]]) -> str:
     """Format selected notes as compact references."""
     parts = []
     for score, entry in scored:
@@ -949,8 +962,8 @@ def _format_notes(scored: list[tuple[float, dict]]) -> str:
     return "\n".join(parts)
 
 
-def _note_summary(entry: dict) -> str:
-    text = _note_text(entry)
+def note_summary(entry: dict) -> str:
+    text = note_text(entry)
     for line in text.splitlines():
         stripped = line.strip().lstrip("#").strip()
         if stripped and stripped.lower() != "summary":
@@ -958,11 +971,11 @@ def _note_summary(entry: dict) -> str:
     return "No summary"
 
 
-def _extract_open_threads(entries: list[dict]) -> list[str]:
+def extract_open_threads(entries: list[dict]) -> list[str]:
     threads = []
     seen = set()
     for entry in entries:
-        text = _note_text(entry)
+        text = note_text(entry)
         for line in text.splitlines():
             cleaned = line.strip().lstrip("-*").strip()
             if not cleaned:
@@ -979,26 +992,47 @@ def _extract_open_threads(entries: list[dict]) -> list[str]:
     return threads
 
 
-def _generate_now_markdown(entries: list[dict]) -> str:
-    """Create a deterministic rolling now.md from recent+salient notes."""
-    now_iso = _utc_now_iso()
-
-    by_recency = sorted(entries, key=_note_timestamp, reverse=True)
-    highlights = by_recency[:6]
-
-    tag_counts: dict[str, int] = {}
+def theme_counts(entries: list[dict]) -> dict[str, int]:
+    counts: dict[str, int] = {}
     for entry in entries:
-        tags = entry.get("topic_tags", [])
-        if not isinstance(tags, list):
-            continue
-        for tag in tags:
-            t = str(tag).strip()
-            if t:
-                tag_counts[t] = tag_counts.get(t, 0) + 1
+        for tag in clean_note_tags(entry.get("topic_tags", [])):
+            counts[tag] = counts.get(tag, 0) + 1
+    return counts
 
+
+def theme_section_lines(top_tags: list[tuple[str, int]]) -> list[str]:
+    if not top_tags:
+        return ["- No clear themes yet"]
+    return [f"- {tag} ({count})" for tag, count in top_tags]
+
+
+def recent_highlight_lines(highlights: list[dict]) -> list[str]:
+    if not highlights:
+        return ["- No recent highlights yet"]
+    lines: list[str] = []
+    for entry in highlights:
+        ts = note_timestamp(entry)[:10]
+        summary = note_summary(entry)
+        sid = str(entry.get("session", "")).strip()[:8]
+        sid_suffix = f" [{sid}]" if sid else ""
+        lines.append(f"- {ts}{sid_suffix}: {summary}")
+    return lines
+
+
+def open_thread_lines(open_threads: list[str]) -> list[str]:
+    if not open_threads:
+        return ["- No explicit open threads detected"]
+    return [f"- {item}" for item in open_threads]
+
+
+def generate_now_markdown(entries: list[dict]) -> str:
+    """Create a deterministic rolling now.md from recent+salient notes."""
+    now_iso = utc_now_iso()
+    by_recency = sorted(entries, key=note_timestamp, reverse=True)
+    highlights = by_recency[:6]
+    tag_counts = theme_counts(entries)
     top_tags = sorted(tag_counts.items(), key=lambda kv: kv[1], reverse=True)[:6]
-    open_threads = _extract_open_threads(entries)
-
+    open_threads = extract_open_threads(entries)
     lines = [
         "# Working Memory",
         "",
@@ -1009,36 +1043,15 @@ def _generate_now_markdown(entries: list[dict]) -> str:
         "## Active Themes",
         "",
     ]
-
-    if top_tags:
-        for tag, count in top_tags:
-            lines.append(f"- {tag} ({count})")
-    else:
-        lines.append("- No clear themes yet")
-
+    lines.extend(theme_section_lines(top_tags))
     lines.extend(["", "## Recent Session Highlights", ""])
-    if highlights:
-        for entry in highlights:
-            ts = _note_timestamp(entry)[:10]
-            summary = _note_summary(entry)
-            sid = str(entry.get("session", "")).strip()[:8]
-            sid_suffix = f" [{sid}]" if sid else ""
-            lines.append(f"- {ts}{sid_suffix}: {summary}")
-    else:
-        lines.append("- No recent highlights yet")
-
+    lines.extend(recent_highlight_lines(highlights))
     lines.extend(["", "## Open Threads", ""])
-    if open_threads:
-        for item in open_threads:
-            lines.append(f"- {item}")
-    else:
-        lines.append("- No explicit open threads detected")
-
+    lines.extend(open_thread_lines(open_threads))
     return "\n".join(lines).strip() + "\n"
 
 
-def _maybe_update_now_md(selected_entries: list[dict]):
-    """Auto-update now.md only if missing or previously auto-managed."""
+def maybe_update_now_md(selected_entries: list[dict]):
     try:
         SEEDS_DIR.mkdir(parents=True, exist_ok=True)
         now_path = SEEDS_DIR / "now.md"
@@ -1047,63 +1060,75 @@ def _maybe_update_now_md(selected_entries: list[dict]):
             if AUTO_NOW_MARKER not in existing:
                 return
 
-        content = _generate_now_markdown(selected_entries)
+        content = generate_now_markdown(selected_entries)
         now_path.write_text(content, encoding="utf-8")
+    except Exception:
+        pass
+
+
+def consume_hook_input():
+    try:
+        json.loads(sys.stdin.read())
+    except (json.JSONDecodeError, EOFError):
+        return
+
+
+def print_context_instructions(files: list[str], is_compact: bool):
+    header = "[Memorable] Context recovery after compaction. Read these files:\n"
+    if not is_compact:
+        header = "[Memorable] BEFORE RESPONDING, read these files in order:\n"
+    print(header)
+    for i, path in enumerate(files, 1):
+        print(f"{i}. Read {path}")
+    print("\nDo NOT skip this. Do NOT respond before reading these files.")
+
+
+def print_selected_notes_section():
+    notes_dir = BASE_DIR / "data" / "notes"
+    if not notes_dir.exists():
+        return
+    entries = load_all_notes(notes_dir)
+    if not entries:
+        return
+    entries = run_hierarchical_consolidation(notes_dir, entries)
+    selected = select_notes(entries)
+    if not selected:
+        return
+    maybe_update_now_md([entry for _, entry in selected])
+    formatted = format_notes(selected)
+    print(f"\n[Memorable] Most salient session notes ({len(entries)} total in {notes_dir}/):")
+    print(formatted)
+    print(f"To read a note: grep {notes_dir}/ for its session ID. To search by topic: grep by keyword.")
+
+
+def print_memorable_search_hint():
+    print("\n[Memorable] To search past sessions and observations, use the `memorable_search` MCP tool or the /memorable-search skill.")
+    print("Use this when the user references past conversations, asks \"do you remember...\", or when you need historical context.")
+
+
+def log_session_start_error(error: Exception):
+    log_path = BASE_DIR / "hook-errors.log"
+    try:
+        import time
+        with open(log_path, "a") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] session_start: {error}\n")
     except Exception:
         pass
 
 
 def main():
     try:
-        # Read stdin (hook input)
-        try:
-            json.loads(sys.stdin.read())
-        except (json.JSONDecodeError, EOFError):
-            pass
-
+        consume_hook_input()
         is_compact = "--compact" in sys.argv
         config = load_config()
         files = collect_files(config)
-
         if not files:
             return
-
-        if is_compact:
-            print("[Memorable] Context recovery after compaction. Read these files:\n")
-        else:
-            print("[Memorable] BEFORE RESPONDING, read these files in order:\n")
-
-        for i, path in enumerate(files, 1):
-            print(f"{i}. Read {path}")
-
-        print("\nDo NOT skip this. Do NOT respond before reading these files.")
-
-        # Add session notes with recency ceiling
-        notes_dir = BASE_DIR / "data" / "notes"
-        if notes_dir.exists():
-            entries = _load_all_notes(notes_dir)
-            if entries:
-                entries = _run_hierarchical_consolidation(notes_dir, entries)
-                selected = _select_notes(entries)
-                if selected:
-                    _maybe_update_now_md([entry for _, entry in selected])
-                    formatted = _format_notes(selected)
-                    print(f"\n[Memorable] Most salient session notes ({len(entries)} total in {notes_dir}/):")
-                    print(formatted)
-                    print(f"To read a note: grep {notes_dir}/ for its session ID. To search by topic: grep by keyword.")
-
-        # Surface memorable_search tool
-        print("\n[Memorable] To search past sessions and observations, use the `memorable_search` MCP tool or the /memorable-search skill.")
-        print("Use this when the user references past conversations, asks \"do you remember...\", or when you need historical context.")
-
-    except Exception as e:
-        log_path = BASE_DIR / "hook-errors.log"
-        try:
-            import time
-            with open(log_path, "a") as f:
-                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] session_start: {e}\n")
-        except Exception:
-            pass
+        print_context_instructions(files, is_compact)
+        print_selected_notes_section()
+        print_memorable_search_hint()
+    except Exception as error:
+        log_session_start_error(error)
 
 
 if __name__ == "__main__":

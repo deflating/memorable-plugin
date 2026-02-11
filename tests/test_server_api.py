@@ -140,7 +140,7 @@ class ServerApiTests(unittest.TestCase):
             zf.writestr("../evil.txt", "x")
 
         with self.assertRaises(ValueError):
-            server_api._import_zip_payload(payload.getvalue())
+            server_api.import_zip_payload(payload.getvalue())
 
     def test_handle_get_memory_insights_summarizes_usage(self):
         with tempfile.TemporaryDirectory() as td:
