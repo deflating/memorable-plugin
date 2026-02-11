@@ -29,6 +29,11 @@ def load_config() -> dict:
     return {}
 
 
+def sanitize_filename(filename: str) -> str:
+    """Keep only safe filename characters."""
+    return "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
+
+
 def extract_at_depth(anchored_text: str, max_depth: int) -> str:
     """Extract content from anchored text up to max_depth, stripping markers."""
     if max_depth < 0:
@@ -79,8 +84,12 @@ def prepare_context_file(filename: str, depth: int) -> str | None:
     For anchored files with a specific depth, extracts content and writes
     a cached version. Returns the path Claude should read.
     """
-    raw_path = FILES_DIR / filename
-    anchored_path = FILES_DIR / f"{filename}.anchored"
+    safe_filename = sanitize_filename(filename)
+    if not safe_filename:
+        return None
+
+    raw_path = FILES_DIR / safe_filename
+    anchored_path = FILES_DIR / f"{safe_filename}.anchored"
 
     # If anchored version exists and depth is set (not full/-1)
     if anchored_path.is_file() and depth >= 0:
@@ -88,7 +97,7 @@ def prepare_context_file(filename: str, depth: int) -> str | None:
         extracted = extract_at_depth(anchored_text, depth)
 
         # Write to a cached extraction file
-        cache_path = FILES_DIR / f".cache-{filename}-depth{depth}.md"
+        cache_path = FILES_DIR / f".cache-{safe_filename}-depth{depth}.md"
         cache_path.write_text(extracted, encoding="utf-8")
         return str(cache_path)
 
@@ -113,7 +122,7 @@ def collect_files(config: dict) -> list[str]:
     for entry in config.get("context_files", []):
         if not entry.get("enabled", True):
             continue
-        filename = entry.get("filename", "")
+        filename = sanitize_filename(entry.get("filename", ""))
         if not filename:
             continue
 
