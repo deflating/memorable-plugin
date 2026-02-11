@@ -175,8 +175,10 @@
         return u.projects.length === 0 ? 'sketch' : u.projects.length === 1 ? 'forming' : 'substantial';
       case 'user-custom':
         return u.customSections.length === 0 ? 'sketch' : u.customSections.length === 1 ? 'forming' : 'substantial';
-      case 'agent-name':
-        return !a.name || !a.name.trim() ? 'sketch' : 'forming';
+      case 'agent-name': {
+        const filled = ['name', 'model', 'role'].filter(k => a[k] && a[k].trim()).length;
+        return filled === 0 ? 'sketch' : filled <= 1 ? 'forming' : 'substantial';
+      }
       case 'agent-about':
         return !a.about || !a.about.trim() ? 'sketch' : a.about.trim().length < 100 ? 'forming' : 'substantial';
       case 'traits': {
@@ -268,6 +270,8 @@
     },
     agent: {
       name: '',
+      model: '',
+      role: '',
       about: '',
       communicationOptions: DEFAULT_COMMUNICATION_OPTIONS.map(o => o.key),
       communicationLabels: {},
@@ -762,6 +766,10 @@
 
     if (sec['agent-name']) {
       md += `# ${a.name || 'Agent Profile'}\n\n`;
+      const details = [];
+      if (a.model) details.push(`**Model:** ${a.model}`);
+      if (a.role) details.push(`**Role:** ${a.role}`);
+      if (details.length) md += details.join(' | ') + '\n\n';
     } else {
       md += '# Agent Profile\n\n';
     }
@@ -1004,6 +1012,8 @@
   function parseAgentMarkdown(md) {
     const a = state.agent;
     a.name = '';
+    a.model = '';
+    a.role = '';
     a.about = '';
     a.communicationActive = {};
     a.behaviorsActive = {};
@@ -1016,6 +1026,14 @@
 
     if (sections._title && sections._title !== 'Agent Profile') {
       a.name = sections._title;
+    }
+
+    if (sections._intro) {
+      const intro = sections._intro;
+      const modelMatch = intro.match(/\*\*Model:\*\*\s*([^|*\n]+)/);
+      if (modelMatch) a.model = modelMatch[1].trim();
+      const roleMatch = intro.match(/\*\*Role:\*\*\s*([^|*\n]+)/);
+      if (roleMatch) a.role = roleMatch[1].trim();
     }
 
     if (getSection(sections, 'About')) {
@@ -4133,10 +4151,31 @@
     container.innerHTML = `
       ${renderPresetBar()}
 
-      ${renderSection('agent-name', 'Name', 'What the agent calls itself', 'sage', ICON.settings, `
+      ${renderSection('agent-name', 'Identity', 'Name, model, and role', 'sage', ICON.settings, `
+        <div class="form-row">
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" data-bind="agent.name" value="${esc(a.name)}" placeholder="e.g. Claude, Aria, Helper">
+          </div>
+          <div class="form-group">
+            <label>Model</label>
+            <input type="text" data-bind="agent.model" value="${esc(a.model)}" placeholder="e.g. Claude Opus 4.6">
+          </div>
+        </div>
         <div class="form-group">
-          <label>Agent Name</label>
-          <input type="text" data-bind="agent.name" value="${esc(a.name)}" placeholder="e.g. Claude, Aria, Helper">
+          <label>Role</label>
+          <select id="agent-role-select">
+            <option value="" ${!a.role ? 'selected' : ''}>Choose a role...</option>
+            <option value="Coding partner" ${a.role === 'Coding partner' ? 'selected' : ''}>Coding partner</option>
+            <option value="Companion" ${a.role === 'Companion' ? 'selected' : ''}>Companion</option>
+            <option value="Creative collaborator" ${a.role === 'Creative collaborator' ? 'selected' : ''}>Creative collaborator</option>
+            <option value="Research assistant" ${a.role === 'Research assistant' ? 'selected' : ''}>Research assistant</option>
+            <option value="Writing partner" ${a.role === 'Writing partner' ? 'selected' : ''}>Writing partner</option>
+            <option value="custom" ${(state._agentRoleCustom || (a.role && !['Coding partner','Companion','Creative collaborator','Research assistant','Writing partner'].includes(a.role))) ? 'selected' : ''}>Other...</option>
+          </select>
+          ${(state._agentRoleCustom || (a.role && !['','Coding partner','Companion','Creative collaborator','Research assistant','Writing partner'].includes(a.role))) ? `
+            <input type="text" data-bind="agent.role" value="${esc(a.role)}" placeholder="Describe the role..." style="margin-top:8px;" id="agent-role-custom">
+          ` : ''}
         </div>
       `)}
 
@@ -4241,6 +4280,7 @@
 
   // ---- Partial Renderers ----
   function renderSwitchRowWithRemove(bind, label, desc, checked, removeKey, removeType) {
+    const isCustom = !!removeKey;
     return `
       <div class="switch-row">
         <div>
@@ -4248,11 +4288,13 @@
           ${desc ? `<div class="switch-label-desc">${desc}</div>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:6px;">
-          <label class="switch">
-            <input type="checkbox" data-bind="${bind}" ${checked ? 'checked' : ''}>
-            <span class="switch-track"></span>
-          </label>
-          ${removeKey ? `<button class="switch-remove-btn" data-remove-switchrow="${removeKey}" data-remove-type="${removeType}" title="Remove">${ICON.x}</button>` : ''}
+          ${isCustom ? '' : `
+            <label class="switch">
+              <input type="checkbox" data-bind="${bind}" ${checked ? 'checked' : ''}>
+              <span class="switch-track"></span>
+            </label>
+          `}
+          ${isCustom ? `<button class="switch-remove-btn" data-remove-switchrow="${removeKey}" data-remove-type="${removeType}" title="Remove">${ICON.x}</button>` : ''}
         </div>
       </div>
     `;
@@ -4379,7 +4421,7 @@
         renderPreview();
         debouncedSave();
       };
-      if (el.type === 'checkbox') {
+      if (el.type === 'checkbox' || el.tagName === 'SELECT') {
         el.addEventListener('change', handler);
       } else {
         el.addEventListener('input', handler);
@@ -4634,6 +4676,28 @@
   }
 
   function bindAgentSpecificEvents(container) {
+    // Role select — handle "Other" showing free text field
+    const roleSelect = document.getElementById('agent-role-select');
+    if (roleSelect) {
+      roleSelect.addEventListener('change', () => {
+        const val = roleSelect.value;
+        if (val === 'custom') {
+          state._agentRoleCustom = true;
+          state.agent.role = '';
+          render();
+          setTimeout(() => {
+            const customInput = document.getElementById('agent-role-custom');
+            if (customInput) customInput.focus();
+          }, 50);
+        } else {
+          state._agentRoleCustom = false;
+          state.agent.role = val;
+          renderPreview();
+          debouncedSave();
+        }
+      });
+    }
+
     // Communication preferences
     const addCommBtn = document.getElementById('add-comm-btn');
     if (addCommBtn) {
