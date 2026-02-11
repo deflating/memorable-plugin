@@ -527,6 +527,7 @@ def _archive_low_salience_notes(notes_dir: Path, now: datetime) -> int:
 
         keep_lines: list[str] = []
         archive_lines: list[str] = []
+        original_lines: list[str] = []
 
         try:
             with jsonl_file.open("r", encoding="utf-8") as fh:
@@ -535,6 +536,7 @@ def _archive_low_salience_notes(notes_dir: Path, now: datetime) -> int:
                     if not line:
                         continue
                     normalized = raw_line if raw_line.endswith("\n") else raw_line + "\n"
+                    original_lines.append(normalized)
                     try:
                         obj = json.loads(line)
                     except json.JSONDecodeError:
@@ -552,19 +554,34 @@ def _archive_low_salience_notes(notes_dir: Path, now: datetime) -> int:
             continue
 
         tmp_path = jsonl_file.with_suffix(jsonl_file.suffix + ".tmp")
+        rollback_path = jsonl_file.with_suffix(jsonl_file.suffix + ".rollback.tmp")
         try:
-            archive_path = archive_dir / jsonl_file.name
-            with archive_path.open("a", encoding="utf-8") as fh:
-                fh.writelines(archive_lines)
-
             with tmp_path.open("w", encoding="utf-8") as fh:
                 fh.writelines(keep_lines)
             tmp_path.replace(jsonl_file)
+
+            archive_path = archive_dir / jsonl_file.name
+            with archive_path.open("a", encoding="utf-8") as fh:
+                fh.writelines(archive_lines)
             archived_count += len(archive_lines)
         except OSError:
+            # If archiving failed after source rewrite, restore original source
+            # so we don't lose records on partial failures.
+            try:
+                if original_lines:
+                    with rollback_path.open("w", encoding="utf-8") as fh:
+                        fh.writelines(original_lines)
+                    rollback_path.replace(jsonl_file)
+            except OSError:
+                pass
             try:
                 if tmp_path.exists():
                     tmp_path.unlink()
+            except OSError:
+                pass
+            try:
+                if rollback_path.exists():
+                    rollback_path.unlink()
             except OSError:
                 pass
 
