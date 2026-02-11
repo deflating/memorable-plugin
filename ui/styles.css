@@ -3014,10 +3014,9 @@ select {
   filter: saturate(0.8);
 }
 
-/* Substantial — rich content: accent left border, deeper shadow */
+/* Substantial — rich content: deeper shadow, full icon saturation */
 .section.materiality-substantial {
   border-color: var(--border);
-  border-left: 3px solid var(--terracotta);
   box-shadow: var(--shadow-md);
 }
 .section.materiality-substantial .section-icon {
