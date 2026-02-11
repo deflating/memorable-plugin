@@ -98,6 +98,18 @@
     }
   };
 
+  const USER_SECTION_IDS = [
+    'identity', 'about', 'cognitive', 'values', 'communication', 'people', 'projects', 'user-custom'
+  ];
+  const AGENT_SECTION_IDS = [
+    'agent-name', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'
+  ];
+  const ADVANCED_SECTION_IDS = ['people', 'projects', 'user-custom', 'when-low', 'tech-style', 'agent-custom'];
+  const ADVANCED_SECTIONS_BY_FILE = {
+    user: ['people', 'projects', 'user-custom'],
+    agent: ['when-low', 'tech-style', 'agent-custom'],
+  };
+
   // ---- Anchor Depth Levels ----
   const ANCHOR_DEPTHS = [
     { key: 'full', label: 'Full', desc: 'All content' },
@@ -166,6 +178,30 @@
     }
   }
 
+  function isAdvancedSection(sectionId) {
+    return ADVANCED_SECTION_IDS.includes(sectionId);
+  }
+
+  function advancedSectionsForActiveFile() {
+    return ADVANCED_SECTIONS_BY_FILE[state.activeFile] || [];
+  }
+
+  function hasAdvancedSectionContent() {
+    const u = state.user;
+    const a = state.agent;
+    const hasUserAdvanced = u.people.length > 0 || u.projects.length > 0 || u.customSections.length > 0;
+    const hasAgentAdvanced = a.customSections.length > 0
+      || Object.values(a.whenLowActive).some(Boolean)
+      || Object.values(a.techStyleActive).some(Boolean);
+    return hasUserAdvanced || hasAgentAdvanced;
+  }
+
+  function setAdvancedSectionsCollapsed(collapsed) {
+    ADVANCED_SECTION_IDS.forEach((sectionId) => {
+      state.collapsedSections[sectionId] = collapsed;
+    });
+  }
+
   // Track whether we've done first-load animation
   let _firstLoadAnimated = false;
 
@@ -212,6 +248,10 @@
       'when-low': true, 'tech-style': true, 'agent-custom': true
     },
     collapsedSections: {},
+    uiPreferences: {
+      showAdvancedControls: false,
+      advancedDefaultsApplied: false,
+    },
     user: {
       identity: { name: '', age: '', location: '', pronouns: '' },
       about: '',
@@ -1695,6 +1735,30 @@
 
     const setupReady = !!status && !!state.settingsCache;
     const hasFirstNote = totalNotesCount > 0;
+    const showFirstWeekFlow = !hasFirstNote;
+    const firstWeekFlowHtml = showFirstWeekFlow ? `
+      <div class="dashboard-first-week-flow">
+        <div class="dashboard-first-week-header">
+          <h2>First-Week Path</h2>
+          <span>Configure &rarr; Capture &rarr; Review</span>
+        </div>
+        <p>Start here to get useful memory quickly. You can skip advanced controls for now.</p>
+        <div class="dashboard-first-week-steps">
+          <button class="dashboard-first-week-step" onclick="window.memorableApp.navigateTo('configure')">
+            <span class="dashboard-first-week-step-num">1</span>
+            Configure seeds
+          </button>
+          <button class="dashboard-first-week-step" onclick="window.memorableApp.navigateTo('settings')">
+            <span class="dashboard-first-week-step-num">2</span>
+            Enable capture daemon
+          </button>
+          <button class="dashboard-first-week-step" onclick="window.memorableApp.navigateTo('memories')">
+            <span class="dashboard-first-week-step-num">3</span>
+            Review notes
+          </button>
+        </div>
+      </div>
+    ` : '';
     const showSetupChecklist = setupReady && seedsExist && (!daemonEnabled || !hasFirstNote);
     let setupChecklistHtml = '';
     if (showSetupChecklist) {
@@ -1808,6 +1872,7 @@
         </div>
 
         ${onboardingHtml}
+        ${firstWeekFlowHtml}
         ${setupChecklistHtml}
         ${daemonReliabilityHtml}
 
@@ -2341,6 +2406,12 @@
     const resetFiltersHtml = hasActiveFilters
       ? '<button type="button" class="notes-reset-btn" id="notes-reset-filters-btn">Reset filters</button>'
       : '';
+    const notesGuideHtml = ns.total > 0 ? `
+      <div class="notes-review-guide">
+        <strong>Review flow:</strong>
+        <span>Open recent notes, pin what should stick, archive noise, then reset filters.</span>
+      </div>
+    ` : '';
 
     container.innerHTML = `
       <div class="notes-page">
@@ -2348,6 +2419,7 @@
         <div class="notes-header-row">
           <span class="notes-count">${ns.total} note${ns.total !== 1 ? 's' : ''}</span>
         </div>
+        ${notesGuideHtml}
         ${machineTabsHtml}
         <div class="notes-toolbar">
           <div class="notes-search">
@@ -2505,7 +2577,7 @@
     const memoryKinds = {
       episodic: {
         label: 'Episodic',
-        helper: 'Browse and search notes from past sessions.',
+        helper: 'Review captured sessions. Start with Newest, then pin or archive.',
       },
       working: {
         label: 'Working',
@@ -4081,7 +4153,8 @@
   }
 
   function renderPresetBar() {
-    const isUser = state.activeFile === 'user';
+    const advancedVisible = !!(state.uiPreferences && state.uiPreferences.showAdvancedControls);
+    const advancedCount = advancedSectionsForActiveFile().length;
     return `
       <div class="preset-bar">
         <div class="preset-bar-label">Why do you use Claude?</div>
@@ -4090,7 +4163,17 @@
             <button class="preset-btn ${state.preset === key ? 'active' : ''}" data-preset="${key}">${preset.label}</button>
           `).join('')}
         </div>
-        <div class="preset-bar-hint">Presets suggest which sections to enable. You can always toggle any section on or off individually.</div>
+        <div class="preset-bar-meta">
+          <div class="preset-bar-hint">Presets cover most first-week setups. Use advanced controls only when you need section-level tuning.</div>
+          <button type="button" class="btn btn-small preset-advanced-btn ${advancedVisible ? 'active' : ''}" data-advanced-controls-toggle>
+            ${advancedVisible ? 'Hide advanced controls' : 'Show advanced controls'}
+          </button>
+        </div>
+        ${advancedVisible ? `
+          <div class="preset-bar-next-step">After edits, click <strong>Deploy</strong> so new sessions use the updated seeds.</div>
+        ` : `
+          <div class="preset-bar-next-step">Advanced sections (${advancedCount}) start collapsed for focus. Expand them later if needed.</div>
+        `}
       </div>
     `;
   }
@@ -4102,8 +4185,20 @@
     const collapsedClass = state.collapsedSections[id] ? 'collapsed' : '';
     const density = getSectionDensity(id);
     const materialityClass = 'materiality-' + density;
+    const advanced = isAdvancedSection(id);
+    const advancedClass = advanced ? 'section-advanced' : '';
+    const advancedVisible = !!(state.uiPreferences && state.uiPreferences.showAdvancedControls);
+    const toggleHtml = advancedVisible ? `
+      <label class="section-toggle" onclick="event.stopPropagation()">
+        <input type="checkbox" ${enabled ? 'checked' : ''} data-section-toggle="${id}">
+        <span class="section-toggle-track"></span>
+      </label>
+    ` : '';
+    const advancedChip = advanced && !advancedVisible
+      ? '<span class="section-advanced-chip" title="Advanced section">Advanced</span>'
+      : '';
     return `
-      <div class="section ${disabledClass} ${collapsedClass} ${materialityClass}" id="section-${id}">
+      <div class="section ${disabledClass} ${collapsedClass} ${materialityClass} ${advancedClass}" id="section-${id}">
         <div class="section-header">
           <div class="section-header-left" onclick="window.seedApp.toggleSection('section-${id}')">
             <div class="section-icon ${colorClass}">${icon}</div>
@@ -4113,10 +4208,8 @@
             </div>
           </div>
           <div class="section-header-right">
-            <label class="section-toggle" onclick="event.stopPropagation()">
-              <input type="checkbox" ${enabled ? 'checked' : ''} data-section-toggle="${id}">
-              <span class="section-toggle-track"></span>
-            </label>
+            ${toggleHtml}
+            ${advancedChip}
             <span class="section-chevron" onclick="window.seedApp.toggleSection('section-${id}')">&#9660;</span>
           </div>
         </div>
@@ -4591,6 +4684,15 @@
         render();
       });
     });
+    container.querySelectorAll('[data-advanced-controls-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = !(state.uiPreferences && state.uiPreferences.showAdvancedControls);
+        state.uiPreferences.showAdvancedControls = next;
+        if (!next) setAdvancedSectionsCollapsed(true);
+        render();
+        debouncedSave();
+      });
+    });
   }
 
   function applyPreset(presetKey) {
@@ -4599,14 +4701,12 @@
     if (!preset) return;
 
     // For user sections
-    const userSectionIds = ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'];
-    userSectionIds.forEach(id => {
+    USER_SECTION_IDS.forEach(id => {
       state.enabledSections[id] = preset.userSections.includes(id);
     });
 
     // For agent sections
-    const agentSectionIds = ['agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'];
-    agentSectionIds.forEach(id => {
+    AGENT_SECTION_IDS.forEach(id => {
       state.enabledSections[id] = preset.agentSections.includes(id);
     });
   }
@@ -5702,10 +5802,24 @@
     if (!state.collapsedSections || typeof state.collapsedSections !== 'object') {
       state.collapsedSections = {};
     }
-    const allSections = ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom', 'agent-name', 'communication', 'traits', 'behaviors', 'avoid', 'when-low', 'tech-style', 'agent-custom'];
+    const allSections = USER_SECTION_IDS.concat(AGENT_SECTION_IDS);
     allSections.forEach(id => {
       if (state.enabledSections[id] === undefined) state.enabledSections[id] = true;
     });
+    if (!state.uiPreferences || typeof state.uiPreferences !== 'object') {
+      state.uiPreferences = {};
+    }
+    if (state.uiPreferences.showAdvancedControls === undefined) {
+      state.uiPreferences.showAdvancedControls = hasAdvancedSectionContent();
+    }
+    if (!state.uiPreferences.advancedDefaultsApplied) {
+      if (!state.uiPreferences.showAdvancedControls) {
+        ADVANCED_SECTION_IDS.forEach((sectionId) => {
+          if (state.collapsedSections[sectionId] === undefined) state.collapsedSections[sectionId] = true;
+        });
+      }
+      state.uiPreferences.advancedDefaultsApplied = true;
+    }
 
     // Ensure preset exists
     if (!state.preset) state.preset = 'custom';

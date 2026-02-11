@@ -2,6 +2,8 @@
 
 *Generated 2026-02-11 from reviews by: Claude Agent Team (backend, frontend, UX, memory researcher) + ChatGPT Codex*
 
+> Note: This file is a historical review artifact. Linear is the source of truth for active status.
+
 ---
 
 ## P0: Fix Now
@@ -106,7 +108,7 @@ Every response includes `Access-Control-Allow-Origin: *`. This means any website
 
 ---
 
-### #9 — Google Fonts external request
+### #9 — Google Fonts external request (Done 2026-02-11)
 
 **Type:** Privacy
 **File:** `ui/index.html:7-10`
@@ -118,7 +120,7 @@ The README says "nothing leaves your machine" but the UI loads Google Fonts via 
 
 ---
 
-### #10 — Settings UI wired to wrong schema
+### #10 — Settings UI wired to wrong schema (Done 2026-02-11)
 
 **Type:** Bug
 **File:** `ui/app.js` — settings load/save functions
@@ -209,7 +211,7 @@ Several rendering functions access nested properties without null guards (e.g., 
 
 ---
 
-### #17 — Unify config schemas
+### #17 — Unify config schemas (Done 2026-02-11)
 
 **Type:** Architecture
 **Files:** `plugin/install.sh`, `plugin/server.py`, `processor/anchor.py`
@@ -335,7 +337,7 @@ The daemon has a `generate_rolling_summary()` function and a `ROLLING_SUMMARY_PR
 
 ---
 
-### #26 — Hook cache file path manipulation
+### #26 — Hook cache file path manipulation (Done 2026-02-11)
 
 **Type:** Security
 **File:** `plugin/hooks/scripts/session_start.py:90-93`
@@ -347,7 +349,7 @@ The hook writes `.cache-{filename}-depth{depth}.md` using `filename` from config
 
 ---
 
-### #27 — Anchor processor config mismatch
+### #27 — Anchor processor config mismatch (Done 2026-02-11)
 
 **Type:** Bug
 **File:** `processor/anchor.py:28-30, 166-196`
@@ -437,7 +439,7 @@ Learn session patterns (e.g., Project X at 6am, Project Y at 2pm) and pre-load r
 **Type:** UX | **Source:** Frontend Review
 Detect concurrent edits via `storage` event listener. Warn or sync when the same app is open in multiple tabs.
 
-### #44 — Split server.py into modules
+### #44 — Split server.py into modules (Done 2026-02-11)
 **Type:** Architecture | **Source:** Codex
 Extract config, storage, API handlers, and HTTP wiring into separate files. Keep server.py as ~100 lines of wiring.
 
@@ -453,11 +455,11 @@ Mechanical fallback in `processor/anchor.py` doesn't produce well-nested anchor 
 **Type:** Architecture | **Source:** External Review
 `ui/app.js` is >5k lines and mixes page renderers, event binding, API calls, markdown parsing, and state transitions in one file. Keep the current no-framework approach, but split into focused modules (`settings`, `memories`, `configure`, shared `ui/actions` helpers) loaded in `index.html`.
 
-### #48 — Break up `session_start.py` by concern
+### #48 — Break up `session_start.py` by concern (Done 2026-02-12)
 **Type:** Architecture | **Source:** External Review
 `plugin/hooks/scripts/session_start.py` handles selection, salience scoring, archiving, synthesis, and now.md generation in one script (>1k lines). Extract pure modules (`note_selection.py`, `note_maintenance.py`, `now_builder.py`) and keep `session_start.py` as orchestration.
 
-### #49 — Strict `/api/settings` payload validation
+### #49 — Strict `/api/settings` payload validation (Done 2026-02-11)
 **Type:** Robustness | **Source:** External Review
 `POST /api/settings` currently accepts loosely-typed values and unknown keys, which can persist malformed config (wrong types/ranges) and break downstream behavior.
 
