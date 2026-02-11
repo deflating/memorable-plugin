@@ -757,8 +757,17 @@ def handle_post_file_upload(handler):
     ensure_dirs()
     content_type = handler.headers.get("Content-Type", "")
 
+    raw_length = handler.headers.get("Content-Length", "0")
+    try:
+        length = int(raw_length)
+    except (TypeError, ValueError):
+        return 400, error_response(
+            "INVALID_CONTENT_LENGTH",
+            "Invalid Content-Length header",
+            "Send a valid numeric Content-Length header.",
+        )
+
     if "application/json" in content_type:
-        length = int(handler.headers.get("Content-Length", 0))
         if length == 0:
             return 400, error_response(
                 "EMPTY_BODY",
@@ -779,6 +788,12 @@ def handle_post_file_upload(handler):
                 "INVALID_JSON",
                 "Invalid JSON",
                 "Send a valid JSON object.",
+            )
+        if not isinstance(body, dict):
+            return 400, error_response(
+                "INVALID_JSON_OBJECT",
+                "JSON body must be an object",
+                "Send a JSON object payload.",
             )
 
         filename = body.get("filename", "")
@@ -814,7 +829,6 @@ def handle_post_file_upload(handler):
     else:
         # Raw body upload
         filename = handler.headers.get("X-Filename", "")
-        length = int(handler.headers.get("Content-Length", 0))
         if length == 0:
             return 400, error_response(
                 "EMPTY_BODY",

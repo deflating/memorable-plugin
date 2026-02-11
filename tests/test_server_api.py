@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_DIR = REPO_ROOT / "plugin"
@@ -49,7 +50,7 @@ class ServerApiTests(unittest.TestCase):
             files_dir = Path(td)
             (files_dir / ".cache-test-depth1.md").write_text("cache", encoding="utf-8")
             (files_dir / "doc.md").write_text("hello", encoding="utf-8")
-            (files_dir / "doc.md.anchored").write_text("⚓0️⃣ a\nb ⚓", encoding="utf-8")
+            (files_dir / "doc.md.anchored").write_text("\u26930\ufe0f\u20e3 a\nb \u2693", encoding="utf-8")
 
             server_api.FILES_DIR = files_dir
             server_api.load_config = lambda: {
@@ -60,6 +61,30 @@ class ServerApiTests(unittest.TestCase):
             self.assertEqual(200, status)
             self.assertEqual(["doc.md"], [f["name"] for f in data["files"]])
             self.assertTrue(data["files"][0]["anchored"])
+
+    def test_handle_post_file_upload_rejects_invalid_content_length(self):
+        handler = SimpleNamespace(
+            headers={"Content-Type": "application/json", "Content-Length": "abc"},
+            rfile=io.BytesIO(b"{}"),
+        )
+
+        status, data = server_api.handle_post_file_upload(handler)
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_CONTENT_LENGTH", data["error"]["code"])
+
+    def test_handle_post_file_upload_rejects_non_object_json_payload(self):
+        body = b"[1,2,3]"
+        handler = SimpleNamespace(
+            headers={
+                "Content-Type": "application/json",
+                "Content-Length": str(len(body)),
+            },
+            rfile=io.BytesIO(body),
+        )
+
+        status, data = server_api.handle_post_file_upload(handler)
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_JSON_OBJECT", data["error"]["code"])
 
     def test_import_zip_rejects_unsafe_member_paths(self):
         payload = io.BytesIO()
