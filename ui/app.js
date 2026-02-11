@@ -622,6 +622,18 @@
     return label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '') || ('custom_' + Date.now());
   }
 
+  function slugify(text) {
+    return text.replace(/<[^>]*>/g, '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  }
+
+  // Preview section heading → form section ID mapping
+  const PREVIEW_TO_SECTION = {
+    'about': 'about', 'cognitive-style': 'cognitive', 'values': 'values',
+    'communication-preferences': 'communication', 'people': 'people',
+    'projects': 'projects', 'character-traits': 'traits', 'behaviors': 'behaviors',
+    'avoid': 'avoid', 'when-user-is-low': 'when-low', 'technical-style': 'tech-style',
+  };
+
   // ---- Markdown Generation ----
   function generateUserMarkdown() {
     const u = state.user;
@@ -3456,7 +3468,12 @@
           state.seedSync.deployedHash = _seedFingerprint(files['user.md'], files['agent.md']);
           state.seedSync.deployedAt = new Date().toISOString();
           if (state.statusCache) state.statusCache.seeds_present = true;
-          showToast('Seed files deployed', 'success');
+          // Deploy settle animation — all sections settle
+          document.querySelectorAll('.section').forEach(s => {
+            s.classList.add('deploy-settle');
+            s.addEventListener('animationend', () => s.classList.remove('deploy-settle'), { once: true });
+          });
+          showToast('Seeds are live', 'success');
           render();
         } catch (err) {
           showToast(err && err.message ? err.message : 'Failed to deploy seeds', 'error');
@@ -3745,8 +3762,60 @@
     const container = document.getElementById('preview-content');
     if (!container) return;
     const md = state.activeFile === 'user' ? generateUserMarkdown() : generateAgentMarkdown();
+    const prevMd = markdownCache[state.activeFile] || '';
     container.innerHTML = markdownToHtml(md);
     markdownCache[state.activeFile] = md;
+
+    // Connective preview: click heading anchors to jump to form section
+    container.querySelectorAll('[data-preview-section]').forEach(el => {
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', () => {
+        const slug = el.dataset.previewSection;
+        const sectionId = PREVIEW_TO_SECTION[slug];
+        if (sectionId) {
+          const sectionEl = document.getElementById('section-' + sectionId);
+          if (sectionEl) {
+            sectionEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            sectionEl.classList.add('preview-highlight');
+            setTimeout(() => sectionEl.classList.remove('preview-highlight'), 1200);
+          }
+        }
+      });
+    });
+
+    // Change pulse: highlight lines that changed since last render
+    if (prevMd && prevMd !== md) {
+      const prevLines = prevMd.split('\n');
+      const newLines = md.split('\n');
+      const previewEls = container.querySelectorAll('h1, h2, h3, p, li, blockquote');
+      let elIdx = 0;
+      for (let i = 0; i < newLines.length && elIdx < previewEls.length; i++) {
+        const line = newLines[i].trim();
+        if (!line) continue;
+        if (i >= prevLines.length || prevLines[i] !== newLines[i]) {
+          previewEls[elIdx].classList.add('preview-pulse');
+          const pEl = previewEls[elIdx];
+          setTimeout(() => pEl.classList.remove('preview-pulse'), 1000);
+        }
+        elIdx++;
+      }
+    }
+  }
+
+  // Connective preview: scroll preview to matching section on form focus
+  function scrollPreviewToSection(sectionId) {
+    const container = document.getElementById('preview-content');
+    if (!container) return;
+    const reverseMap = {};
+    Object.entries(PREVIEW_TO_SECTION).forEach(([slug, id]) => { reverseMap[id] = slug; });
+    const slug = reverseMap[sectionId];
+    if (!slug) return;
+    const el = container.querySelector(`[data-preview-section="${slug}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('preview-pulse');
+      setTimeout(() => el.classList.remove('preview-pulse'), 1000);
+    }
   }
 
   // ---- Token Budget ----
@@ -5130,9 +5199,9 @@
         inList = false;
       }
 
-      if (h3) { htmlLines.push(`<h3>${inlineFmt(h3[1])}</h3>`); }
-      else if (h2) { htmlLines.push(`<h2>${inlineFmt(h2[1])}</h2>`); }
-      else if (h1) { htmlLines.push(`<h1>${inlineFmt(h1[1])}</h1>`); }
+      if (h3) { htmlLines.push(`<h3 data-preview-section="${slugify(h3[1])}">${inlineFmt(h3[1])}<span class="preview-anchor" title="Jump to form section">&#128279;</span></h3>`); }
+      else if (h2) { htmlLines.push(`<h2 data-preview-section="${slugify(h2[1])}">${inlineFmt(h2[1])}<span class="preview-anchor" title="Jump to form section">&#128279;</span></h2>`); }
+      else if (h1) { htmlLines.push(`<h1 data-preview-section="${slugify(h1[1])}">${inlineFmt(h1[1])}</h1>`); }
       else if (hr) { htmlLines.push('<hr>'); }
       else if (bq) { htmlLines.push(`<blockquote>${inlineFmt(bq[1])}</blockquote>`); }
       else if (line.trim() === '') { htmlLines.push(''); }
@@ -5650,6 +5719,28 @@
         if (modalContainer && modalContainer.innerHTML.trim()) {
           modalContainer.innerHTML = '';
         }
+      }
+    });
+
+    // Active editing accent + connective preview on field focus
+    document.addEventListener('focusin', (e) => {
+      const section = e.target.closest('.section');
+      if (section && (e.target.matches('input, textarea, select'))) {
+        document.querySelectorAll('.section.section-editing').forEach(s => s.classList.remove('section-editing'));
+        section.classList.add('section-editing');
+        // Connective preview: scroll preview to matching section
+        const sectionId = section.id.replace('section-', '');
+        scrollPreviewToSection(sectionId);
+      }
+    });
+    document.addEventListener('focusout', (e) => {
+      const section = e.target.closest('.section');
+      if (section) {
+        setTimeout(() => {
+          if (!section.contains(document.activeElement)) {
+            section.classList.remove('section-editing');
+          }
+        }, 50);
       }
     });
 

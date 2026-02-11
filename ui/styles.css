@@ -2819,11 +2819,24 @@ select {
   box-shadow: var(--shadow-sm);
   margin-bottom: 16px;
   overflow: hidden;
-  transition: box-shadow var(--transition-normal), opacity var(--transition-normal);
+  transition: box-shadow 400ms ease-in-out, opacity var(--transition-normal),
+    transform 200ms ease-out, border-color 400ms ease-in-out,
+    background 400ms ease-in-out, border-left 400ms ease-in-out,
+    padding 150ms ease-out;
 }
 
 .section:hover {
   box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+  transition: box-shadow 100ms ease-out, transform 100ms ease-out,
+    border-color 400ms ease-in-out, background 400ms ease-in-out,
+    border-left 400ms ease-in-out, padding 150ms ease-out;
+}
+
+.section:not(:hover) {
+  transition: box-shadow 400ms ease-in-out, transform 200ms ease-out,
+    border-color 400ms ease-in-out, background 400ms ease-in-out,
+    border-left 400ms ease-in-out, padding 150ms ease-out;
 }
 
 .section.section-disabled {
@@ -2836,7 +2849,10 @@ select {
 }
 
 .section.section-disabled .section-body {
-  display: none;
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .section-header {
@@ -2907,11 +2923,16 @@ select {
   display: grid;
   gap: 16px;
   overflow: hidden;
-  transition: all var(--transition-normal);
+  max-height: 5000px;
+  opacity: 1;
+  transition: max-height 250ms ease-out, opacity 200ms ease-out, padding 250ms ease-out;
 }
 
 .section.collapsed .section-body {
-  display: none;
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 /* Section Enable Toggle */
@@ -3013,15 +3034,7 @@ select {
   display: none;
 }
 
-/* Materiality transitions */
-.section {
-  transition: box-shadow 400ms ease-in-out,
-              border-color 400ms ease-in-out,
-              border-left-width 400ms ease-in-out,
-              background 400ms ease-in-out,
-              opacity 400ms ease-in-out,
-              padding 400ms ease-in-out;
-}
+/* Materiality + motion transitions */
 .section .section-header {
   transition: background var(--transition-fast), opacity 400ms ease-in-out, padding 400ms ease-in-out;
 }
@@ -3036,6 +3049,47 @@ select {
 }
 .section.section-fade-in {
   animation: sectionFadeIn 400ms ease-in-out both;
+}
+
+/* Active editing accent — left border pulses on focus */
+.section.section-editing {
+  border-left: 3px solid var(--terracotta-light);
+}
+
+/* Deploy settle animation */
+@keyframes deploySettle {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+.section.deploy-settle {
+  animation: deploySettle 350ms ease-in-out;
+}
+
+/* Seed sync indicator transition */
+.seed-sync-indicator {
+  transition: color 300ms ease-in-out;
+}
+.seed-sync-indicator .dot {
+  transition: background 300ms ease-in-out;
+}
+
+/* Focus rings in earth-tone colors */
+.section:focus-within {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--terracotta-muted);
+}
+.section input:focus,
+.section textarea:focus,
+.section select:focus {
+  outline: none;
+  border-color: var(--terracotta-light);
+  box-shadow: 0 0 0 3px var(--terracotta-muted);
+}
+
+/* Tab crossfade */
+.seeds-editor-panel {
+  transition: opacity 150ms ease-in-out;
 }
 
 /* ============================================
@@ -3068,6 +3122,57 @@ select {
   0% { opacity: 0.4; border-color: var(--border-light); }
   40% { opacity: 0.8; border-color: var(--terracotta); box-shadow: 0 0 8px var(--terracotta-muted); }
   100% { opacity: 0; border-color: var(--terracotta-light); }
+}
+
+/* ============================================
+   Connective Preview (MEM-84)
+   ============================================ */
+
+/* Preview anchor icon on headings */
+.preview-anchor {
+  opacity: 0;
+  font-size: 0.7em;
+  margin-left: 6px;
+  transition: opacity var(--transition-fast);
+  cursor: pointer;
+}
+[data-preview-section]:hover .preview-anchor {
+  opacity: 0.5;
+}
+[data-preview-section]:hover .preview-anchor:hover {
+  opacity: 1;
+}
+[data-preview-section] {
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+[data-preview-section]:hover {
+  color: var(--terracotta);
+}
+
+/* Preview pulse — terracotta flash on changed lines */
+@keyframes previewPulse {
+  0% { background: transparent; }
+  20% { background: var(--terracotta-muted); }
+  100% { background: transparent; }
+}
+.preview-pulse {
+  animation: previewPulse 1s ease-out;
+  border-radius: 3px;
+}
+
+/* Form section highlight when clicked from preview */
+@keyframes sectionHighlight {
+  0% { box-shadow: 0 0 0 3px var(--terracotta-muted); }
+  100% { box-shadow: var(--shadow-sm); }
+}
+.section.preview-highlight {
+  animation: sectionHighlight 1.2s ease-out;
+}
+
+/* Preview content scroll behavior */
+.preview-content {
+  scroll-behavior: smooth;
 }
 
 /* ============================================
