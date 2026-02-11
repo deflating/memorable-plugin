@@ -1146,6 +1146,23 @@ p { color: var(--text-secondary); }
   background: var(--terracotta-muted);
 }
 
+.notes-reset-btn {
+  margin-left: auto;
+  border: 1px solid var(--border);
+  background: var(--warm-white);
+  color: var(--text-muted);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.notes-reset-btn:hover {
+  border-color: var(--sand-dark);
+  color: var(--text-primary);
+  background: var(--cream);
+}
+
 .notes-count {
   font-size: 0.82rem;
   color: var(--text-muted);

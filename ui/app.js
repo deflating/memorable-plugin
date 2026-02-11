@@ -1772,6 +1772,16 @@
         </button>
       </div>
     ` : '';
+    const hasActiveFilters = Boolean(
+      ns.search
+      || ns.tag
+      || ns.machine
+      || ns.session
+      || ns.sort !== 'date'
+    );
+    const resetFiltersHtml = hasActiveFilters
+      ? '<button type="button" class="notes-reset-btn" id="notes-reset-filters-btn">Reset filters</button>'
+      : '';
 
     container.innerHTML = `
       <div class="notes-page">
@@ -1791,6 +1801,7 @@
             <button class="notes-sort-btn ${ns.sort === 'date_asc' ? 'active' : ''}" data-sort="date_asc">Oldest</button>
             <button class="notes-sort-btn ${ns.sort === 'salience' ? 'active' : ''}" data-sort="salience" title="How relevant/important a note is. Higher salience notes are more likely to be loaded.">Salience</button>
           </div>
+          ${resetFiltersHtml}
         </div>
         ${sessionFilterHtml}
         <div class="notes-list">
@@ -1855,6 +1866,19 @@
     if (clearSessionFilterBtn) {
       clearSessionFilterBtn.addEventListener('click', () => {
         ns.session = '';
+        ns.expandedIdx = null;
+        fetchNotesPage(false).then(() => renderNotesPage(container));
+      });
+    }
+
+    const resetFiltersBtn = document.getElementById('notes-reset-filters-btn');
+    if (resetFiltersBtn) {
+      resetFiltersBtn.addEventListener('click', () => {
+        ns.search = '';
+        ns.tag = '';
+        ns.machine = '';
+        ns.session = '';
+        ns.sort = 'date';
         ns.expandedIdx = null;
         fetchNotesPage(false).then(() => renderNotesPage(container));
       });
