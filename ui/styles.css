@@ -1142,11 +1142,13 @@ p { color: var(--text-secondary); }
 }
 
 .memory-insights-metric {
-  min-width: 90px;
-  padding: 8px 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   background: var(--cream);
+  text-align: center;
 }
 
 .memory-insights-value {
@@ -1173,10 +1175,12 @@ p { color: var(--text-secondary); }
 }
 
 .memory-insights-column h4 {
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   font-size: 0.84rem;
   font-weight: 600;
   color: var(--text-secondary);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .memory-insights-row {
@@ -1216,11 +1220,17 @@ p { color: var(--text-secondary); }
 .memory-insights-session {
   font-family: var(--font-mono);
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .memory-insights-row-meta {
   color: var(--text-muted);
   text-align: right;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .memory-insights-empty {
