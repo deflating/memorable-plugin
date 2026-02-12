@@ -155,8 +155,8 @@ def increment_reliability_metric(operation: str, outcome: str):
     save_reliability_metrics(metrics)
 
 
-def record_lag_incident(last_transcript_dt: datetime, lag_seconds: int | None):
-    source_ts = last_transcript_dt.astimezone(timezone.utc).isoformat()
+def record_lag_incident(last_activity_dt: datetime, lag_seconds: int | None):
+    source_ts = last_activity_dt.astimezone(timezone.utc).isoformat()
     metrics = load_reliability_metrics()
     incidents = clean_lag_incidents(metrics.get("lag_incidents", []))
     if any(str(item.get("source_ts", "")) == source_ts for item in incidents):
@@ -1176,13 +1176,13 @@ def parse_iso_timestamp(value) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
-def latest_transcript_activity() -> datetime | None:
-    transcripts_dir = DATA_DIR / "transcripts"
-    if not transcripts_dir.is_dir():
+def latest_session_activity() -> datetime | None:
+    """Return the modification time of the most recently changed session file."""
+    if not SESSIONS_DIR.is_dir():
         return None
 
     latest = None
-    for path in transcripts_dir.rglob("*"):
+    for path in SESSIONS_DIR.glob("*.json"):
         if not path.is_file():
             continue
         try:
@@ -1200,7 +1200,7 @@ def daemon_health_snapshot(
     daemon_status: dict,
     idle_threshold: int,
     last_note_dt: datetime | None,
-    last_transcript_dt: datetime | None,
+    last_session_dt: datetime | None,
     note_count: int,
 ) -> dict:
     running = bool(daemon_status.get("running"))
@@ -1209,11 +1209,11 @@ def daemon_health_snapshot(
 
     lag_threshold_seconds = max(600, max(60, idle_threshold) * 3)
     lag_seconds = None
-    if last_transcript_dt is not None:
+    if last_session_dt is not None:
         if last_note_dt is not None:
-            lag_seconds = int((last_transcript_dt - last_note_dt).total_seconds())
+            lag_seconds = int((last_session_dt - last_note_dt).total_seconds())
         elif note_count == 0:
-            lag_seconds = int((datetime.now(timezone.utc) - last_transcript_dt).total_seconds())
+            lag_seconds = int((datetime.now(timezone.utc) - last_session_dt).total_seconds())
         if lag_seconds is not None and lag_seconds < 0:
             lag_seconds = 0
 
@@ -1225,7 +1225,7 @@ def daemon_health_snapshot(
         issues.append("notes_lagging")
         actions.append("check_daemon_backlog")
 
-    if daemon_enabled and note_count == 0 and last_transcript_dt is not None:
+    if daemon_enabled and note_count == 0 and last_session_dt is not None:
         issues.append("no_notes_generated")
         actions.append("verify_note_generation")
 
@@ -1250,7 +1250,7 @@ def daemon_health_snapshot(
         "lag_seconds": lag_seconds,
         "lag_threshold_seconds": lag_threshold_seconds if daemon_enabled else None,
         "last_note_at": last_note_dt.isoformat() if last_note_dt else None,
-        "last_transcript_at": last_transcript_dt.isoformat() if last_transcript_dt else None,
+        "last_session_at": last_session_dt.isoformat() if last_session_dt else None,
     }
 
 
@@ -1311,20 +1311,20 @@ def handle_get_status():
 
     daemon_status = get_daemon_status()
     daemon_running = bool(daemon_status.get("running"))
-    last_transcript_dt = latest_transcript_activity()
+    last_session_dt = latest_session_activity()
     daemon_health = daemon_health_snapshot(
         daemon_enabled=daemon_enabled,
         daemon_status=daemon_status,
         idle_threshold=idle_threshold,
         last_note_dt=last_note_dt,
-        last_transcript_dt=last_transcript_dt,
+        last_session_dt=last_session_dt,
         note_count=note_count,
     )
     if (
         "notes_lagging" in daemon_health.get("issues", [])
-        and last_transcript_dt is not None
+        and last_session_dt is not None
     ):
-        record_lag_incident(last_transcript_dt, daemon_health.get("lag_seconds"))
+        record_lag_incident(last_session_dt, daemon_health.get("lag_seconds"))
 
     # Total token estimate from seed files
     total_tokens = 0
@@ -1353,7 +1353,6 @@ def handle_get_status():
         "session_count": session_count,
         "last_session_date": last_session_date,
         "last_note_date": daemon_health.get("last_note_at"),
-        "last_transcript_date": daemon_health.get("last_transcript_at"),
         "seeds_present": seeds_present,
         "daemon_running": daemon_running,
         "daemon_enabled": daemon_enabled,

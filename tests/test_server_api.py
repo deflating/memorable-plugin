@@ -512,11 +512,11 @@ class ServerApiTests(unittest.TestCase):
             notes_dir = root / "notes"
             sessions_dir = root / "sessions"
             seeds_dir = root / "seeds"
-            transcripts_dir = root / "transcripts"
-            for d in (files_dir, notes_dir, sessions_dir, seeds_dir, transcripts_dir):
+            for d in (files_dir, notes_dir, sessions_dir, seeds_dir):
                 d.mkdir(parents=True, exist_ok=True)
 
-            (transcripts_dir / "s1.txt").write_text("transcript", encoding="utf-8")
+            # Create a session file so activity is detected
+            (sessions_dir / "s1.json").write_text('{"date":"2026-01-01"}', encoding="utf-8")
 
             server_api.DATA_DIR = root
             server_api.FILES_DIR = files_dir
@@ -534,15 +534,14 @@ class ServerApiTests(unittest.TestCase):
             self.assertEqual("attention", data["daemon_health"]["state"])
             self.assertIn("daemon_not_running", data["daemon_health"]["issues"])
 
-    def test_handle_get_status_detects_lagging_notes_when_transcripts_are_newer(self):
+    def test_handle_get_status_detects_lagging_notes_when_sessions_are_newer(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             files_dir = root / "files"
             notes_dir = root / "notes"
             sessions_dir = root / "sessions"
             seeds_dir = root / "seeds"
-            transcripts_dir = root / "transcripts"
-            for d in (files_dir, notes_dir, sessions_dir, seeds_dir, transcripts_dir):
+            for d in (files_dir, notes_dir, sessions_dir, seeds_dir):
                 d.mkdir(parents=True, exist_ok=True)
 
             (notes_dir / "session_notes.jsonl").write_text(
@@ -556,7 +555,7 @@ class ServerApiTests(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
-            (transcripts_dir / "latest.txt").write_text("new transcript", encoding="utf-8")
+            (sessions_dir / "latest.json").write_text('{"date":"2026-02-12"}', encoding="utf-8")
             (root / "daemon.pid").write_text(str(os.getpid()), encoding="utf-8")
 
             server_api.DATA_DIR = root

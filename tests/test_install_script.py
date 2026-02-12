@@ -30,7 +30,7 @@ class InstallScriptTests(unittest.TestCase):
             self._run_install(home)
 
             data_dir = home / ".memorable" / "data"
-            for rel in ("seeds", "notes", "sessions", "files", "transcripts"):
+            for rel in ("seeds", "notes", "sessions", "files"):
                 self.assertTrue((data_dir / rel).is_dir(), rel)
 
             config = json.loads((data_dir / "config.json").read_text(encoding="utf-8"))

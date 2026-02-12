@@ -22,7 +22,6 @@ mkdir -p "$DATA_DIR/seeds"
 mkdir -p "$DATA_DIR/notes"
 mkdir -p "$DATA_DIR/sessions"
 mkdir -p "$DATA_DIR/files"
-mkdir -p "$DATA_DIR/transcripts"
 
 # ---------------------------------------------------------------------------
 # 2. Create default config.json (only if it doesn't already exist)
