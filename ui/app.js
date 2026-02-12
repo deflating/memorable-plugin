@@ -132,6 +132,7 @@
     compass:  _i('<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>'),
     chevDown: _i('<polyline points="6 9 12 15 18 9"/>'),
     grip:     _i('<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>'),
+    globe:    _i('<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>'),
     upload:   _i('<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
     clipboard:_i('<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>'),
   };
@@ -251,7 +252,7 @@
     },
     collapsedSections: {},
     user: {
-      identity: { name: '', age: '', location: '', pronouns: '' },
+      identity: { name: '', age: '', location: '', pronouns: '', language: '', dialect: '', timezone: '' },
       about: '',
       // Now stores arrays: cognitiveOptions (all available) and cognitiveActive (which are on)
       cognitiveOptions: DEFAULT_COGNITIVE_OPTIONS.map(o => o.key),
@@ -658,13 +659,22 @@
 
     // Identity
     if (sec['identity']) {
-      const hasIdentity = u.identity.name || u.identity.age || u.identity.location || u.identity.pronouns;
+      const hasIdentity = u.identity.name || u.identity.age || u.identity.location || u.identity.pronouns || u.identity.language || u.identity.timezone;
       if (hasIdentity) {
         md += `# ${u.identity.name || 'User Profile'}\n\n`;
         const details = [];
         if (u.identity.age) details.push(`**Age:** ${u.identity.age}`);
         if (u.identity.location) details.push(`**Location:** ${u.identity.location}`);
         if (u.identity.pronouns) details.push(`**Pronouns:** ${u.identity.pronouns}`);
+        if (u.identity.language) {
+          let lang = u.identity.language;
+          if (u.identity.dialect) lang += ` (${u.identity.dialect})`;
+          details.push(`**Language:** ${lang}`);
+        }
+        if (u.identity.timezone) {
+          const tz = u.identity.timezone === 'auto' ? Intl.DateTimeFormat().resolvedOptions().timeZone : u.identity.timezone;
+          details.push(`**Timezone:** ${tz}`);
+        }
         if (details.length) md += details.join(' | ') + '\n\n';
       } else {
         md += '# User Profile\n\n';
@@ -879,7 +889,7 @@
   // ---- Markdown Parsing (markdown -> state) ----
   function parseUserMarkdown(md) {
     const u = state.user;
-    u.identity = { name: '', age: '', location: '', pronouns: '' };
+    u.identity = { name: '', age: '', location: '', pronouns: '', language: '', dialect: '', timezone: '' };
     u.about = '';
     u.cognitiveActive = {};
     u.cognitiveStyle = {};
@@ -903,6 +913,19 @@
       if (locMatch) u.identity.location = locMatch[1].trim();
       const proMatch = intro.match(/\*\*Pronouns:\*\*\s*([^|*\n]+)/);
       if (proMatch) u.identity.pronouns = proMatch[1].trim();
+      const langMatch = intro.match(/\*\*Language:\*\*\s*([^|*\n]+)/);
+      if (langMatch) {
+        const langStr = langMatch[1].trim();
+        const dialectMatch = langStr.match(/^(.+?)\s*\(([^)]+)\)$/);
+        if (dialectMatch) {
+          u.identity.language = dialectMatch[1].trim();
+          u.identity.dialect = dialectMatch[2].trim();
+        } else {
+          u.identity.language = langStr;
+        }
+      }
+      const tzMatch = intro.match(/\*\*Timezone:\*\*\s*([^|*\n]+)/);
+      if (tzMatch) u.identity.timezone = tzMatch[1].trim();
     }
 
     if (getSection(sections, 'About')) {
@@ -4163,6 +4186,72 @@
             <input type="text" data-bind="user.identity.pronouns" value="${esc(u.identity.pronouns)}" placeholder="e.g. he/him, she/her, they/them">
           </div>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>${ICON.globe} Language</label>
+            <select id="identity-language">
+              <option value="">Not set</option>
+              <option value="English" ${u.identity.language === 'English' ? 'selected' : ''}>English</option>
+              <option value="Spanish" ${u.identity.language === 'Spanish' ? 'selected' : ''}>Spanish</option>
+              <option value="French" ${u.identity.language === 'French' ? 'selected' : ''}>French</option>
+              <option value="German" ${u.identity.language === 'German' ? 'selected' : ''}>German</option>
+              <option value="Portuguese" ${u.identity.language === 'Portuguese' ? 'selected' : ''}>Portuguese</option>
+              <option value="Italian" ${u.identity.language === 'Italian' ? 'selected' : ''}>Italian</option>
+              <option value="Dutch" ${u.identity.language === 'Dutch' ? 'selected' : ''}>Dutch</option>
+              <option value="Japanese" ${u.identity.language === 'Japanese' ? 'selected' : ''}>Japanese</option>
+              <option value="Korean" ${u.identity.language === 'Korean' ? 'selected' : ''}>Korean</option>
+              <option value="Mandarin" ${u.identity.language === 'Mandarin' ? 'selected' : ''}>Mandarin</option>
+              <option value="Arabic" ${u.identity.language === 'Arabic' ? 'selected' : ''}>Arabic</option>
+              <option value="Hindi" ${u.identity.language === 'Hindi' ? 'selected' : ''}>Hindi</option>
+              <option value="Russian" ${u.identity.language === 'Russian' ? 'selected' : ''}>Russian</option>
+              <option value="Polish" ${u.identity.language === 'Polish' ? 'selected' : ''}>Polish</option>
+              <option value="Swedish" ${u.identity.language === 'Swedish' ? 'selected' : ''}>Swedish</option>
+              <option value="Turkish" ${u.identity.language === 'Turkish' ? 'selected' : ''}>Turkish</option>
+              ${u.identity.language && !['','English','Spanish','French','German','Portuguese','Italian','Dutch','Japanese','Korean','Mandarin','Arabic','Hindi','Russian','Polish','Swedish','Turkish'].includes(u.identity.language) ? `<option value="${esc(u.identity.language)}" selected>${esc(u.identity.language)}</option>` : ''}
+              <option value="_other">Other...</option>
+            </select>
+          </div>
+          <div class="form-group" id="dialect-group" style="${u.identity.language === 'English' ? '' : 'display:none'}">
+            <label>Dialect</label>
+            <select data-bind="user.identity.dialect" id="identity-dialect">
+              <option value="">Not set</option>
+              <option value="US" ${u.identity.dialect === 'US' ? 'selected' : ''}>US</option>
+              <option value="UK" ${u.identity.dialect === 'UK' ? 'selected' : ''}>UK</option>
+              <option value="Australian" ${u.identity.dialect === 'Australian' ? 'selected' : ''}>Australian</option>
+              <option value="Canadian" ${u.identity.dialect === 'Canadian' ? 'selected' : ''}>Canadian</option>
+              <option value="Irish" ${u.identity.dialect === 'Irish' ? 'selected' : ''}>Irish</option>
+              <option value="South African" ${u.identity.dialect === 'South African' ? 'selected' : ''}>South African</option>
+              <option value="Indian" ${u.identity.dialect === 'Indian' ? 'selected' : ''}>Indian</option>
+              <option value="NZ" ${u.identity.dialect === 'NZ' ? 'selected' : ''}>New Zealand</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Timezone</label>
+            <select data-bind="user.identity.timezone" id="identity-timezone">
+              <option value="">Not set</option>
+              <option value="auto" ${u.identity.timezone === 'auto' ? 'selected' : ''}>Auto-detect (${Intl.DateTimeFormat().resolvedOptions().timeZone})</option>
+              <option value="Pacific/Auckland" ${u.identity.timezone === 'Pacific/Auckland' ? 'selected' : ''}>Pacific/Auckland (NZST)</option>
+              <option value="Australia/Sydney" ${u.identity.timezone === 'Australia/Sydney' ? 'selected' : ''}>Australia/Sydney (AEST)</option>
+              <option value="Asia/Tokyo" ${u.identity.timezone === 'Asia/Tokyo' ? 'selected' : ''}>Asia/Tokyo (JST)</option>
+              <option value="Asia/Shanghai" ${u.identity.timezone === 'Asia/Shanghai' ? 'selected' : ''}>Asia/Shanghai (CST)</option>
+              <option value="Asia/Kolkata" ${u.identity.timezone === 'Asia/Kolkata' ? 'selected' : ''}>Asia/Kolkata (IST)</option>
+              <option value="Asia/Dubai" ${u.identity.timezone === 'Asia/Dubai' ? 'selected' : ''}>Asia/Dubai (GST)</option>
+              <option value="Europe/Moscow" ${u.identity.timezone === 'Europe/Moscow' ? 'selected' : ''}>Europe/Moscow (MSK)</option>
+              <option value="Europe/Istanbul" ${u.identity.timezone === 'Europe/Istanbul' ? 'selected' : ''}>Europe/Istanbul (TRT)</option>
+              <option value="Europe/Berlin" ${u.identity.timezone === 'Europe/Berlin' ? 'selected' : ''}>Europe/Berlin (CET)</option>
+              <option value="Europe/London" ${u.identity.timezone === 'Europe/London' ? 'selected' : ''}>Europe/London (GMT)</option>
+              <option value="Europe/Dublin" ${u.identity.timezone === 'Europe/Dublin' ? 'selected' : ''}>Europe/Dublin (IST)</option>
+              <option value="America/Sao_Paulo" ${u.identity.timezone === 'America/Sao_Paulo' ? 'selected' : ''}>America/Sao_Paulo (BRT)</option>
+              <option value="America/New_York" ${u.identity.timezone === 'America/New_York' ? 'selected' : ''}>America/New_York (EST)</option>
+              <option value="America/Chicago" ${u.identity.timezone === 'America/Chicago' ? 'selected' : ''}>America/Chicago (CST)</option>
+              <option value="America/Denver" ${u.identity.timezone === 'America/Denver' ? 'selected' : ''}>America/Denver (MST)</option>
+              <option value="America/Los_Angeles" ${u.identity.timezone === 'America/Los_Angeles' ? 'selected' : ''}>America/Los_Angeles (PST)</option>
+              <option value="Pacific/Honolulu" ${u.identity.timezone === 'Pacific/Honolulu' ? 'selected' : ''}>Pacific/Honolulu (HST)</option>
+            </select>
+          </div>
+        </div>
       `)}
 
       ${renderSection('about', 'About', 'Context that helps responses fit you', 'sage', ICON.edit, `
@@ -4668,6 +4757,33 @@
   }
 
   function bindUserSpecificEvents(container) {
+    // Language → dialect conditional display + "Other..." handling
+    const langSelect = document.getElementById('identity-language');
+    if (langSelect) {
+      langSelect.addEventListener('change', () => {
+        if (langSelect.value === '_other') {
+          const custom = prompt('Enter your language:');
+          if (custom && custom.trim()) {
+            state.user.identity.language = custom.trim();
+          } else {
+            state.user.identity.language = '';
+          }
+          render();
+          return;
+        }
+        state.user.identity.language = langSelect.value;
+        const dialectGroup = document.getElementById('dialect-group');
+        if (dialectGroup) {
+          dialectGroup.style.display = langSelect.value === 'English' ? '' : 'none';
+        }
+        if (langSelect.value !== 'English') {
+          state.user.identity.dialect = '';
+        }
+        renderPreview();
+        debouncedSave();
+      });
+    }
+
     // Cognitive toggles
     container.querySelectorAll('[data-cognitive]').forEach(el => {
       el.addEventListener('click', (e) => {
