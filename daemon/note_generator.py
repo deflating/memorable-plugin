@@ -370,8 +370,8 @@ def call_claude_cli(prompt: str, cfg: dict) -> str:
 
 
 def _infer_provider(provider_hint: str, endpoint: str, model: str) -> str:
-    hint = (provider_hint or "").strip().lower()
-    if hint in {"deepseek", "gemini", "claude"}:
+    hint = _normalize_provider_name(provider_hint)
+    if hint in {"deepseek", "gemini", "claude_api", "claude_cli"}:
         return hint
 
     endpoint_hint = (endpoint or "").strip().lower()
@@ -379,12 +379,21 @@ def _infer_provider(provider_hint: str, endpoint: str, model: str) -> str:
     combined = f"{endpoint_hint} {model_hint}"
 
     if "anthropic" in combined or "claude" in combined:
-        return "claude"
+        return "claude_api"
     if "googleapis" in combined or "generativelanguage" in combined or "gemini" in combined:
         return "gemini"
     if "deepseek" in combined:
         return "deepseek"
     return DEFAULT_PROVIDER
+
+
+def _normalize_provider_name(provider: str) -> str:
+    value = (provider or "").strip().lower().replace(" ", "_")
+    if value in {"claude", "claude-api", "claude_api"}:
+        return "claude_api"
+    if value in {"claude-cli", "claude_cli"}:
+        return "claude_cli"
+    return value
 
 
 def _normalize_route_name(route: str) -> str:
@@ -405,8 +414,10 @@ def _resolve_task_route(cfg: dict, task: str, provider_fallback: str) -> str:
             if route in {"deepseek", "gemini", "claude_api", "claude_cli"}:
                 return route
 
-    if provider_fallback == "claude":
+    if provider_fallback in {"claude", "claude_api"}:
         return "claude_api"
+    if provider_fallback == "claude_cli":
+        return "claude_cli"
     return provider_fallback
 
 

@@ -211,16 +211,25 @@ def _call_claude_cli(prompt: str, cfg: dict) -> str:
     return output
 
 
+def _normalize_provider_name(provider: str) -> str:
+    value = (provider or "").strip().lower().replace(" ", "_")
+    if value in {"claude", "claude-api", "claude_api"}:
+        return "claude_api"
+    if value in {"claude-cli", "claude_cli"}:
+        return "claude_cli"
+    return value
+
+
 def _resolve_provider(llm_cfg: dict) -> str:
-    explicit = (llm_cfg.get("provider") or "").strip().lower()
-    if explicit in ("deepseek", "gemini", "claude"):
+    explicit = _normalize_provider_name(llm_cfg.get("provider") or "")
+    if explicit in {"deepseek", "gemini", "claude_api", "claude_cli"}:
         return explicit
 
     endpoint = (llm_cfg.get("endpoint") or "").lower()
     model = (llm_cfg.get("model") or "").lower()
 
     if "anthropic" in endpoint or model.startswith("claude"):
-        return "claude"
+        return "claude_api"
     if "generativelanguage.googleapis.com" in endpoint or "gemini" in model:
         return "gemini"
     return "deepseek"
@@ -244,8 +253,10 @@ def _resolve_anchor_route(cfg: dict, provider_fallback: str) -> str:
             if route in {"deepseek", "gemini", "claude_api", "claude_cli"}:
                 return route
 
-    if provider_fallback == "claude":
+    if provider_fallback in {"claude", "claude_api"}:
         return "claude_api"
+    if provider_fallback == "claude_cli":
+        return "claude_cli"
     return provider_fallback
 
 

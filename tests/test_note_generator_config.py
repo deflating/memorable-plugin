@@ -129,6 +129,43 @@ class NoteGeneratorConfigTests(unittest.TestCase):
         call_cli.assert_called_once_with("hello", cfg)
         call_deepseek.assert_not_called()
 
+    def test_call_llm_accepts_claude_api_provider_alias(self):
+        cfg = {
+            "llm_provider": {
+                "provider": "claude_api",
+                "api_key": "anthropic-key",
+            }
+        }
+
+        with mock.patch.object(note_generator, "call_claude", return_value="from-api") as call_claude, mock.patch.object(
+            note_generator, "call_deepseek", return_value="from-deepseek"
+        ) as call_deepseek:
+            result = note_generator.call_llm("hello", cfg)
+
+        self.assertEqual("from-api", result)
+        call_claude.assert_called_once()
+        call_deepseek.assert_not_called()
+
+    def test_call_llm_accepts_claude_cli_provider_alias_without_routing(self):
+        cfg = {
+            "llm_provider": {
+                "provider": "claude_cli",
+            },
+            "claude_cli": {
+                "command": "claude",
+                "prompt_flag": "-p",
+            },
+        }
+
+        with mock.patch.object(note_generator, "call_claude_cli", return_value="from-cli") as call_cli, mock.patch.object(
+            note_generator, "call_deepseek", return_value="from-deepseek"
+        ) as call_deepseek:
+            result = note_generator.call_llm("hello", cfg)
+
+        self.assertEqual("from-cli", result)
+        call_cli.assert_called_once_with("hello", cfg)
+        call_deepseek.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
