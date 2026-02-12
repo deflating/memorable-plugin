@@ -743,13 +743,43 @@ def generate_note(session_id: str, transcript_path: str, machine_id: str = None)
         "reference_count": 0,
     }
 
-    # Write to notes JSONL
+    # Write to notes JSONL — replace existing entry for this session if present
     notes_dir = DATA_DIR / "notes"
     notes_dir.mkdir(parents=True, exist_ok=True)
     notes_file = notes_dir / f"{machine_id}.jsonl"
 
-    with open(notes_file, "a") as f:
-        f.write(json.dumps(entry) + "\n")
+    replaced = False
+    if notes_file.exists():
+        lines = []
+        try:
+            with open(notes_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        existing = json.loads(line)
+                    except json.JSONDecodeError:
+                        lines.append(line)
+                        continue
+                    if existing.get("session") == session_id:
+                        # Replace with updated entry, preserve original salience boosts
+                        entry["salience"] = max(entry["salience"], existing.get("salience", 1.0))
+                        entry["reference_count"] = existing.get("reference_count", 0)
+                        lines.append(json.dumps(entry))
+                        replaced = True
+                    else:
+                        lines.append(line)
+            if replaced:
+                with open(notes_file, "w") as f:
+                    f.write("\n".join(lines) + "\n")
+        except OSError as e:
+            log_error(f"Failed to read/replace in {notes_file}: {e}")
+            replaced = False
+
+    if not replaced:
+        with open(notes_file, "a") as f:
+            f.write(json.dumps(entry) + "\n")
 
     logger.info("Note written for session %s (%d msgs, tags=%s, ew=%.1f)",
                 session_id, parsed["message_count"], topic_tags, emotional_weight)
