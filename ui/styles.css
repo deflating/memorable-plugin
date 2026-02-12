@@ -1109,7 +1109,7 @@ p { color: var(--text-secondary); }
 
 .notes-search input {
   width: 100%;
-  padding: 10px 12px 10px 42px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-family: inherit;
@@ -1123,18 +1123,6 @@ p { color: var(--text-secondary); }
   outline: none;
   border-color: var(--terracotta-light);
   box-shadow: var(--shadow-focus);
-}
-
-.notes-search-icon {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 14px;
-  height: 14px;
-  color: var(--text-muted);
-  pointer-events: none;
-  overflow: hidden;
 }
 
 .notes-sort-btn {
