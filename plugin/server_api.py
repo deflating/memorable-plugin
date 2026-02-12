@@ -22,10 +22,11 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse, unquote
 
-# -- Processor import (for anchor processing) ------------------------------
+# -- Processor & daemon imports -----------------------------------------------
 
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "daemon"))
 from processor.anchor import (
     extract_at_depth as _extract_at_depth,
     process_file as _process_file,
@@ -2304,6 +2305,21 @@ def handle_post_import(handler):
         },
     )
     return 200, {"ok": True, "restored_files": restored_files}
+
+
+def handle_post_regenerate_summary():
+    """POST /api/regenerate-summary — force regenerate the rolling now.md summary."""
+    try:
+        from note_generator import generate_rolling_summary, get_config
+        cfg = get_config()
+        generate_rolling_summary(cfg, NOTES_DIR)
+        return 200, {"ok": True, "message": "Rolling summary regenerated."}
+    except Exception as e:
+        return 500, error_response(
+            "REGENERATE_FAILED",
+            "Failed to regenerate summary",
+            str(e),
+        )
 
 
 def handle_post_reset(body: dict):

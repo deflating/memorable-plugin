@@ -25,6 +25,7 @@ from server_api import (
     handle_post_file_upload,
     handle_post_note_review,
     handle_post_process,
+    handle_post_regenerate_summary,
     handle_post_reset,
     handle_post_seeds,
     handle_post_settings,
@@ -241,6 +242,10 @@ class MemorableHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
+
+        if path == "/api/regenerate-summary":
+            status, data = handle_post_regenerate_summary()
+            return self.send_json(status, data)
 
         if path == "/api/files/upload":
             status, data = handle_post_file_upload(self)

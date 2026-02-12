@@ -142,6 +142,7 @@
     globe:    _i('<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>'),
     upload:   _i('<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
     clipboard:_i('<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>'),
+    refresh:  _i('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>'),
   };
 
   // ---- Materiality: Content Density ----
@@ -2808,11 +2809,34 @@
       <div class="working-memory-card">
         <div class="working-memory-header">
           <span class="working-memory-label">now.md</span>
-          <span class="working-memory-hint">Auto-generated from session notes</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="working-memory-hint">Auto-generated from session notes</span>
+            <button class="btn btn-small" id="regenerate-summary-btn" title="Regenerate from last 5 days of notes">${ICON.refresh} Regenerate</button>
+          </div>
         </div>
         <div class="working-memory-content">${markdownToHtml(nowContent)}</div>
       </div>
     `;
+
+    const regenBtn = container.querySelector('#regenerate-summary-btn');
+    if (regenBtn) {
+      regenBtn.addEventListener('click', async () => {
+        regenBtn.disabled = true;
+        regenBtn.textContent = 'Regenerating...';
+        try {
+          const resp = await fetch('/api/regenerate-summary', { method: 'POST' });
+          if (resp.ok) {
+            renderWorkingMemory(container);
+          } else {
+            regenBtn.textContent = 'Failed — retry?';
+            regenBtn.disabled = false;
+          }
+        } catch (e) {
+          regenBtn.textContent = 'Failed — retry?';
+          regenBtn.disabled = false;
+        }
+      });
+    }
   }
 
   async function renderSemanticMemory(container) {
