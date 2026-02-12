@@ -271,7 +271,7 @@ class ServerApiTests(unittest.TestCase):
         captured = {}
         existing = {
             "llm_provider": {"endpoint": "https://api.deepseek.com/v1", "api_key": "", "model": "deepseek-chat"},
-            "llm_routing": {"session_notes": "deepseek", "now_md": "deepseek", "anchors": "deepseek"},
+            "llm_routing": {"session_notes": "deepseek", "now_md": "deepseek", "document_levels": "deepseek"},
             "claude_cli": {"command": "claude", "prompt_flag": "-p"},
             "token_budget": 200000,
             "daemon": {"enabled": False, "idle_threshold": 300},

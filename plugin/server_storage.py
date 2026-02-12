@@ -80,13 +80,27 @@ def _deep_merge(defaults: dict, overrides: dict) -> dict:
     return merged
 
 
+def _normalize_legacy_config(config: dict) -> dict:
+    """Apply minimal schema migrations for older config versions."""
+    normalized = dict(config)
+    routing = normalized.get("llm_routing")
+    if isinstance(routing, dict):
+        migrated = dict(routing)
+        legacy_document_route = migrated.get("anchors")
+        if "document_levels" not in migrated and isinstance(legacy_document_route, str):
+            migrated["document_levels"] = legacy_document_route
+        migrated.pop("anchors", None)
+        normalized["llm_routing"] = migrated
+    return normalized
+
+
 def load_config() -> dict:
     """Load config.json, returning defaults on any error."""
     try:
         if CONFIG_PATH.exists():
             data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                return _deep_merge(DEFAULT_CONFIG, data)
+                return _deep_merge(DEFAULT_CONFIG, _normalize_legacy_config(data))
     except Exception:
         pass
     return dict(DEFAULT_CONFIG)

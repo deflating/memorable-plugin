@@ -227,7 +227,7 @@ def _normalize_route_name(route: str) -> str:
 def _resolve_levels_route(cfg: dict, provider_fallback: str) -> str:
     routing = cfg.get("llm_routing", {})
     if isinstance(routing, dict):
-        route_raw = routing.get("document_levels") or routing.get("anchors")
+        route_raw = routing.get("document_levels")
         if isinstance(route_raw, str):
             route = _normalize_route_name(route_raw)
             if route in {"deepseek", "gemini", "claude_api", "claude_cli"}:

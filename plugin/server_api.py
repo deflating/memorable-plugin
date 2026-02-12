@@ -865,7 +865,7 @@ def parse_llm_provider_patch(raw):
     return patch, None
 
 
-_ALLOWED_LLM_ROUTE_KEYS = {"session_notes", "now_md", "document_levels", "anchors"}
+_ALLOWED_LLM_ROUTE_KEYS = {"session_notes", "now_md", "document_levels"}
 
 
 def _normalize_llm_route(value: str) -> str:
@@ -902,8 +902,7 @@ def parse_llm_routing_patch(raw):
                 f"Invalid llm_routing.{key}",
                 "Allowed values: deepseek, gemini, claude_cli (or claude), claude_api.",
             )
-        target_key = "document_levels" if key == "anchors" else key
-        patch[target_key] = normalized
+        patch[key] = normalized
     return patch, None
 
 

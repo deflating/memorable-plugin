@@ -9,11 +9,11 @@ Memorable gives Claude durable context across sessions using local files and hoo
 - Seed files (`user.md`, `agent.md`, `now.md`) define identity and current context.
 - Session notes are generated from transcripts and ranked by salience.
 - A local web UI (`http://localhost:7777`) lets you manage seeds, notes, knowledge docs, and settings.
-- Semantic docs can be anchored to multiple depth levels to control token cost.
+- Semantic docs can be processed into multiple zoom levels to control token cost.
 - An MCP tool can request deeper context on demand.
 
 All local state is stored on your machine under `~/.memorable/data/`.
-If you enable semantic anchoring with an external LLM provider, document content sent for processing leaves your machine to that provider.
+If you enable semantic processing with an external LLM provider, document content sent for processing leaves your machine to that provider.
 
 Release history: see `CHANGELOG.md`.
 Contribution guide: see `CONTRIBUTING.md`.
@@ -47,7 +47,7 @@ The installer:
 - Memories area with:
   - Episodic: session notes + search/filter
   - Working: `now.md` current context
-  - Semantic: knowledge docs with anchor depth controls
+  - Semantic: knowledge docs with zoom-level controls
 - Memory effectiveness insights (load vs reference yield)
 - Daemon reliability health indicators (API + UI)
 - Import/export/reset operations for local data
@@ -105,7 +105,7 @@ Config path: `~/.memorable/data/config.json`
 
 Important keys:
 - `llm_provider` (`endpoint`, `api_key`, `model`)
-- `llm_routing` (`session_notes`, `now_md`, `anchors`) with values:
+- `llm_routing` (`session_notes`, `now_md`, `document_levels`) with values:
   - `deepseek`
   - `claude_cli` (or `claude`) to use `claude -p`
   - `claude_api`

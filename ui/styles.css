@@ -2087,7 +2087,7 @@ p { color: var(--text-secondary); }
   box-shadow: var(--shadow-md);
 }
 
-.file-card-anchored {
+.file-card-processed {
   border-left-color: var(--ochre);
 }
 
@@ -2167,7 +2167,7 @@ p { color: var(--text-secondary); }
   border-radius: 10px;
 }
 
-.status-anchored {
+.status-processed {
   background: var(--sage-muted);
   color: var(--sage-dark);
 }

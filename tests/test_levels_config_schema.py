@@ -8,25 +8,25 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from processor import anchor  # noqa: E402
+from processor import levels  # noqa: E402
 
 
-class AnchorConfigSchemaTests(unittest.TestCase):
+class LevelsConfigSchemaTests(unittest.TestCase):
     def setUp(self):
-        self.orig_llm_config_path = anchor.LLM_CONFIG_PATH
-        self.orig_files_dir = anchor.FILES_DIR
-        self.orig_call_deepseek = anchor._call_deepseek
-        self.orig_call_claude = anchor._call_claude
-        self.orig_call_claude_cli = anchor._call_claude_cli
-        self.orig_process_document_llm = anchor.process_document_llm
+        self.orig_llm_config_path = levels.LLM_CONFIG_PATH
+        self.orig_files_dir = levels.FILES_DIR
+        self.orig_call_deepseek = levels._call_deepseek
+        self.orig_call_claude = levels._call_claude
+        self.orig_call_claude_cli = levels._call_claude_cli
+        self.orig_process_document_llm = levels.process_document_llm
 
     def tearDown(self):
-        anchor.LLM_CONFIG_PATH = self.orig_llm_config_path
-        anchor.FILES_DIR = self.orig_files_dir
-        anchor._call_deepseek = self.orig_call_deepseek
-        anchor._call_claude = self.orig_call_claude
-        anchor._call_claude_cli = self.orig_call_claude_cli
-        anchor.process_document_llm = self.orig_process_document_llm
+        levels.LLM_CONFIG_PATH = self.orig_llm_config_path
+        levels.FILES_DIR = self.orig_files_dir
+        levels._call_deepseek = self.orig_call_deepseek
+        levels._call_claude = self.orig_call_claude
+        levels._call_claude_cli = self.orig_call_claude_cli
+        levels.process_document_llm = self.orig_process_document_llm
 
     def test_call_llm_requires_llm_provider_key(self):
         with tempfile.TemporaryDirectory() as td:
@@ -35,10 +35,10 @@ class AnchorConfigSchemaTests(unittest.TestCase):
                 json.dumps({"llm": {"api_key": "x", "model": "deepseek-chat"}}),
                 encoding="utf-8",
             )
-            anchor.LLM_CONFIG_PATH = cfg_path
+            levels.LLM_CONFIG_PATH = cfg_path
 
             with self.assertRaises(ValueError) as ctx:
-                anchor.call_llm("hello")
+                levels.call_llm("hello")
 
             self.assertIn("llm_provider", str(ctx.exception))
 
@@ -57,7 +57,7 @@ class AnchorConfigSchemaTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            anchor.LLM_CONFIG_PATH = cfg_path
+            levels.LLM_CONFIG_PATH = cfg_path
 
             captured = {}
 
@@ -69,16 +69,17 @@ class AnchorConfigSchemaTests(unittest.TestCase):
                 captured["endpoint"] = endpoint
                 return "ok"
 
-            anchor._call_deepseek = fake_call
-            result = anchor.call_llm("hello world", max_tokens=777)
+            levels._call_deepseek = fake_call
+            output, model_name = levels.call_llm("hello world", max_tokens=777)
 
-            self.assertEqual("ok", result)
+            self.assertEqual("ok", output)
+            self.assertEqual("deepseek-chat", model_name)
             self.assertEqual("test-key", captured["api_key"])
             self.assertEqual("deepseek-chat", captured["model"])
             self.assertEqual(777, captured["max_tokens"])
             self.assertEqual("https://api.deepseek.com/v1", captured["endpoint"])
 
-    def test_call_llm_routes_anchors_to_claude_cli(self):
+    def test_call_llm_routes_document_levels_to_claude_cli(self):
         with tempfile.TemporaryDirectory() as td:
             cfg_path = Path(td) / "config.json"
             cfg_path.write_text(
@@ -90,7 +91,7 @@ class AnchorConfigSchemaTests(unittest.TestCase):
                             "model": "deepseek-chat",
                         },
                         "llm_routing": {
-                            "anchors": "claude",
+                            "document_levels": "claude",
                         },
                         "claude_cli": {
                             "command": "claude",
@@ -100,7 +101,7 @@ class AnchorConfigSchemaTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            anchor.LLM_CONFIG_PATH = cfg_path
+            levels.LLM_CONFIG_PATH = cfg_path
 
             called = {}
 
@@ -109,10 +110,11 @@ class AnchorConfigSchemaTests(unittest.TestCase):
                 called["cfg"] = cfg
                 return "ok-cli"
 
-            anchor._call_claude_cli = fake_cli
-            result = anchor.call_llm("hello world", max_tokens=777)
+            levels._call_claude_cli = fake_cli
+            output, model_name = levels.call_llm("hello world", max_tokens=777)
 
-            self.assertEqual("ok-cli", result)
+            self.assertEqual("ok-cli", output)
+            self.assertEqual("claude_cli", model_name)
             self.assertEqual("hello world", called["prompt"])
 
     def test_call_llm_accepts_claude_api_provider_alias(self):
@@ -129,7 +131,7 @@ class AnchorConfigSchemaTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            anchor.LLM_CONFIG_PATH = cfg_path
+            levels.LLM_CONFIG_PATH = cfg_path
 
             called = {}
 
@@ -140,13 +142,14 @@ class AnchorConfigSchemaTests(unittest.TestCase):
                 called["max_tokens"] = max_tokens
                 return "ok-claude"
 
-            anchor._call_claude = fake_claude
-            anchor._call_deepseek = lambda *args, **kwargs: (_ for _ in ()).throw(
+            levels._call_claude = fake_claude
+            levels._call_deepseek = lambda *args, **kwargs: (_ for _ in ()).throw(
                 AssertionError("DeepSeek should not be called when provider alias is claude_api")
             )
-            result = anchor.call_llm("hello world", max_tokens=321)
+            output, model_name = levels.call_llm("hello world", max_tokens=321)
 
-            self.assertEqual("ok-claude", result)
+            self.assertEqual("ok-claude", output)
+            self.assertEqual("claude-haiku-4-5-20251001", model_name)
             self.assertEqual("hello world", called["prompt"])
             self.assertEqual("anthropic-key", called["api_key"])
             self.assertEqual("claude-haiku-4-5-20251001", called["model"])
@@ -169,7 +172,7 @@ class AnchorConfigSchemaTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            anchor.LLM_CONFIG_PATH = cfg_path
+            levels.LLM_CONFIG_PATH = cfg_path
 
             called = {}
 
@@ -178,46 +181,51 @@ class AnchorConfigSchemaTests(unittest.TestCase):
                 called["cfg"] = cfg
                 return "ok-cli"
 
-            anchor._call_claude_cli = fake_cli
-            anchor._call_deepseek = lambda *args, **kwargs: (_ for _ in ()).throw(
+            levels._call_claude_cli = fake_cli
+            levels._call_deepseek = lambda *args, **kwargs: (_ for _ in ()).throw(
                 AssertionError("DeepSeek should not be called when provider alias is claude_cli")
             )
-            result = anchor.call_llm("hello world", max_tokens=654)
+            output, model_name = levels.call_llm("hello world", max_tokens=654)
 
-            self.assertEqual("ok-cli", result)
+            self.assertEqual("ok-cli", output)
+            self.assertEqual("claude_cli", model_name)
             self.assertEqual("hello world", called["prompt"])
 
-    def test_process_file_writes_manifest_sidecar_with_levels(self):
+    def test_process_file_writes_levels_sidecar(self):
         with tempfile.TemporaryDirectory() as td:
             files_dir = Path(td)
-            anchor.FILES_DIR = files_dir
+            levels.FILES_DIR = files_dir
             (files_dir / "doc.md").write_text("# Title\n\nBody text.", encoding="utf-8")
 
-            anchor.process_document_llm = lambda _text, _filename: (
-                "⚓0️⃣ docs\nSummary line. ⚓\n"
-                "⚓1️⃣ Body text. ⚓\n"
+            levels.process_document_llm = lambda text, filename: (
+                {
+                    "version": 1,
+                    "filename": filename,
+                    "levels": 2,
+                    "generated_at": "2026-02-12T00:00:00+00:00",
+                    "model": "test-levels-model",
+                    "tokens": {"1": 3, "2": 5},
+                    "source_tokens": levels.estimate_tokens(text),
+                    "content": {"1": "Brief summary", "2": text},
+                },
+                "test-levels-model",
             )
 
-            result = anchor.process_file("doc.md", force=True)
+            result = levels.process_file("doc.md", force=True)
             self.assertEqual("ok", result["status"])
-            self.assertTrue(result["manifest_path"])
+            self.assertEqual(2, result["levels"])
+            self.assertIn("levels_path", result)
 
-            manifest_path = Path(result["manifest_path"])
-            self.assertTrue(manifest_path.is_file())
+            levels_path = Path(result["levels_path"])
+            self.assertTrue(levels_path.is_file())
 
-            manifest = anchor.read_processing_manifest("doc.md")
-            self.assertIsInstance(manifest, dict)
-            self.assertEqual("doc.md", manifest["filename"])
-            self.assertIn("source", manifest)
-            self.assertIn("anchored", manifest)
-            self.assertIn("levels", manifest)
-            self.assertIn("full", manifest["levels"])
-            self.assertIn("0", manifest["levels"])
-            self.assertIn("provenance", manifest)
-            self.assertIn("segments", manifest["provenance"])
-            self.assertIn("coverage", manifest["provenance"])
-            self.assertTrue(manifest["provenance"]["coverage"]["all_major_sections_represented"])
-            self.assertTrue(manifest["recoverability"]["full_recoverable"])
+            loaded = levels.read_levels_file("doc.md")
+            self.assertIsInstance(loaded, dict)
+            self.assertEqual("doc.md", loaded["filename"])
+            self.assertEqual(2, loaded["levels"])
+            self.assertIn("1", loaded["content"])
+            self.assertIn("2", loaded["content"])
+            self.assertEqual("test-levels-model", loaded["model"])
 
 
 if __name__ == "__main__":

@@ -2578,7 +2578,7 @@
       },
       semantic: {
         label: 'Semantic',
-        helper: 'Long-lived knowledge documents and their anchor depth.',
+        helper: 'Long-lived knowledge documents with configurable zoom levels.',
       },
     };
     const activeMemory = memoryKinds[subTab] || memoryKinds.episodic;
@@ -2781,20 +2781,54 @@
         <div class="semantic-section-header">Knowledge Documents</div>
         <div class="semantic-files-list">
           ${files.map(f => {
-            const statusClass = f.anchored ? 'status-anchored' : 'status-raw';
-            const statusText = f.anchored ? 'Anchored' : 'Raw';
-            const depthOptions = [0, 1, 2, 3].map(d =>
-              `<option value="${d}" ${f.depth === d ? 'selected' : ''}>Depth ${d}</option>`
-            ).join('') + `<option value="-1" ${f.depth === -1 ? 'selected' : ''}>Full</option>`;
+            const isProcessed = !!f.processed;
+            const levelCountRaw = Number.parseInt(f.levels, 10);
+            const levelCount = Number.isFinite(levelCountRaw) ? Math.max(0, levelCountRaw) : 0;
+            const hasLevels = isProcessed && levelCount > 0;
+            const statusClass = hasLevels ? 'status-processed' : 'status-raw';
+            const statusText = hasLevels ? `Levels ${levelCount}` : 'Raw';
+
+            const configuredDepthRaw = Number.parseInt(f.depth, 10);
+            const configuredDepth = Number.isFinite(configuredDepthRaw)
+              ? configuredDepthRaw
+              : (hasLevels ? 1 : -1);
+            const selectedDepth = hasLevels
+              ? ((configuredDepth >= 1 && configuredDepth <= levelCount) ? configuredDepth : 1)
+              : -1;
+
+            const depthValues = hasLevels
+              ? [...Array.from({ length: levelCount }, (_, idx) => idx + 1), -1]
+              : [-1];
+            const depthOptions = depthValues.map((d) => {
+              let label = 'Raw file';
+              if (d >= 1) {
+                if (d === 1) label = 'Level 1 (brief)';
+                else if (d === levelCount) label = `Level ${d} (full)`;
+                else label = `Level ${d}`;
+              }
+              return `<option value="${d}" ${selectedDepth === d ? 'selected' : ''}>${label}</option>`;
+            }).join('');
 
             let depthInfo = '';
-            if (f.tokens_by_depth) {
-              const tbd = f.tokens_by_depth;
-              depthInfo = `<div class="file-depth-info">Tokens: 0\u2192${tbd['0'] || '?'} &middot; 1\u2192${tbd['1'] || '?'} &middot; 2\u2192${tbd['2'] || '?'} &middot; 3\u2192${tbd['3'] || '?'}</div>`;
+            const tokensByLevel = (f.tokens_by_level && typeof f.tokens_by_level === 'object')
+              ? f.tokens_by_level
+              : null;
+            if (tokensByLevel) {
+              const items = [];
+              for (let level = 1; level <= levelCount; level += 1) {
+                const key = String(level);
+                const value = tokensByLevel[key];
+                if (typeof value === 'number') items.push(`${level}\u2192${value}`);
+              }
+              const rawTokens = Number.parseInt(f.tokens, 10);
+              if (Number.isFinite(rawTokens) && rawTokens > 0) items.push(`raw\u2192${rawTokens}`);
+              if (items.length) {
+                depthInfo = `<div class="file-depth-info">Tokens: ${items.join(' &middot; ')}</div>`;
+              }
             }
 
             return `
-              <div class="file-card ${f.anchored ? 'file-card-anchored' : ''}" data-filename="${esc(f.name)}">
+              <div class="file-card ${hasLevels ? 'file-card-processed' : ''}" data-filename="${esc(f.name)}">
                 <div class="file-card-header">
                   <div class="file-card-info">
                     <span class="file-card-name">${esc(f.name)}</span>
@@ -2802,10 +2836,8 @@
                     <span class="file-card-meta">${f.tokens} tokens</span>
                   </div>
                   <div class="file-card-actions">
-                    ${!f.anchored ? `<button class="btn btn-primary btn-sm file-process-btn" data-filename="${esc(f.name)}">Process</button>` : ''}
-                    ${f.anchored ? `
-                      <select class="file-depth-select" data-filename="${esc(f.name)}">${depthOptions}</select>
-                    ` : ''}
+                    ${!hasLevels ? `<button class="btn btn-primary btn-sm file-process-btn" data-filename="${esc(f.name)}">Process</button>` : ''}
+                    <select class="file-depth-select" data-filename="${esc(f.name)}">${depthOptions}</select>
                     <label class="file-enabled-label">
                       <input type="checkbox" class="file-enabled-toggle" data-filename="${esc(f.name)}" ${f.enabled ? 'checked' : ''}>
                       Load
@@ -2837,7 +2869,7 @@
     container.innerHTML = `
       <div class="semantic-memory-page">
         <div class="semantic-placeholder">
-          <p>Upload knowledge documents. Process them with an LLM to create tiered anchors, then load them at the right depth during session start.</p>
+          <p>Upload knowledge documents. Process them into hierarchical zoom levels, then choose which level to load during session start.</p>
         </div>
         ${uploadHtml}
         ${seedsHtml}
@@ -2884,7 +2916,7 @@
           () => apiFetch(`/api/files/${encodeURIComponent(filename)}/process`, { method: 'POST' }),
           {
             isSuccess: (result) => !!result && result.status === 'ok',
-            successMessage: (result) => `Anchored ${filename} (${result.method})`,
+            successMessage: () => `Processed ${filename}`,
             failureMessage: (result) => `Processing issue: ${(result && result.error) || 'unknown'}`,
             errorMessage: (err) => `Processing failed: ${err.message}`,
           }
@@ -2906,7 +2938,7 @@
           body: JSON.stringify({ depth, enabled }),
         }),
         {
-          successMessage: 'Depth updated',
+          successMessage: 'Zoom level updated',
           failureMessage: 'Could not update depth',
         }
       );
@@ -2970,10 +3002,10 @@
     card.classList.add('expanded');
     bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Loading preview...</div>';
 
-    const isAnchored = card.classList.contains('file-card-anchored');
-    const previewUrl = isAnchored
-      ? `/api/files/${encodeURIComponent(filename)}/preview?raw=true`
-      : `/api/files/${encodeURIComponent(filename)}/preview?depth=-1`;
+    const depthSelect = card.querySelector('.file-depth-select');
+    const selectedDepth = depthSelect ? Number.parseInt(depthSelect.value, 10) : -1;
+    const depth = Number.isFinite(selectedDepth) ? selectedDepth : -1;
+    const previewUrl = `/api/files/${encodeURIComponent(filename)}/preview?depth=${encodeURIComponent(String(depth))}`;
 
     const data = await apiFetch(previewUrl);
     if (data === null) {
@@ -2985,10 +3017,12 @@
       return;
     }
 
-    const isRaw = isAnchored && data.depth === 'raw';
+    const resolvedDepth = Number.parseInt(data.depth, 10);
+    const isRaw = !Number.isFinite(resolvedDepth) || resolvedDepth < 1;
+    const depthLabel = isRaw ? 'raw' : `level ${resolvedDepth}`;
     bodyEl.innerHTML = `
       <div class="file-preview-content ${isRaw ? 'file-preview-raw' : 'rendered-md'}">${isRaw ? esc(data.content) : markdownToHtml(data.content)}</div>
-      <div class="file-preview-meta">${data.tokens} tokens${isRaw ? ' (anchored)' : ''}</div>
+      <div class="file-preview-meta">${data.tokens} tokens (${depthLabel})</div>
     `;
   }
 
@@ -3354,10 +3388,10 @@
                 <div class="settings-row">
                   <div class="settings-row-info">
                     <div class="settings-row-label">Imported Documents</div>
-                    <div class="settings-row-desc">Processing of uploaded files and anchors</div>
+                    <div class="settings-row-desc">Processing of uploaded files into zoom levels</div>
                   </div>
                   <div class="settings-row-control">
-                    <select id="settings-route-anchors">${routeSelect(routing.anchors || 'deepseek')}</select>
+                    <select id="settings-route-document-levels">${routeSelect(routing.document_levels || 'deepseek')}</select>
                   </div>
                 </div>
               </div>
@@ -3518,7 +3552,7 @@
       llm_routing: {
         session_notes: getInputValue('settings-route-session-notes'),
         now_md: getInputValue('settings-route-now-md'),
-        anchors: getInputValue('settings-route-anchors'),
+        document_levels: getInputValue('settings-route-document-levels'),
       },
       claude_cli: {
         command: getInputValue('settings-claude-command'),

@@ -68,7 +68,7 @@ Highlights:
 
 ## PR Conventions
 
-- Title format: concise, imperative (`Fix config key mismatch in anchor processor`).
+- Title format: concise, imperative (`Fix config key mismatch in levels processor`).
 - Include:
   - what changed
   - why
@@ -94,11 +94,11 @@ Set `server_port`, then restart `python3 plugin/server.py`.
 - Verify `~/.claude/hooks/hooks.json` contains Memorable hook entries.
 - Confirm `~/.memorable/plugin` points to your current repo path.
 
-### Semantic anchoring not using LLM
+### Semantic document processing not using LLM
 
 - Confirm `~/.memorable/data/config.json` has `llm_provider`.
 - Ensure `endpoint`, `model`, and `api_key` are set.
-- Confirm `llm_routing.anchors` is set to the provider you want (`deepseek`, `claude`/`claude_cli`, `claude_api`, or `gemini`).
+- Confirm `llm_routing.document_levels` is set to the provider you want (`deepseek`, `claude`/`claude_cli`, `claude_api`, or `gemini`).
 - Restart server/hooks after config updates.
 
 ### Import/reset requests fail
