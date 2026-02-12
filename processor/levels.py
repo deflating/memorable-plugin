@@ -45,12 +45,43 @@ Rules:
 - Level 1 MUST be the most compressed possible summary (usually one short paragraph).
 - Each next level adds meaningful detail.
 - Highest level N MUST be near-full or full document fidelity.
+- Keep token growth smooth across levels. Avoid giant jumps between adjacent levels.
+- If the document is long, choose more levels so the final jump into full fidelity is not abrupt.
+- Target adjacent token ratio around 1.5x-3x whenever possible.
 - Keep facts and terminology accurate; do not invent details.
 - Preserve structure where useful (headings/lists) at deeper levels.
 - Ensure every key from "1" through "N" exists exactly once.
 - Do not include any keys outside `levels` and `content`.
 
 Filename: {filename}
+
+Document:
+{document_text}
+"""
+
+LEVELS_REFINEMENT_PROMPT = """You are refining hierarchical semantic zoom levels for smoother token progression.
+
+Return ONLY valid JSON:
+{
+  "levels": <integer>,
+  "content": {
+    "1": "...",
+    "2": "..."
+  }
+}
+
+Rules:
+- Keep level 1 concise.
+- Keep highest level N near-full or full fidelity.
+- Add intermediate levels if needed (up to 8 total) so adjacent levels do not jump too sharply.
+- Preserve factual accuracy and section intent.
+- Include all keys from "1" through "N".
+- No keys outside `levels` and `content`.
+
+Filename: {filename}
+
+Current levels JSON:
+{levels_json}
 
 Document:
 {document_text}
@@ -350,6 +381,60 @@ def _normalize_levels_payload(payload: dict, raw_text: str) -> tuple[int, dict[s
     return levels, normalized
 
 
+def _max_adjacent_ratio(level_content: dict[str, str]) -> float:
+    levels = sorted(
+        (int(k), v) for k, v in level_content.items() if isinstance(k, str) and k.isdigit()
+    )
+    if len(levels) < 2:
+        return 1.0
+    ratios = []
+    for idx in range(1, len(levels)):
+        prev_tokens = max(1, estimate_tokens(levels[idx - 1][1]))
+        curr_tokens = max(1, estimate_tokens(levels[idx][1]))
+        ratios.append(curr_tokens / float(prev_tokens))
+    return max(ratios) if ratios else 1.0
+
+
+def _should_refine_levels(level_count: int, level_content: dict[str, str]) -> bool:
+    if level_count >= MAX_LEVELS:
+        return False
+    return _max_adjacent_ratio(level_content) > 4.0
+
+
+def _refine_levels_if_needed(
+    filename: str,
+    text: str,
+    level_count: int,
+    level_content: dict[str, str],
+) -> tuple[int, dict[str, str]]:
+    if not _should_refine_levels(level_count, level_content):
+        return level_count, level_content
+
+    try:
+        current_json = json.dumps(
+            {
+                "levels": level_count,
+                "content": level_content,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        prompt = (
+            LEVELS_REFINEMENT_PROMPT
+            .replace("{filename}", filename)
+            .replace("{levels_json}", current_json)
+            .replace("{document_text}", text)
+        )
+        llm_output, _ = call_llm(prompt, max_tokens=16_000)
+        payload = _extract_json_payload(llm_output)
+        refined_count, refined_content = _normalize_levels_payload(payload, text)
+        if _max_adjacent_ratio(refined_content) <= _max_adjacent_ratio(level_content):
+            return refined_count, refined_content
+    except Exception as exc:
+        log_error(f"Levels refinement skipped for {filename}: {exc}")
+    return level_count, level_content
+
+
 def build_levels_manifest(
     filename: str,
     raw_text: str,
@@ -388,6 +473,12 @@ def process_document_llm(text: str, filename: str) -> tuple[dict, str]:
     llm_output, model = call_llm(prompt, max_tokens=max_tokens)
     payload = _extract_json_payload(llm_output)
     level_count, level_content = _normalize_levels_payload(payload, text)
+    level_count, level_content = _refine_levels_if_needed(
+        filename,
+        text,
+        level_count,
+        level_content,
+    )
     return build_levels_manifest(filename, text, level_count, level_content, model), model
 
 

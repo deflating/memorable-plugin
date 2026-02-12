@@ -195,6 +195,9 @@ To start the web UI:
 
 Then open http://localhost:7777
 
+Optional: register MCP tools for selective semantic level retrieval:
+  claude mcp add memorable python3 $PLUGIN_DIR/mcp_server.py
+
 To create your first seed files, start a Claude Code session —
 Memorable will guide you through setup.
 

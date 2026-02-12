@@ -2,7 +2,8 @@
 """SessionStart / PreCompact hook for Memorable.
 
 Outputs read instructions for seed files and semantic context files.
-For semantic documents, Claude should read `<filename>.levels.json` and use
+For semantic documents, prefer using the MCP tool `memorable_get_document_level`
+to read only the selected level. Fallback: read `<filename>.levels.json` and use
 `content[<level>]` for the configured zoom level.
 """
 
@@ -362,7 +363,8 @@ def print_context_instructions(plan: list[dict], is_compact: bool):
             if item.get("is_levels_file") and int(item.get("depth", -1)) >= 1:
                 suffix = (
                     f" (zoom level {depth_label}/{levels_count}, ~{tokens} tokens, {reason}; "
-                    f"use content[\"{depth_label}\"] from this JSON)"
+                    f"prefer MCP tool memorable_get_document_level(filename=\"{item.get('filename','')}\", level={depth_label}); "
+                    f"fallback: use content[\"{depth_label}\"] from this JSON)"
                 )
             else:
                 suffix = f" (raw fallback, ~{tokens} tokens, {reason})"

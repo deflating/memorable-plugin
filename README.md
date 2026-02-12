@@ -10,7 +10,7 @@ Memorable gives Claude durable context across sessions using local files and hoo
 - Session notes are generated from transcripts and ranked by salience.
 - A local web UI (`http://localhost:7777`) lets you manage seeds, notes, knowledge docs, and settings.
 - Semantic docs can be processed into multiple zoom levels to control token cost.
-- An MCP tool can request deeper context on demand.
+- MCP tools can retrieve specific zoom levels on demand.
 
 All local state is stored on your machine under `~/.memorable/data/`.
 If you enable semantic processing with an external LLM provider, document content sent for processing leaves your machine to that provider.
@@ -68,6 +68,18 @@ This is idempotent and will:
 - avoid duplicate Memorable hook blocks.
 
 ## Operations
+
+### MCP Tools (Selective Level Retrieval)
+
+Memorable includes an MCP server at `plugin/mcp_server.py` with:
+- `memorable_get_document_level(filename, level)` — returns only the requested level content
+- `memorable_list_documents()` — lists available semantic docs and level availability
+
+Register it in Claude (example):
+
+```bash
+claude mcp add memorable python3 /Users/mattkennelly/memorable-plugin/plugin/mcp_server.py
+```
 
 ### Backup (Export)
 
