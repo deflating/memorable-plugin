@@ -2983,6 +2983,16 @@ html.dark .provider-card-header:hover {
   gap: 12px;
 }
 
+.form-row-locale {
+  display: flex;
+  gap: 12px;
+}
+
+.form-row-locale > .form-group {
+  flex: 1;
+  min-width: 0;
+}
+
 label {
   font-size: 0.82rem;
   font-weight: 500;

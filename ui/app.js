@@ -4186,7 +4186,7 @@
             <input type="text" data-bind="user.identity.pronouns" value="${esc(u.identity.pronouns)}" placeholder="e.g. he/him, she/her, they/them">
           </div>
         </div>
-        <div class="form-row">
+        <div class="form-row-locale" id="locale-row">
           <div class="form-group">
             <label>${ICON.globe} Language</label>
             <select id="identity-language">
@@ -4225,8 +4225,6 @@
               <option value="NZ" ${u.identity.dialect === 'NZ' ? 'selected' : ''}>New Zealand</option>
             </select>
           </div>
-        </div>
-        <div class="form-row">
           <div class="form-group">
             <label>Timezone</label>
             <select data-bind="user.identity.timezone" id="identity-timezone">
