@@ -1868,32 +1868,50 @@
       onboardingHtml = renderOnboardingWizard();
     }
 
-    // Alert strip — only when daemon has issues
-    let alertHtml = '';
-    if (status && daemonHealth && daemonHealth.state !== 'healthy' && daemonHealth.state !== undefined) {
-      const issues = Array.isArray(daemonHealth.issues) ? daemonHealth.issues : [];
-      let alertText = '';
-      if (daemonHealth.state === 'disabled') {
-        alertText = "Daemon is disabled \u2014 sessions won't generate notes.";
-      } else if (issues.includes('daemon_not_running')) {
-        alertText = 'Daemon is enabled but not running.';
-      } else if (issues.includes('notes_lagging')) {
-        alertText = 'Notes are lagging behind transcripts.';
-      } else if (issues.includes('no_notes_generated')) {
-        alertText = 'Transcripts exist but no notes generated yet.';
+    // Single action-required module
+    let actionRequiredHtml = '';
+    let actionPrimaryId = '';
+    if (seedsExist) {
+      const issues = daemonHealth && Array.isArray(daemonHealth.issues) ? daemonHealth.issues : [];
+      let actionTitle = '';
+      let actionText = '';
+      let actionLabel = '';
+      if (!daemonEnabled) {
+        actionTitle = 'Action required';
+        actionText = "Daemon is disabled. Session memories won't be generated until capture is enabled.";
+        actionLabel = 'Enable daemon';
+        actionPrimaryId = 'dash-action-enable-daemon';
+      } else if (daemonHealth && daemonHealth.state !== 'healthy' && daemonHealth.state !== undefined) {
+        actionTitle = 'Action required';
+        if (issues.includes('daemon_not_running')) {
+          actionText = 'Daemon capture is enabled but not currently running.';
+        } else if (issues.includes('notes_lagging')) {
+          actionText = 'Memory generation is lagging behind recent transcripts.';
+        } else if (issues.includes('no_notes_generated')) {
+          actionText = 'Transcripts exist, but no notes were generated yet.';
+        } else {
+          actionText = 'Memory capture needs attention.';
+        }
+        actionLabel = 'Open settings';
+        actionPrimaryId = 'dash-action-open-settings';
+      } else if (totalNotes === 0) {
+        actionTitle = 'Get first memory';
+        actionText = 'Seeds are set. Capture one session to start building your memory timeline.';
+        actionLabel = 'Edit seeds';
+        actionPrimaryId = 'dash-action-edit-seeds';
       }
-      if (alertText) {
-        alertHtml = `
-          <div class="dash-alert">
-            <span class="dash-alert-icon">${ICON.alert}</span>
-            <div>
-              <div>${esc(alertText)}</div>
-              <div class="dash-alert-actions">
-                ${!daemonEnabled ? '<button class="btn btn-small" onclick="window.memorableApp.enableDaemon()">Enable</button>' : ''}
-                <button class="btn btn-small" onclick="window.memorableApp.navigateTo(\'settings\')">Settings</button>
-              </div>
+      if (actionTitle && actionLabel && actionPrimaryId) {
+        actionRequiredHtml = `
+          <section class="dash-action-required">
+            <div class="dash-action-required-header">
+              <span class="dash-action-required-icon">${ICON.alert}</span>
+              <h2>${esc(actionTitle)}</h2>
             </div>
-          </div>
+            <p>${esc(actionText)}</p>
+            <div class="dash-action-required-actions">
+              <button class="btn btn-primary" id="${actionPrimaryId}">${esc(actionLabel)}</button>
+            </div>
+          </section>
         `;
       }
     }
@@ -1949,22 +1967,6 @@
       `;
     }
 
-    // Getting started (simplified first-run, replaces old first-week-flow + setup-checklist)
-    let gettingStartedHtml = '';
-    if (seedsExist && totalNotes === 0) {
-      gettingStartedHtml = `
-        <div class="dash-getting-started">
-          <h2>Getting started</h2>
-          <p>Your seeds are set up. Once the daemon captures a session, notes will appear here.</p>
-          <div class="dash-getting-started-steps">
-            ${!daemonEnabled ? '<button class="btn btn-small" onclick="window.memorableApp.enableDaemon()">Enable Daemon</button>' : ''}
-            <button class="btn btn-small" onclick="window.memorableApp.navigateTo('configure')">Edit Seeds</button>
-            <button class="btn btn-small" onclick="window.memorableApp.navigateTo('settings')">Settings</button>
-          </div>
-        </div>
-      `;
-    }
-
     container.innerHTML = `
       <div class="dashboard-page">
         <div class="dash-hero">
@@ -1973,8 +1975,7 @@
         </div>
 
         ${onboardingHtml}
-        ${alertHtml}
-        ${gettingStartedHtml}
+        ${actionRequiredHtml}
 
         ${sessionHtml}
 
@@ -2024,6 +2025,15 @@
     bindAll(container, '.dash-timeline-item[data-nav-page]', 'click', (_event, btn) => {
       const page = btn.dataset.navPage;
       if (page) window.memorableApp.navigateTo(page);
+    });
+    bindById('dash-action-enable-daemon', 'click', () => {
+      window.memorableApp.enableDaemon();
+    });
+    bindById('dash-action-open-settings', 'click', () => {
+      window.memorableApp.navigateTo('settings');
+    });
+    bindById('dash-action-edit-seeds', 'click', () => {
+      window.memorableApp.navigateTo('configure');
     });
 
     // Async: fetch recent notes if cache is empty
@@ -2418,12 +2428,15 @@
         <div class="notes-search">
           <input type="text" class="notes-search-input" id="notes-search-input" placeholder="Search notes\u2026" value="${esc(ns.search)}">
         </div>
-        <div class="notes-toolbar">
+        <div class="notes-toolbar notes-toolbar-primary">
           <div class="notes-sort">
             <button class="notes-sort-btn ${ns.sort === 'date' ? 'active' : ''}" data-sort="date">Newest</button>
             <button class="notes-sort-btn ${ns.sort === 'date_asc' ? 'active' : ''}" data-sort="date_asc">Oldest</button>
             <button class="notes-sort-btn ${ns.sort === 'salience' ? 'active' : ''}" data-sort="salience" title="How relevant/important a note is. Higher salience notes are more likely to be loaded.">Salience</button>
           </div>
+          <span class="notes-count">${ns.total} note${ns.total !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="notes-toolbar notes-toolbar-secondary">
           <div class="notes-filters">
             <select class="notes-archive-filter" id="notes-archive-filter">
               <option value="exclude"${ns.archived === 'exclude' ? ' selected' : ''}>Active</option>
@@ -2432,7 +2445,6 @@
             </select>
             <select class="notes-tag-filter" id="notes-tag-filter">${tagOptions}</select>
           </div>
-          <span class="notes-count">${ns.total} note${ns.total !== 1 ? 's' : ''}</span>
           ${resetFiltersHtml}
         </div>
         ${sessionFilterHtml}
@@ -3764,6 +3776,7 @@
 
   // ---- Seeds Page ----
   function renderSeedsPage(container) {
+    const progressRail = renderSetupProgressRail(state.activeFile);
     container.innerHTML = `
       <div class="seeds-page">
         <div class="seeds-header">
@@ -3778,6 +3791,7 @@
             </div>
             <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
           </div>
+          ${progressRail}
           <div class="seeds-view-controls" id="seeds-view-controls"></div>
         </div>
         <div class="seeds-layout" id="seeds-layout">
@@ -3807,6 +3821,34 @@
     renderSeedsContent();
     // Render preview
     renderPreview();
+  }
+
+  function renderSetupProgressRail(file) {
+    const sectionIds = file === 'user' ? USER_SECTION_IDS : AGENT_SECTION_IDS;
+    const activeIds = sectionIds.filter((id) => state.enabledSections[id] !== false);
+    const total = activeIds.length || 1;
+    const sketch = activeIds.filter((id) => getSectionDensity(id) === 'sketch').length;
+    const forming = activeIds.filter((id) => getSectionDensity(id) === 'forming').length;
+    const substantial = activeIds.filter((id) => getSectionDensity(id) === 'substantial').length;
+    const completion = Math.round(((forming * 0.5) + substantial) / total * 100);
+    return `
+      <div class="seeds-progress">
+        <div class="seeds-progress-header">
+          <span class="seeds-progress-title">${file === 'user' ? 'User seed progress' : 'Agent seed progress'}</span>
+          <span class="seeds-progress-value">${completion}% ready</span>
+        </div>
+        <div class="seeds-progress-track" aria-hidden="true">
+          <span class="seeds-progress-seg sketch" style="width:${(sketch / total) * 100}%"></span>
+          <span class="seeds-progress-seg forming" style="width:${(forming / total) * 100}%"></span>
+          <span class="seeds-progress-seg substantial" style="width:${(substantial / total) * 100}%"></span>
+        </div>
+        <div class="seeds-progress-legend">
+          <span>Sketch ${sketch}</span>
+          <span>Forming ${forming}</span>
+          <span>Substantial ${substantial}</span>
+        </div>
+      </div>
+    `;
   }
 
   function renderSeedsViewControls() {
@@ -3982,6 +4024,10 @@
   function renderTokenBudget() {
     const container = document.getElementById('token-budget');
     if (!container) return;
+    if (state.activePage !== 'configure') {
+      container.innerHTML = '';
+      return;
+    }
 
     fetch('/api/budget')
       .then(r => r.json())
