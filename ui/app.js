@@ -1350,7 +1350,7 @@
 
   function getKnownImportSections(fileType) {
     if (fileType === 'user') {
-      return ['About', 'Neurotype', 'Cognitive Style', 'Values', 'Interests', 'People', 'Projects'];
+      return ['About', 'Neurodivergence', 'Neurotype', 'Cognitive Style', 'Values', 'Interests', 'People', 'Projects'];
     }
     return [
       'About',
