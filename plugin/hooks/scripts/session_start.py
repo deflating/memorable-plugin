@@ -128,7 +128,7 @@ def prepare_context_file(filename: str, depth: int) -> str | None:
 
 def core_seed_paths() -> list[str]:
     paths = []
-    for name in ("user.md", "agent.md", "now.md"):
+    for name in ("user.md", "agent.md", "now.md", "knowledge.md"):
         path = SEEDS_DIR / name
         if path.is_file():
             paths.append(str(path))

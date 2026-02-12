@@ -1831,8 +1831,8 @@ def handle_get_budget():
     breakdown = []
     total_used = 0
 
-    # Core seed files — mirrors session_start.py which loads user.md, agent.md, now.md
-    for seed_name in ("user.md", "agent.md", "now.md"):
+    # Core seed files — mirrors session_start.py (knowledge.md is optional).
+    for seed_name in ("user.md", "agent.md", "now.md", "knowledge.md"):
         seed_path = SEEDS_DIR / seed_name
         if seed_path.is_file():
             try:

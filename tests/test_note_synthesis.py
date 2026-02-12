@@ -13,6 +13,7 @@ if str(HOOKS_DIR) not in sys.path:
 
 import note_synthesis_monthly  # noqa: E402
 import note_synthesis_weekly  # noqa: E402
+import knowledge_builder  # noqa: E402
 
 
 class WeeklySynthesisTests(unittest.TestCase):
@@ -120,6 +121,78 @@ class MonthlySynthesisTests(unittest.TestCase):
                     entries, now
                 )
                 self.assertEqual(0, created_again)
+
+
+class KnowledgeGraduationTests(unittest.TestCase):
+    def test_extract_stable_facts_requires_recurrence_across_weeks(self):
+        now = datetime(2026, 2, 12, tzinfo=timezone.utc)
+        entries = [
+            {
+                "ts": "2026-01-20T12:00:00Z",
+                "session": "sess-a",
+                "note": (
+                    "## Decisions\n"
+                    "- Use inline SVG icons for UI controls.\n"
+                    "## User Preferences\n"
+                    "- Prefer concise changelog entries.\n"
+                ),
+                "salience": 0.8,
+                "topic_tags": ["ui", "icons"],
+            },
+            {
+                "ts": "2026-01-27T12:00:00Z",
+                "session": "sess-b",
+                "note": (
+                    "## Technical Context\n"
+                    "- Use inline SVG icons for UI controls.\n"
+                    "## Decisions\n"
+                    "- Keep server hooks deterministic.\n"
+                ),
+                "salience": 0.9,
+                "topic_tags": ["ui", "server"],
+            },
+            {
+                "ts": "2026-02-03T12:00:00Z",
+                "session": "sess-c",
+                "note": "## Decisions\n- One-off note should not graduate.\n",
+                "salience": 0.7,
+                "topic_tags": ["misc"],
+            },
+        ]
+
+        facts = knowledge_builder.extract_stable_facts(entries, now)
+        fact_texts = [fact["text"] for fact in facts]
+
+        self.assertTrue(any("inline SVG icons" in text for text in fact_texts))
+        self.assertFalse(any("One-off note" in text for text in fact_texts))
+
+    def test_update_knowledge_seed_writes_markdown(self):
+        now = datetime(2026, 2, 12, tzinfo=timezone.utc)
+        entries = [
+            {
+                "ts": "2026-01-20T12:00:00Z",
+                "session": "sess-a",
+                "note": "## Decisions\n- Use inline SVG icons for UI controls.\n",
+                "salience": 0.8,
+                "topic_tags": ["ui", "icons"],
+            },
+            {
+                "ts": "2026-01-27T12:00:00Z",
+                "session": "sess-b",
+                "note": "## Technical Context\n- Use inline SVG icons for UI controls.\n",
+                "salience": 0.9,
+                "topic_tags": ["ui"],
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as td:
+            knowledge_path = Path(td) / "knowledge.md"
+            count = knowledge_builder.update_knowledge_seed(entries, now, knowledge_path=knowledge_path)
+
+            self.assertEqual(1, count)
+            content = knowledge_path.read_text(encoding="utf-8")
+            self.assertIn("# Semantic Knowledge", content)
+            self.assertIn("inline SVG icons", content)
 
 
 if __name__ == "__main__":

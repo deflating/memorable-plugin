@@ -12,6 +12,7 @@ if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
 import session_start  # noqa: E402
+import note_selection  # noqa: E402
 
 
 class SessionStartArchiveTests(unittest.TestCase):
@@ -122,6 +123,69 @@ class SessionStartSelectionTests(unittest.TestCase):
         self.assertEqual(2, session_start.parse_context_depth("2", -1))
         self.assertEqual(-1, session_start.parse_context_depth("banana", -1))
         self.assertEqual(-1, session_start.parse_context_depth(9, -1))
+
+    def test_core_seed_paths_includes_knowledge_seed_when_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            seeds_dir = Path(td)
+            for name in ("user.md", "agent.md", "now.md", "knowledge.md"):
+                (seeds_dir / name).write_text(f"# {name}", encoding="utf-8")
+
+            with mock.patch.object(session_start, "SEEDS_DIR", seeds_dir):
+                seed_paths = session_start.core_seed_paths()
+
+            self.assertEqual(4, len(seed_paths))
+            self.assertTrue(any(path.endswith("knowledge.md") for path in seed_paths))
+
+
+class ContextualRetrievalTests(unittest.TestCase):
+    def test_build_tag_cooccurrence_graph_tracks_pair_weights(self):
+        entries = [
+            {"topic_tags": ["python", "testing"]},
+            {"topic_tags": ["python", "release"]},
+        ]
+        graph = note_selection.build_tag_cooccurrence_graph(entries)
+
+        self.assertEqual(1, graph["python"]["testing"])
+        self.assertEqual(1, graph["testing"]["python"])
+        self.assertEqual(1, graph["python"]["release"])
+        self.assertEqual(1, graph["release"]["python"])
+
+    def test_spread_tag_activation_reaches_second_hop(self):
+        graph = {
+            "python": {"testing": 2},
+            "testing": {"python": 2, "release": 1},
+            "release": {"testing": 1},
+        }
+
+        activation = note_selection.spread_tag_activation(graph, {"python"}, max_hops=2, decay=0.5)
+
+        self.assertAlmostEqual(1.0, activation["python"])
+        self.assertGreater(activation["testing"], 0.0)
+        self.assertGreater(activation["release"], 0.0)
+
+    def test_contextual_activation_changes_score_order(self):
+        ts = datetime.now(timezone.utc).isoformat()
+        entries = [
+            {
+                "ts": ts,
+                "note": "status update",
+                "salience": 1.0,
+                "topic_tags": ["python"],
+            },
+            {
+                "ts": ts,
+                "note": "status update",
+                "salience": 1.0,
+                "topic_tags": ["gardening"],
+            },
+        ]
+        scored = note_selection.score_entries(entries, {"tag_activation": {"python": 1.0}})
+        top_score, top_entry = scored[0]
+        low_score, low_entry = scored[1]
+
+        self.assertEqual(["python"], top_entry["topic_tags"])
+        self.assertEqual(["gardening"], low_entry["topic_tags"])
+        self.assertGreater(top_score, low_score)
 
 
 if __name__ == "__main__":
