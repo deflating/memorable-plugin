@@ -1952,6 +1952,7 @@
     container.innerHTML = `
       <div class="dashboard-page">
         <div class="dash-hero">
+          <h1>Overview</h1>
           <span class="dash-hero-sub">${lastNoteDate ? `Last note ${formatRelativeTime(lastNoteDate)}` : (totalNotes > 0 ? totalNotes + ' notes captured' : 'No notes yet')}</span>
         </div>
 
