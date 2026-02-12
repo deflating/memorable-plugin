@@ -646,6 +646,7 @@
     'about': 'about', 'neurodivergence': 'cognitive', 'neurotype': 'cognitive', 'cognitive-style': 'cogStyle',
     'values': 'values', 'interests': 'interests', 'people': 'people',
     'projects': 'projects', 'communication-preferences': 'communication', 'tone-format': 'communication',
+    'tone-and-format': 'communication',
     'character-traits': 'traits', 'behaviors': 'behaviors', 'disposition': 'behaviors',
     'avoid': 'avoid', 'when-user-is-low': 'when-low', 'autonomy': 'autonomy', 'rules': 'rules',
     'conditional-rules': 'rules', 'technical-style': 'tech-style',
@@ -1624,7 +1625,7 @@
     document.querySelectorAll('#top-nav-links .top-nav-link').forEach(l => {
       l.classList.toggle('active', l.dataset.page === state.activePage);
     });
-    const settingsItem = document.getElementById('top-nav-open-settings');
+    const settingsItem = document.getElementById('top-nav-open-settings') || document.getElementById('top-nav-settings');
     if (settingsItem) {
       settingsItem.classList.toggle('active', state.activePage === 'settings');
     }
@@ -1633,7 +1634,7 @@
   function bindSidebarNav() {
     const utilityBtn = document.getElementById('top-nav-utilities');
     const utilityMenu = document.getElementById('top-nav-utility-menu');
-    const settingsItem = document.getElementById('top-nav-open-settings');
+    const settingsItem = document.getElementById('top-nav-open-settings') || document.getElementById('top-nav-settings');
     const setUtilityMenuOpen = (open) => {
       if (!utilityBtn || !utilityMenu) return;
       utilityMenu.hidden = !open;
@@ -1706,6 +1707,7 @@
     const step = clampOnboardingStep(state.onboardingStep || 1);
     const u = state.user;
     const a = state.agent;
+    const onboardingTraitKeys = DEFAULT_TRAIT_OPTIONS.map((t) => t.key);
     let body = '';
 
     if (step === 1) {
@@ -1744,13 +1746,12 @@
         </div>
       `;
     } else if (step === 4) {
-      const traitKeys = ['warmth', 'directness', 'humor', 'formality', 'verbosity'];
       body = `
         <div class="wizard-step-fields">
           <label>Agent Personality</label>
           <p class="wizard-step-hint">Tune core traits. You can refine these later in Configure.</p>
           <div class="wizard-traits">
-            ${traitKeys.map((key) => {
+            ${onboardingTraitKeys.map((key) => {
               const val = parseInt(a.traits[key] ?? 50, 10);
               return `
                 <div class="wizard-trait-row">
@@ -1779,7 +1780,7 @@
           <ul>
             ${valueLines.length ? valueLines.map(v => `<li>${esc(v)}</li>`).join('') : '<li>Not set</li>'}
           </ul>
-          <p><strong>Agent traits:</strong> ${['warmth', 'directness', 'humor', 'formality', 'verbosity'].map(k => `${getTraitLabel(k)} ${a.traits[k] ?? 50}`).join(', ')}</p>
+          <p><strong>Agent traits:</strong> ${onboardingTraitKeys.map(k => `${getTraitLabel(k)} ${a.traits[k] ?? 50}`).join(', ')}</p>
           <p class="wizard-step-hint">Save now to generate starter ` + "`user.md`, `agent.md`, and `now.md`." + `</p>
         </div>
       `;
@@ -1951,7 +1952,6 @@
     container.innerHTML = `
       <div class="dashboard-page">
         <div class="dash-hero">
-          <h1>Memorable</h1>
           <span class="dash-hero-sub">${lastNoteDate ? `Last note ${formatRelativeTime(lastNoteDate)}` : (totalNotes > 0 ? totalNotes + ' notes captured' : 'No notes yet')}</span>
         </div>
 
@@ -4316,24 +4316,7 @@
 
       ${renderSection('interests', 'Interests', 'Things you care about', 'sage', ICON.star, `
         <div class="repeatable-list" id="interests-list" data-reorder-list="interests">
-          ${u.interests.length ? u.interests.map((item, i) => `
-            <div class="repeatable-item" data-reorder-item="${i}">
-              <div class="reorder-handle" data-reorder-handle>${ICON.grip}</div>
-              <div class="item-fields">
-                <div class="form-row">
-                  <div class="form-group" style="flex:1">
-                    <label>Interest</label>
-                    <input type="text" data-interest="${i}" data-field="name" value="${esc(item.name)}" placeholder="e.g. Woodworking, AI/ML, Cooking">
-                  </div>
-                </div>
-                <div class="form-group">
-                  <label>Context</label>
-                  <textarea data-interest="${i}" data-field="context" rows="2" placeholder="Level, focus areas, what Claude should know...">${esc(item.context)}</textarea>
-                </div>
-              </div>
-              <button class="btn btn-icon btn-danger-ghost" data-remove-interest="${i}" title="Remove">${ICON.x}</button>
-            </div>
-          `).join('') : `
+          ${u.interests.length ? u.interests.map((item, i) => renderInterestItem(item, i)).join('') : `
             <div class="empty-state">
               <div class="empty-state-icon">${ICON.star}</div>
               <h3>No interests added yet</h3>
@@ -4593,6 +4576,30 @@
         <div class="slider-labels">
           <span>${endpoints[0]}</span>
           <span>${endpoints[1]}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderInterestItem(item, i) {
+    return `
+      <div class="repeatable-item reorder-item" draggable="true" data-reorder-group="interests" data-reorder-index="${i}" data-interest-index="${i}">
+        <div class="repeatable-item-header">
+          <div class="repeatable-item-title">
+            <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">${ICON.grip}</span>
+            <strong style="font-size:0.88rem;">${item.name || 'New interest'}</strong>
+          </div>
+          <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-interest="${i}" title="Remove">${ICON.x}</button>
+        </div>
+        <div class="repeatable-item-fields">
+          <div class="form-group">
+            <label>Interest</label>
+            <input type="text" data-interest="${i}" data-field="name" value="${esc(item.name)}" placeholder="e.g. Woodworking, AI/ML, Cooking">
+          </div>
+          <div class="form-group">
+            <label>Context</label>
+            <textarea data-interest="${i}" data-field="context" rows="2" placeholder="Level, focus areas, what Claude should know...">${esc(item.context)}</textarea>
+          </div>
         </div>
       </div>
     `;
@@ -4997,8 +5004,7 @@
         } else {
           state._agentRoleCustom = false;
           state.agent.role = val;
-          renderPreview();
-          debouncedSave();
+          render();
         }
       });
     }
@@ -5259,6 +5265,7 @@
   }
 
   function getReorderTargetArray(group) {
+    if (group === 'interests') return state.user.interests;
     if (group === 'people') return state.user.people;
     if (group === 'projects') return state.user.projects;
     if (group === 'user-custom') return state.user.customSections;
