@@ -98,6 +98,13 @@
   const AGENT_SECTION_IDS = [
     'agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'tech-style', 'agent-custom'
   ];
+  const DEFAULT_COLLAPSED_SECTIONS = {
+    'autonomy': true,
+    'rules': true,
+    'tech-style': true,
+    'user-custom': true,
+    'agent-custom': true,
+  };
 
   // ---- Icons (inline SVG, feather style) ----
   const _i = (d) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
@@ -250,7 +257,7 @@
       'autonomy': true, 'rules': true,
       'when-low': true, 'tech-style': true, 'agent-custom': true
     },
-    collapsedSections: {},
+    collapsedSections: { ...DEFAULT_COLLAPSED_SECTIONS },
     user: {
       identity: { name: '', age: '', location: '', pronouns: '', language: '', dialect: '', timezone: '' },
       about: '',
@@ -4123,7 +4130,7 @@
             <button class="preset-btn ${state.preset === key ? 'active' : ''}" data-preset="${key}">${preset.label}</button>
           `).join('')}
         </div>
-        <div class="preset-bar-hint">Presets suggest which sections to enable. You can always toggle any section on or off individually.</div>
+        <div class="preset-bar-hint">Presets suggest which sections to enable. Advanced sections start collapsed so the core setup path stays focused.</div>
       </div>
     `;
   }
@@ -6123,11 +6130,14 @@
     if (!state.enabledSections) {
       state.enabledSections = {};
     }
-    // Always start with sections expanded
-    state.collapsedSections = {};
+    // Keep section collapse state stable; default-collapse advanced sections on first run.
+    if (!state.collapsedSections || typeof state.collapsedSections !== 'object') {
+      state.collapsedSections = {};
+    }
     const allSections = USER_SECTION_IDS.concat(AGENT_SECTION_IDS);
     allSections.forEach(id => {
       if (state.enabledSections[id] === undefined) state.enabledSections[id] = true;
+      if (state.collapsedSections[id] === undefined) state.collapsedSections[id] = !!DEFAULT_COLLAPSED_SECTIONS[id];
     });
     // Ensure preset exists
     if (!state.preset) state.preset = 'custom';
