@@ -1125,6 +1125,18 @@ p { color: var(--text-secondary); }
   box-shadow: var(--shadow-focus);
 }
 
+.notes-search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+  pointer-events: none;
+  overflow: hidden;
+}
+
 .notes-sort-btn {
   display: inline-flex;
   align-items: center;
