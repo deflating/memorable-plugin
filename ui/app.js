@@ -1987,10 +1987,6 @@
               <span class="dash-stat-label">Sessions</span>
             </div>
             <div class="dash-stat">
-              <span class="dash-stat-value"><span class="dash-yield" id="dash-yield-value">\u2014</span></span>
-              <span class="dash-stat-label">Yield</span>
-            </div>
-            <div class="dash-stat">
               <span class="dash-stat-value"><span class="dash-pulse ${pulseClass}"></span> ${esc(daemonStatusText)}</span>
               <span class="dash-stat-label">Daemon</span>
               ${lastNoteDate ? `<span class="dash-stat-sub">${formatRelativeTime(lastNoteDate)}</span>` : ''}
@@ -2017,19 +2013,6 @@
       </div>
     `;
 
-    // Async: fetch memory insights for yield stat
-    fetch('/api/memory/insights')
-      .then(r => r.ok ? r.json() : null)
-      .then(insights => {
-        const el = document.getElementById('dash-yield-value');
-        if (el && insights && insights.reference_rate != null) {
-          const pct = Math.round(insights.reference_rate * 100);
-          const cls = pct >= 50 ? 'strong' : pct >= 20 ? '' : 'weak';
-          el.className = 'dash-yield ' + cls;
-          el.textContent = pct + '%';
-        }
-      }).catch(() => {});
-
     // Async: fetch recent notes if cache is empty
     if (state.notesCache.length === 0) {
       fetch('/api/notes?sort=date&limit=5')
@@ -2053,7 +2036,6 @@
     notes: [],
     tags: [],
     machines: [],
-    insights: null,
     total: 0,
     offset: 0,
     pageSize: 50,
@@ -2067,20 +2049,16 @@
     expandedIdx: null,
     actionBusy: false,
     loaded: false,
-    reviewMode: false,
   };
 
   async function loadNotes() {
     const archivedParam = encodeURIComponent(notesState.archived || 'exclude');
-    // Fetch tags, machines, and memory insights in parallel
-    const [tagsData, machinesData, insightsData] = await Promise.all([
+    const [tagsData, machinesData] = await Promise.all([
       apiFetch('/api/notes/tags?archived=' + archivedParam),
       apiFetch('/api/machines'),
-      apiFetch('/api/memory/insights'),
     ]);
     notesState.tags = Array.isArray(tagsData && tagsData.tags) ? tagsData.tags : [];
     notesState.machines = Array.isArray(machinesData && machinesData.machines) ? machinesData.machines : [];
-    notesState.insights = (insightsData && typeof insightsData === 'object') ? insightsData : null;
     notesState.fetchError = false;
 
     // Fetch first page of notes
@@ -2219,7 +2197,6 @@
 
   function renderNotesPage(container) {
     const ns = notesState;
-    const mi = ns.insights;
     const status = state.statusCache || null;
     const daemonEnabled = status && typeof status.daemon_enabled === 'boolean'
       ? status.daemon_enabled
@@ -2259,7 +2236,6 @@
         const visibleTags = (note.tags || []).slice(0, 4);
         const overflowCount = (note.tags || []).length - 4;
         const shouldNotTry = Array.isArray(note.should_not_try) ? note.should_not_try : [];
-        const conflicts = Array.isArray(note.conflicts_with) ? note.conflicts_with : [];
         const pinAction = note.pinned ? 'unpin' : 'pin';
         const pinLabel = note.pinned ? 'Unpin' : 'Pin';
         const archiveAction = note.archived ? 'restore' : 'archive';
@@ -2268,8 +2244,7 @@
           (note.pinned ? '<span class="note-review-chip pinned" title="Pinned notes receive extra retrieval weight.">Pinned</span>' : '') +
           (note.archived ? '<span class="note-review-chip archived" title="Archived notes are excluded by default.">Archived</span>' : '') +
           (overflowCount > 0 ? `<span class="note-tag">+${overflowCount}</span>` : '') +
-          (shouldNotTry.length > 0 ? `<span class="note-antiforce-chip" title="Approaches marked as failed or unhelpful.">Avoid ${shouldNotTry.length}</span>` : '') +
-          (conflicts.length > 0 ? `<span class="note-conflict-chip" title="This note may conflict with other notes.">Conflicts ${conflicts.length}</span>` : '');
+          (shouldNotTry.length > 0 ? `<span class="note-antiforce-chip" title="Approaches marked as failed or unhelpful.">Avoid ${shouldNotTry.length}</span>` : '');
 
         const date = note.date ? new Date(note.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
         const msgCount = note.message_count ? `${note.message_count} msgs` : '';
@@ -2297,15 +2272,6 @@
           </div>
         ` : '';
 
-        const conflictsHtml = conflicts.length > 0 ? `
-          <div class="note-card-conflicts">
-            <div class="note-card-conflicts-label">Conflicts with</div>
-            <div class="note-card-conflicts-list">
-              ${conflicts.map(ref => `<span class="note-card-conflict-ref">${esc(ref)}</span>`).join('')}
-            </div>
-          </div>
-        ` : '';
-
         const actionsHtml = `
           <div class="note-card-actions">
             <button type="button" class="note-action-btn ${note.pinned ? 'active' : ''}" data-note-idx="${idx}" data-action="${pinAction}">${pinLabel}</button>
@@ -2330,7 +2296,6 @@
             <div class="note-card-body">
               ${actionsHtml}
               ${shouldNotTryHtml}
-              ${conflictsHtml}
               <div class="note-card-content">${markdownToHtml(note.content || 'No content')}</div>
               ${metaFooter ? `<div class="note-card-meta-footer">${metaFooter}</div>` : ''}
             </div>
@@ -2413,86 +2378,6 @@
       `;
     }
 
-    // Build insights panel for review mode
-    let insightsPanelHtml = '';
-    let hasInsights = false;
-    if (mi && typeof mi === 'object') {
-      const tracked = Number(mi.tracked_notes || 0);
-      const loaded = Number(mi.total_loaded || 0);
-      const referenced = Number(mi.total_referenced || 0);
-      const refRate = Math.max(0, Math.min(100, Math.round(Number(mi.reference_rate || 0) * 100)));
-
-      if (tracked > 0) {
-        hasInsights = true;
-        const top = Array.isArray(mi.top_referenced) ? mi.top_referenced : [];
-        const low = Array.isArray(mi.high_load_low_reference) ? mi.high_load_low_reference : [];
-        const suggestions = Array.isArray(mi.suggestions) ? mi.suggestions : [];
-        const topRows = top.map((r) => {
-          const session = String(r.session || '').trim();
-          const active = session && ns.session.toLowerCase() === session.toLowerCase() ? ' active' : '';
-          return `
-            <button type="button" class="memory-insights-row-btn${active}" data-session="${esc(session)}">
-              <span class="memory-insights-session">${esc(session || 'unknown')}</span>
-              <span class="memory-insights-row-meta">${Number(r.referenced || 0)} / ${Number(r.loaded || 0)} refs</span>
-            </button>
-          `;
-        }).join('');
-        const lowRows = low.map((r) => {
-          const session = String(r.session || '').trim();
-          const active = session && ns.session.toLowerCase() === session.toLowerCase() ? ' active' : '';
-          return `
-            <button type="button" class="memory-insights-row-btn${active}" data-session="${esc(session)}">
-              <span class="memory-insights-session">${esc(session || 'unknown')}</span>
-              <span class="memory-insights-row-meta">${Number(r.loaded || 0)} loads, ${Math.round(Number(r.reference_rate || 0) * 100)}% yield</span>
-            </button>
-          `;
-        }).join('');
-
-        insightsPanelHtml = `
-          <div class="memory-insights-panel" id="memory-insights-panel">
-            <div class="memory-insights-panel-header">
-              <h3>Memory Effectiveness</h3>
-              <button type="button" class="memory-insights-close" id="memory-insights-close" title="Close">&times;</button>
-            </div>
-            <div class="memory-insights-sub">How often loaded notes are referenced later. Click a row to filter notes by session.</div>
-            <div class="memory-insights-metrics">
-              <div class="memory-insights-metric">
-                <span class="memory-insights-value">${loaded}</span>
-                <span class="memory-insights-label">Loads</span>
-              </div>
-              <div class="memory-insights-metric">
-                <span class="memory-insights-value">${referenced}</span>
-                <span class="memory-insights-label">References</span>
-              </div>
-              <div class="memory-insights-metric">
-                <span class="memory-insights-value">${refRate}%</span>
-                <span class="memory-insights-label">Yield</span>
-              </div>
-            </div>
-            <div class="memory-insights-columns">
-              <div class="memory-insights-column">
-                <h4>Top referenced</h4>
-                ${topRows || '<p class="memory-insights-empty">No reference activity yet.</p>'}
-              </div>
-              <div class="memory-insights-column">
-                <h4>High load, low yield</h4>
-                ${lowRows || '<p class="memory-insights-empty">No low-yield notes detected.</p>'}
-              </div>
-            </div>
-            ${suggestions.length ? `
-              <div class="memory-insights-suggestions">
-                ${suggestions.slice(0, 2).map(s => `<p>${esc(s)}</p>`).join('')}
-              </div>
-            ` : ''}
-          </div>
-        `;
-      }
-    }
-
-    const reviewBtnHtml = hasInsights
-      ? `<button type="button" class="notes-review-btn" id="notes-review-btn">${ns.reviewMode ? 'Close' : 'Tune Memory'}</button>`
-      : '';
-
     const sessionFilterHtml = ns.session ? `
       <div class="notes-active-filters">
         <button type="button" class="notes-filter-pill" id="notes-session-filter-clear" title="Clear session filter">
@@ -2536,29 +2421,18 @@
             <select class="notes-tag-filter" id="notes-tag-filter">${tagOptions}</select>
           </div>
           <span class="notes-count">${ns.total} note${ns.total !== 1 ? 's' : ''}</span>
-          ${reviewBtnHtml}
           ${resetFiltersHtml}
         </div>
         ${sessionFilterHtml}
-        ${ns.reviewMode ? `
-        <div class="notes-review-split">
-          <div class="notes-review-list">
-            <div class="notes-list">${notesHtml}</div>
-            ${loadMoreHtml}
-          </div>
-          ${insightsPanelHtml}
-        </div>
-        ` : `
         <div class="notes-list">
           ${notesHtml}
         </div>
         ${loadMoreHtml}
-        `}
       </div>
     `;
 
     container.innerHTML = `
-      <div class="notes-page ${ns.reviewMode ? 'review-mode' : ''}">
+      <div class="notes-page">
         ${notesContentHtml}
       </div>
     `;
@@ -2591,25 +2465,6 @@
 
     bindAll(container, '.notes-device-tab', 'click', (_event, tab) => {
       ns.machine = tab.dataset.machine;
-      ns.expandedIdx = null;
-      refreshNotes();
-    });
-
-    bindById('notes-review-btn', 'click', () => {
-      ns.reviewMode = !ns.reviewMode;
-      renderNotesPage(container);
-    });
-
-    bindById('memory-insights-close', 'click', () => {
-      ns.reviewMode = false;
-      renderNotesPage(container);
-    });
-
-    bindAll(container, '.memory-insights-row-btn', 'click', (event, btn) => {
-      event.stopPropagation();
-      const session = String(btn.dataset.session || '').trim();
-      if (!session) return;
-      ns.session = ns.session.toLowerCase() === session.toLowerCase() ? '' : session;
       ns.expandedIdx = null;
       refreshNotes();
     });

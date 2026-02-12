@@ -27,8 +27,6 @@ class DataIntegrityTests(unittest.TestCase):
         self.files_dir = self.data_dir / "files"
         self.config_path = self.data_dir / "config.json"
         self.audit_log_path = self.data_dir / "audit.log"
-        self.note_usage_path = self.data_dir / "note_usage.json"
-
         self._orig = {
             "storage.data": server_storage.DATA_DIR,
             "storage.seeds": server_storage.SEEDS_DIR,
@@ -43,7 +41,6 @@ class DataIntegrityTests(unittest.TestCase):
             "api.sessions": server_api.SESSIONS_DIR,
             "api.files": server_api.FILES_DIR,
             "api.config": server_api.CONFIG_PATH,
-            "api.note_usage": server_api.NOTE_USAGE_PATH,
         }
 
         server_storage.DATA_DIR = self.data_dir
@@ -60,8 +57,6 @@ class DataIntegrityTests(unittest.TestCase):
         server_api.SESSIONS_DIR = self.sessions_dir
         server_api.FILES_DIR = self.files_dir
         server_api.CONFIG_PATH = self.config_path
-        server_api.NOTE_USAGE_PATH = self.note_usage_path
-
         server_storage.ensure_dirs()
 
     def tearDown(self):
@@ -79,8 +74,6 @@ class DataIntegrityTests(unittest.TestCase):
         server_api.SESSIONS_DIR = self._orig["api.sessions"]
         server_api.FILES_DIR = self._orig["api.files"]
         server_api.CONFIG_PATH = self._orig["api.config"]
-        server_api.NOTE_USAGE_PATH = self._orig["api.note_usage"]
-
         self.temp.cleanup()
 
     def _make_import_handler(self, payload: bytes, token: str = "IMPORT"):

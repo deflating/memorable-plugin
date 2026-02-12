@@ -72,11 +72,6 @@ class ServerHttpBodyValidationTests(unittest.TestCase):
         self.assertEqual(413, status)
         self.assertEqual("UPLOAD_TOO_LARGE", payload["error"]["code"])
 
-    def test_memory_insights_route_returns_200(self):
-        status, payload = self._get_json("/api/memory/insights")
-        self.assertEqual(200, status)
-        self.assertIn("tracked_notes", payload)
-
     def test_metrics_route_returns_200(self):
         status, payload = self._get_json("/api/metrics")
         self.assertEqual(200, status)

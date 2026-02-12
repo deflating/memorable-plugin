@@ -12,7 +12,6 @@ if str(HOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(HOOKS_DIR))
 
 import session_start  # noqa: E402
-import user_prompt  # noqa: E402
 
 
 class SessionStartArchiveTests(unittest.TestCase):
@@ -81,71 +80,6 @@ class SessionStartArchiveTests(unittest.TestCase):
             self.assertEqual(original_content, notes_file.read_text(encoding="utf-8"))
             self.assertFalse((notes_file.with_suffix(".jsonl.tmp")).exists())
             self.assertFalse((notes_file.with_suffix(".jsonl.rollback.tmp")).exists())
-
-
-class UserPromptTrackingTests(unittest.TestCase):
-    def setUp(self):
-        self.orig_note_usage_path = user_prompt.NOTE_USAGE_PATH
-        self.orig_loaded_notes_path = user_prompt.CURRENT_LOADED_NOTES_PATH
-        self.orig_utc_now_iso = user_prompt._utc_now_iso
-
-    def tearDown(self):
-        user_prompt.NOTE_USAGE_PATH = self.orig_note_usage_path
-        user_prompt.CURRENT_LOADED_NOTES_PATH = self.orig_loaded_notes_path
-        user_prompt._utc_now_iso = self.orig_utc_now_iso
-
-    def test_track_reference_effectiveness_updates_matching_notes(self):
-        with tempfile.TemporaryDirectory() as td:
-            td_path = Path(td)
-            usage_path = td_path / "note_usage.json"
-            loaded_path = td_path / "current_loaded_notes.json"
-
-            loaded_payload = {
-                "notes": [
-                    {
-                        "key": "note-1",
-                        "session": "abc123def",
-                        "session_short": "abc123",
-                        "tags": ["parser bug", "shipping"],
-                    },
-                    {
-                        "key": "note-2",
-                        "session": "zzz999",
-                        "session_short": "zzz999",
-                        "tags": ["unrelated topic"],
-                    },
-                ]
-            }
-            loaded_path.write_text(json.dumps(loaded_payload), encoding="utf-8")
-            usage_path.write_text(
-                json.dumps(
-                    {
-                        "notes": {
-                            "note-1": {
-                                "loaded_count": 4,
-                                "referenced_count": 1,
-                                "first_loaded": "2026-01-01T00:00:00Z",
-                            }
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            user_prompt.CURRENT_LOADED_NOTES_PATH = loaded_path
-            user_prompt.NOTE_USAGE_PATH = usage_path
-            user_prompt._utc_now_iso = lambda: "2026-02-11T12:00:00+00:00"
-
-            payload = {"prompt": "Please fix the parser bug before ship today."}
-            user_prompt._track_reference_effectiveness(payload)
-
-            usage = json.loads(usage_path.read_text(encoding="utf-8"))
-            self.assertEqual(2, usage["notes"]["note-1"]["referenced_count"])
-            self.assertEqual(
-                "2026-02-11T12:00:00+00:00", usage["notes"]["note-1"]["last_referenced"]
-            )
-            self.assertEqual("abc123def", usage["notes"]["note-1"]["session"])
-            self.assertNotIn("note-2", usage["notes"])
 
 
 class SessionStartSelectionTests(unittest.TestCase):

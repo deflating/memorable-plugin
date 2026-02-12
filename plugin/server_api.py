@@ -58,7 +58,6 @@ IMPORT_CONFIRM_TOKEN = "IMPORT"
 MAX_IMPORT_SIZE = 100 * 1024 * 1024
 MAX_IMPORT_FILES = 5000
 MAX_IMPORT_UNCOMPRESSED = 300 * 1024 * 1024
-NOTE_USAGE_PATH = DATA_DIR / "note_usage.json"
 RELIABILITY_METRICS_PATH = DATA_DIR / "reliability_metrics.json"
 NOTE_SALIENCE_STEP = 0.25
 NOTE_SALIENCE_MIN = 0.0
@@ -253,7 +252,6 @@ def clean_note_object(obj: dict) -> dict:
         "note": str(obj.get("note", "")),
         "topic_tags": clean_string_list(obj.get("topic_tags", [])),
         "should_not_try": clean_string_list(obj.get("should_not_try", [])),
-        "conflicts_with": clean_string_list(obj.get("conflicts_with", [])),
         "message_count": obj.get("message_count", 0),
         "salience": note_salience_value(obj.get("salience", 0.0)),
         "pinned": note_flag_value(obj.get("pinned", False)),
@@ -305,7 +303,6 @@ def normalize_note(obj: dict, note_id: str = "") -> dict:
 
     should_not_try = obj.get("should_not_try", [])
     tags = obj.get("topic_tags", [])
-    conflicts_with = obj.get("conflicts_with", [])
 
     return {
         "id": note_id,
@@ -320,128 +317,7 @@ def normalize_note(obj: dict, note_id: str = "") -> dict:
         "pinned": obj.get("pinned", False),
         "archived": obj.get("archived", False),
         "should_not_try": should_not_try,
-        "conflicts_with": conflicts_with,
     }
-
-
-_TOOL_POSITIVE_RE = re.compile(
-    r"\b(?:use|using|uses|used|adopted|switched to|migrated to|moved to|replaced with)\s+([a-z0-9][a-z0-9._+-]{1,30})\b",
-    re.IGNORECASE,
-)
-_TOOL_NEGATIVE_RE = re.compile(
-    r"\b(?:no longer use|stopped using|don't use|do not use|avoid)\s+([a-z0-9][a-z0-9._+-]{1,30})\b",
-    re.IGNORECASE,
-)
-_TOOL_TRANSITION_RE = re.compile(
-    r"\b(?:switched to|migrated to|moved to|replaced)\b",
-    re.IGNORECASE,
-)
-_TOOL_STOPWORDS = {
-    "the", "and", "with", "that", "this", "from", "into", "tool", "stack",
-    "framework", "library", "system", "project", "code", "new", "old",
-}
-
-
-def session_ref(note: dict) -> str:
-    session = str(note.get("session", "")).strip()
-    if session:
-        return session[:8]
-    date = str(note.get("date", "")).strip()
-    return date[:10] if date else "unknown"
-
-
-def extract_tool_signals(text: str) -> dict:
-    if not isinstance(text, str):
-        text = str(text)
-
-    positive = []
-    for m in _TOOL_POSITIVE_RE.finditer(text):
-        tok = m.group(1).lower().strip()
-        if tok and tok not in _TOOL_STOPWORDS:
-            positive.append(tok)
-
-    negative = {
-        m.group(1).lower().strip()
-        for m in _TOOL_NEGATIVE_RE.finditer(text)
-        if m.group(1).lower().strip() and m.group(1).lower().strip() not in _TOOL_STOPWORDS
-    }
-
-    return {
-        "positive": set(positive),
-        "negative": negative,
-        "primary": positive[0] if positive else "",
-        "transition": bool(_TOOL_TRANSITION_RE.search(text)),
-    }
-
-
-def signals_conflict(a: dict, b: dict) -> bool:
-    if (a["negative"] & b["positive"]) or (b["negative"] & a["positive"]):
-        return True
-
-    a_primary = a.get("primary", "")
-    b_primary = b.get("primary", "")
-    if (
-        a_primary
-        and b_primary
-        and a_primary != b_primary
-        and (a.get("transition") or b.get("transition"))
-    ):
-        return True
-
-    return False
-
-
-def annotate_conflicts(notes: list[dict]) -> list[dict]:
-    if not notes:
-        return notes
-
-    for n in notes:
-        existing = n.get("conflicts_with", [])
-        if not isinstance(existing, list):
-            existing = []
-        n["conflicts_with"] = {str(x).strip() for x in existing if str(x).strip()}
-
-    tag_to_indices: dict[str, list[int]] = {}
-    for idx, note in enumerate(notes):
-        tags = note.get("tags", [])
-        if not isinstance(tags, list):
-            continue
-        for tag in tags:
-            t = str(tag).strip().lower()
-            if not t:
-                continue
-            tag_to_indices.setdefault(t, []).append(idx)
-
-    candidate_pairs: set[tuple[int, int]] = set()
-    for indices in tag_to_indices.values():
-        if len(indices) < 2:
-            continue
-        ordered = sorted(set(indices))
-        for i in range(len(ordered)):
-            for j in range(i + 1, len(ordered)):
-                candidate_pairs.add((ordered[i], ordered[j]))
-
-    signals_cache = {
-        i: extract_tool_signals(notes[i].get("content", ""))
-        for i in range(len(notes))
-    }
-
-    for i, j in candidate_pairs:
-        a = notes[i]
-        b = notes[j]
-        # Require at least one reasonably salient note in the pair.
-        if max(a.get("salience", 0), b.get("salience", 0)) < 1.0:
-            continue
-        if not signals_conflict(signals_cache[i], signals_cache[j]):
-            continue
-
-        a["conflicts_with"].add(session_ref(b))
-        b["conflicts_with"].add(session_ref(a))
-
-    for n in notes:
-        n["conflicts_with"] = sorted(n["conflicts_with"])
-
-    return notes
 
 
 def load_all_notes(include_archived: bool = True) -> list[dict]:
@@ -456,7 +332,7 @@ def load_all_notes(include_archived: bool = True) -> list[dict]:
         if not include_archived and normalized.get("archived"):
             continue
         notes.append(normalized)
-    return annotate_conflicts(notes)
+    return notes
 
 
 def handle_get_notes(query_params: dict):
@@ -494,13 +370,11 @@ def handle_get_notes(query_params: dict):
             text = n.get("content", "")
             tag_str = " ".join(n.get("tags", []))
             anti_str = " ".join(n.get("should_not_try", []))
-            conflicts_str = " ".join(n.get("conflicts_with", []))
             session_ref = str(n.get("session", ""))
             if (
                 search_lower in text.lower()
                 or search_lower in tag_str.lower()
                 or search_lower in anti_str.lower()
-                or search_lower in conflicts_str.lower()
                 or search_lower in session_ref.lower()
             ):
                 filtered.append(n)
@@ -1442,99 +1316,6 @@ def handle_get_metrics():
         },
     }
 
-
-def handle_get_memory_insights():
-    """GET /api/memory/insights — summarize note load/reference effectiveness."""
-    usage_notes = {}
-    if NOTE_USAGE_PATH.exists():
-        try:
-            raw = json.loads(NOTE_USAGE_PATH.read_text(encoding="utf-8"))
-            if isinstance(raw, dict) and isinstance(raw.get("notes"), dict):
-                usage_notes = raw.get("notes", {})
-        except Exception:
-            usage_notes = {}
-
-    rows = []
-    total_loaded = 0
-    total_referenced = 0
-
-    for key, rec in usage_notes.items():
-        if not isinstance(rec, dict):
-            continue
-        try:
-            loaded = int(rec.get("loaded_count", 0))
-        except (TypeError, ValueError):
-            loaded = 0
-        try:
-            referenced = int(rec.get("referenced_count", 0))
-        except (TypeError, ValueError):
-            referenced = 0
-
-        loaded = max(0, loaded)
-        referenced = max(0, referenced)
-        total_loaded += loaded
-        total_referenced += referenced
-
-        short = str(rec.get("session_short", "")).strip()
-        if not short:
-            short = str(rec.get("session", "")).strip()[:8]
-        if not short:
-            short = str(key).strip()[:8] or "unknown"
-
-        ratio = 0.0 if loaded <= 0 else referenced / float(loaded)
-        rows.append(
-            {
-                "key": str(key),
-                "session": short,
-                "loaded": loaded,
-                "referenced": referenced,
-                "reference_rate": round(ratio, 4),
-            }
-        )
-
-    rows.sort(
-        key=lambda r: (
-            r["referenced"],
-            r["reference_rate"],
-            r["loaded"],
-        ),
-        reverse=True,
-    )
-
-    low_eff_rows = [
-        r for r in rows
-        if r["loaded"] >= 3 and r["reference_rate"] < 0.2
-    ]
-    low_eff_rows.sort(key=lambda r: (r["loaded"], -r["reference_rate"]), reverse=True)
-
-    never_ref_count = sum(1 for r in rows if r["loaded"] >= 3 and r["referenced"] == 0)
-    reference_rate = 0.0 if total_loaded <= 0 else total_referenced / float(total_loaded)
-
-    suggestions = []
-    if not rows:
-        suggestions.append("No effectiveness data yet. Run a few sessions to collect baseline usage.")
-    if never_ref_count > 0:
-        suggestions.append(
-            f"{never_ref_count} frequently loaded note(s) were never referenced. Consider lowering their salience or archiving."
-        )
-    if low_eff_rows:
-        suggestions.append(
-            "Some notes have low reference yield relative to load count. Consider refining tags or summaries."
-        )
-    if reference_rate >= 0.6 and total_loaded >= 10:
-        suggestions.append("Memory reference yield is strong. Keep current note selection strategy.")
-
-    return 200, {
-        "tracked_notes": len(rows),
-        "total_loaded": total_loaded,
-        "total_referenced": total_referenced,
-        "reference_rate": round(reference_rate, 4),
-        "never_referenced_count": never_ref_count,
-        "low_effectiveness_count": len(low_eff_rows),
-        "top_referenced": rows[:5],
-        "high_load_low_reference": low_eff_rows[:5],
-        "suggestions": suggestions,
-    }
 
 
 def handle_get_health():

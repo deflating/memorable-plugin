@@ -29,8 +29,6 @@ class EndToEndSmokeTests(unittest.TestCase):
         self.files_dir = self.data_dir / "files"
         self.config_path = self.data_dir / "config.json"
         self.audit_log_path = self.data_dir / "audit.log"
-        self.note_usage_path = self.data_dir / "note_usage.json"
-
         self._orig_values = {
             "server_storage.DATA_DIR": server_storage.DATA_DIR,
             "server_storage.SEEDS_DIR": server_storage.SEEDS_DIR,
@@ -45,7 +43,6 @@ class EndToEndSmokeTests(unittest.TestCase):
             "server_api.SESSIONS_DIR": server_api.SESSIONS_DIR,
             "server_api.FILES_DIR": server_api.FILES_DIR,
             "server_api.CONFIG_PATH": server_api.CONFIG_PATH,
-            "server_api.NOTE_USAGE_PATH": server_api.NOTE_USAGE_PATH,
             "server_http.DATA_DIR": server_http.DATA_DIR,
             "server_http.FILES_DIR": server_http.FILES_DIR,
         }
@@ -64,8 +61,6 @@ class EndToEndSmokeTests(unittest.TestCase):
         server_api.SESSIONS_DIR = self.sessions_dir
         server_api.FILES_DIR = self.files_dir
         server_api.CONFIG_PATH = self.config_path
-        server_api.NOTE_USAGE_PATH = self.note_usage_path
-
         server_http.DATA_DIR = self.data_dir
         server_http.FILES_DIR = self.files_dir
 
@@ -98,8 +93,6 @@ class EndToEndSmokeTests(unittest.TestCase):
         server_api.SESSIONS_DIR = self._orig_values["server_api.SESSIONS_DIR"]
         server_api.FILES_DIR = self._orig_values["server_api.FILES_DIR"]
         server_api.CONFIG_PATH = self._orig_values["server_api.CONFIG_PATH"]
-        server_api.NOTE_USAGE_PATH = self._orig_values["server_api.NOTE_USAGE_PATH"]
-
         server_http.DATA_DIR = self._orig_values["server_http.DATA_DIR"]
         server_http.FILES_DIR = self._orig_values["server_http.FILES_DIR"]
 
@@ -199,10 +192,6 @@ class EndToEndSmokeTests(unittest.TestCase):
         status, machines = self._request_json("GET", "/api/machines")
         self.assertEqual(200, status)
         self.assertEqual([], machines["machines"])
-
-        status, insights = self._request_json("GET", "/api/memory/insights")
-        self.assertEqual(200, status)
-        self.assertEqual(0, insights["tracked_notes"])
 
         status, budget = self._request_json("GET", "/api/budget")
         self.assertEqual(200, status)

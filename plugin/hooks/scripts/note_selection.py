@@ -10,9 +10,6 @@ from pathlib import Path
 
 BASE_DIR = Path.home() / ".memorable"
 DATA_DIR = BASE_DIR / "data"
-NOTE_USAGE_PATH = DATA_DIR / "note_usage.json"
-CURRENT_LOADED_NOTES_PATH = DATA_DIR / "current_loaded_notes.json"
-
 DECAY_FACTOR = 0.97
 MIN_SALIENCE = 0.05
 MAX_SALIENT_NOTES = 8
@@ -155,93 +152,6 @@ def note_key(entry: dict) -> str:
     return f"{ts}|{digest}"
 
 
-def load_note_usage() -> dict:
-    try:
-        if NOTE_USAGE_PATH.exists():
-            data = json.loads(NOTE_USAGE_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and isinstance(data.get("notes"), dict):
-                return data
-    except Exception:
-        pass
-    return {"notes": {}}
-
-
-def save_note_usage(data: dict):
-    try:
-        NOTE_USAGE_PATH.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    except Exception:
-        pass
-
-
-def reference_effectiveness_multiplier(entry: dict, usage_notes: dict) -> float:
-    rec = usage_notes.get(note_key(entry))
-    if not isinstance(rec, dict):
-        return 1.0
-
-    try:
-        loaded = int(rec.get("loaded_count", 0))
-    except (TypeError, ValueError):
-        loaded = 0
-    try:
-        referenced = int(rec.get("referenced_count", 0))
-    except (TypeError, ValueError):
-        referenced = 0
-
-    if loaded < 3:
-        return 1.0
-
-    ratio = 0.0 if loaded <= 0 else max(0.0, min(1.0, referenced / float(loaded)))
-    return 0.85 + (0.4 * ratio)
-
-
-def track_loaded_note(usage_notes: dict, entry: dict, now_iso: str) -> dict:
-    key = note_key(entry)
-    session = str(entry.get("session", "")).strip()
-    tags = clean_note_tags(entry.get("topic_tags", []))
-    rec = usage_notes.setdefault(
-        key,
-        {"loaded_count": 0, "referenced_count": 0, "first_loaded": now_iso},
-    )
-    rec["loaded_count"] = int(rec.get("loaded_count", 0)) + 1
-    rec["last_loaded"] = now_iso
-    rec["session"] = session
-    rec["session_short"] = session[:8]
-    rec["tags"] = tags
-    rec["timestamp"] = note_timestamp(entry)
-    return {"key": key, "session": session, "session_short": session[:8], "tags": tags}
-
-
-def write_current_loaded_notes(now_iso: str, by_key: dict):
-    try:
-        CURRENT_LOADED_NOTES_PATH.write_text(
-            json.dumps(
-                {
-                    "updated_at": now_iso,
-                    "notes": list(by_key.values()),
-                },
-                indent=2,
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
-    except Exception:
-        pass
-
-
-def record_loaded_notes(selected_entries: list[dict], usage_data: dict):
-    usage_notes = usage_data.setdefault("notes", {})
-    now_iso = utc_now_iso()
-    by_key = {}
-    for entry in selected_entries:
-        note_meta = track_loaded_note(usage_notes, entry, now_iso)
-        by_key[note_meta["key"]] = note_meta
-    save_note_usage(usage_data)
-    write_current_loaded_notes(now_iso, by_key)
-
-
 def effective_salience(entry: dict, usage_notes: dict | None = None) -> float:
     if bool(entry.get("archived", False)):
         return MIN_SALIENCE
@@ -256,10 +166,9 @@ def effective_salience(entry: dict, usage_notes: dict | None = None) -> float:
     density_mult = information_density_multiplier(entry)
     actionability_mult = actionability_multiplier(entry)
     context_mult = time_machine_context_multiplier(entry)
-    reference_mult = reference_effectiveness_multiplier(entry, usage_notes or {})
     return max(
         MIN_SALIENCE,
-        base * density_mult * actionability_mult * context_mult * reference_mult,
+        base * density_mult * actionability_mult * context_mult,
     )
 
 
@@ -280,16 +189,13 @@ def score_entries(entries: list[dict], usage_notes: dict) -> list[tuple[float, d
 def select_notes(entries: list[dict]) -> list[tuple[float, dict]]:
     if not entries:
         return []
-    usage_data = load_note_usage()
-    usage_notes = usage_data.get("notes", {})
     recent, remaining = split_recent_and_remaining(entries)
-    scored_remaining = score_entries(remaining, usage_notes)
+    scored_remaining = score_entries(remaining, {})
     budget = MAX_SALIENT_NOTES - len(recent)
     top_by_salience = scored_remaining[:budget]
-    result = score_entries(recent, usage_notes)
+    result = score_entries(recent, {})
     result.extend(top_by_salience)
     result.sort(key=lambda item: item[0], reverse=True)
-    record_loaded_notes([entry for _, entry in result], usage_data)
     return result
 
 
