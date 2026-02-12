@@ -136,6 +136,111 @@ class SessionStartSelectionTests(unittest.TestCase):
             self.assertEqual(4, len(seed_paths))
             self.assertTrue(any(path.endswith("knowledge.md") for path in seed_paths))
 
+    def test_build_context_plan_deescalates_low_relevance_when_budget_tight(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            seeds_dir = root / "seeds"
+            files_dir = root / "files"
+            data_dir = root / "data"
+            seeds_dir.mkdir(parents=True, exist_ok=True)
+            files_dir.mkdir(parents=True, exist_ok=True)
+            data_dir.mkdir(parents=True, exist_ok=True)
+
+            for name in ("user.md", "agent.md", "now.md"):
+                (seeds_dir / name).write_text(f"# {name}\n", encoding="utf-8")
+
+            for filename in ("high.md", "low.md"):
+                (files_dir / filename).write_text("# Title\n\nBody", encoding="utf-8")
+                (files_dir / f"{filename}.anchored").write_text(
+                    "⚓0️⃣ tags\nsummary ⚓\n⚓1️⃣ one ⚓\n⚓2️⃣ two ⚓\n⚓3️⃣ three ⚓\n",
+                    encoding="utf-8",
+                )
+                (files_dir / f"{filename}.anchored.meta.json").write_text(
+                    json.dumps(
+                        {
+                            "levels": {
+                                "0": {"tokens": 20},
+                                "1": {"tokens": 60},
+                                "2": {"tokens": 120},
+                                "3": {"tokens": 240},
+                                "full": {"tokens": 320},
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            config = {
+                "token_budget": 300,
+                "context_files": [
+                    {"filename": "high.md", "depth": 3, "enabled": True},
+                    {"filename": "low.md", "depth": 3, "enabled": True},
+                ],
+            }
+
+            with mock.patch.object(session_start, "SEEDS_DIR", seeds_dir), \
+                 mock.patch.object(session_start, "FILES_DIR", files_dir), \
+                 mock.patch.object(session_start, "DATA_DIR", data_dir), \
+                 mock.patch.object(session_start, "collect_relevance_tokens", return_value={"high"}):
+                plan = session_start.build_context_plan(config)
+
+            semantic_entries = [item for item in plan if item.get("type") == "semantic"]
+            by_file = {item["filename"]: item for item in semantic_entries}
+            self.assertEqual(3, by_file["high.md"]["depth"])
+            self.assertEqual(0, by_file["low.md"]["depth"])
+            self.assertEqual("deescalated_for_budget", by_file["low.md"]["reason"])
+
+    def test_build_context_plan_escalates_high_relevance_with_headroom(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            seeds_dir = root / "seeds"
+            files_dir = root / "files"
+            data_dir = root / "data"
+            seeds_dir.mkdir(parents=True, exist_ok=True)
+            files_dir.mkdir(parents=True, exist_ok=True)
+            data_dir.mkdir(parents=True, exist_ok=True)
+
+            for filename in ("high.md", "low.md"):
+                (files_dir / filename).write_text("# Title\n\nBody", encoding="utf-8")
+                (files_dir / f"{filename}.anchored").write_text(
+                    "⚓0️⃣ tags\nsummary ⚓\n⚓1️⃣ one ⚓\n⚓2️⃣ two ⚓\n⚓3️⃣ three ⚓\n",
+                    encoding="utf-8",
+                )
+                (files_dir / f"{filename}.anchored.meta.json").write_text(
+                    json.dumps(
+                        {
+                            "levels": {
+                                "0": {"tokens": 20},
+                                "1": {"tokens": 60},
+                                "2": {"tokens": 120},
+                                "3": {"tokens": 180},
+                                "full": {"tokens": 260},
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            config = {
+                "token_budget": 200,
+                "context_files": [
+                    {"filename": "high.md", "depth": 0, "enabled": True},
+                    {"filename": "low.md", "depth": 0, "enabled": True},
+                ],
+            }
+
+            with mock.patch.object(session_start, "SEEDS_DIR", seeds_dir), \
+                 mock.patch.object(session_start, "FILES_DIR", files_dir), \
+                 mock.patch.object(session_start, "DATA_DIR", data_dir), \
+                 mock.patch.object(session_start, "collect_relevance_tokens", return_value={"high"}):
+                plan = session_start.build_context_plan(config)
+
+            semantic_entries = [item for item in plan if item.get("type") == "semantic"]
+            by_file = {item["filename"]: item for item in semantic_entries}
+            self.assertEqual(3, by_file["high.md"]["depth"])
+            self.assertEqual(0, by_file["low.md"]["depth"])
+            self.assertEqual("escalated_for_relevance", by_file["high.md"]["reason"])
+
 
 class ContextualRetrievalTests(unittest.TestCase):
     def test_build_tag_cooccurrence_graph_tracks_pair_weights(self):
