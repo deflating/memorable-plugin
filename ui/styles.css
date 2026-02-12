@@ -309,6 +309,16 @@ p { color: var(--text-secondary); }
   flex-shrink: 0;
 }
 
+.top-nav-processing {
+  font-size: 0.72rem;
+  color: var(--nav-text-active);
+  background: rgba(194, 105, 79, 0.2);
+  border: 1px solid rgba(194, 105, 79, 0.45);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
 .top-nav-status {
   display: flex;
   align-items: center;

@@ -296,20 +296,8 @@ def build_context_plan(config: dict) -> list[dict]:
                 total_tokens -= current
             break
 
-    # Escalate higher relevance docs with remaining budget.
-    for candidate in sorted(candidates, key=lambda item: (-item["relevance"], item["filename"])):
-        while candidate["depth"] is not None and total_tokens < budget_remaining:
-            next_level = next_deeper_level(candidate["depth"], candidate["max_level"])
-            if next_level is None or next_level not in candidate["tokens_by_level"]:
-                break
-            current = candidate["tokens_by_level"].get(candidate["depth"], 0)
-            deepened = candidate["tokens_by_level"].get(next_level, current)
-            delta = max(0, deepened - current)
-            if total_tokens + delta > budget_remaining:
-                break
-            candidate["depth"] = next_level
-            candidate["reason"] = "escalated_for_relevance"
-            total_tokens += delta
+    # Do not auto-escalate above configured depth.
+    # User-selected depth acts as a hard cap; we only de-escalate for budget pressure.
 
     for candidate in candidates:
         selected_level = candidate.get("depth")

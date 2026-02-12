@@ -323,6 +323,9 @@
       deployedHash: "",       // hash-like fingerprint of deployed user+agent seeds
       deployedAt: "",         // local timestamp of most recent deploy action
     },
+    semanticProcessing: {
+      files: [],
+    },
   };
 
   // Keep a markdown cache to track manual edits
@@ -1610,6 +1613,42 @@
     texts.forEach((text) => {
       text.textContent = state.serverConnected ? 'Connected' : 'Offline';
     });
+    updateTopNavProcessing();
+  }
+
+  function updateTopNavProcessing() {
+    const el = document.getElementById('top-nav-processing');
+    if (!el) return;
+    const files = (
+      state.semanticProcessing
+      && Array.isArray(state.semanticProcessing.files)
+      ? state.semanticProcessing.files
+      : []
+    );
+    const count = files.length;
+    if (count <= 0) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    const noun = count === 1 ? 'document' : 'documents';
+    el.textContent = `Processing ${count} ${noun}…`;
+    el.hidden = false;
+  }
+
+  function setSemanticProcessing(filename, active) {
+    const safe = String(filename || '').trim();
+    if (!safe) return;
+    const current = (
+      state.semanticProcessing
+      && Array.isArray(state.semanticProcessing.files)
+      ? state.semanticProcessing.files
+      : []
+    );
+    const next = current.filter((name) => name !== safe);
+    if (active) next.push(safe);
+    state.semanticProcessing = { files: next };
+    updateTopNavProcessing();
   }
 
   // ---- Main Render (page router) ----
@@ -1619,6 +1658,7 @@
     renderPage();
     saveToLocalStorage();
     updateHistoryControls();
+    updateTopNavProcessing();
   }
 
   function renderPage() {
@@ -2923,17 +2963,29 @@
     bindAll(container, '.file-process-btn', 'click', async (e, btn) => {
       e.stopPropagation();
       const filename = btn.dataset.filename;
+      setSemanticProcessing(filename, true);
       await withPendingButton(btn, 'Processing...', async () => {
-        const outcome = await runMutationAction(
-          () => apiFetch(`/api/files/${encodeURIComponent(filename)}/process`, { method: 'POST' }),
-          {
-            isSuccess: (result) => !!result && result.status === 'ok',
-            successMessage: () => `Processed ${filename}`,
-            failureMessage: (result) => `Processing issue: ${(result && result.error) || 'unknown'}`,
-            errorMessage: (err) => `Processing failed: ${err.message}`,
+        try {
+          const outcome = await runMutationAction(
+            () => apiFetch(`/api/files/${encodeURIComponent(filename)}/process`, { method: 'POST' }),
+            {
+              isSuccess: (result) => !!result && result.status === 'ok',
+              successMessage: () => `Processed ${filename}`,
+              failureMessage: (result) => `Processing issue: ${(result && result.error) || 'unknown'}`,
+              errorMessage: (err) => `Processing failed: ${err.message}`,
+            }
+          );
+          if (
+            outcome.ok
+            && state.activePage === 'memories'
+            && state.memoriesSubTab === 'semantic'
+            && container.isConnected
+          ) {
+            await renderSemanticMemory(container);
           }
-        );
-        if (outcome.ok) await renderSemanticMemory(container);
+        } finally {
+          setSemanticProcessing(filename, false);
+        }
       });
     });
 

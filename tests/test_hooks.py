@@ -183,7 +183,7 @@ class SessionStartSelectionTests(unittest.TestCase):
             self.assertEqual(1, by_file["low.md"]["depth"])
             self.assertEqual("deescalated_for_budget", by_file["low.md"]["reason"])
 
-    def test_build_context_plan_escalates_high_relevance_with_headroom(self):
+    def test_build_context_plan_does_not_escalate_above_configured_depth(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             seeds_dir = root / "seeds"
@@ -222,9 +222,9 @@ class SessionStartSelectionTests(unittest.TestCase):
 
             semantic_entries = [item for item in plan if item.get("type") == "semantic"]
             by_file = {item["filename"]: item for item in semantic_entries}
-            self.assertEqual(3, by_file["high.md"]["depth"])
+            self.assertEqual(1, by_file["high.md"]["depth"])
             self.assertEqual(1, by_file["low.md"]["depth"])
-            self.assertEqual("escalated_for_relevance", by_file["high.md"]["reason"])
+            self.assertEqual("default_level", by_file["high.md"]["reason"])
 
 
 class ContextualRetrievalTests(unittest.TestCase):
