@@ -612,6 +612,10 @@
   // ---- Toast ----
   function showToast(message, type = '') {
     const el = document.getElementById('toast');
+    const isError = type === 'error';
+    el.setAttribute('role', isError ? 'alert' : 'status');
+    el.setAttribute('aria-live', isError ? 'assertive' : 'polite');
+    el.setAttribute('aria-atomic', 'true');
     el.textContent = message;
     el.className = 'toast' + (type ? ' ' + type : '');
     el.offsetHeight;
@@ -626,6 +630,10 @@
     document.querySelectorAll('.save-indicator').forEach(el => {
       clearTimeout(saveStateTimer);
       el.className = 'save-indicator save-state-' + newState;
+      const isError = newState === 'error';
+      el.setAttribute('role', isError ? 'alert' : 'status');
+      el.setAttribute('aria-live', isError ? 'assertive' : 'polite');
+      el.setAttribute('aria-atomic', 'true');
 
       if (newState === 'idle') {
         el.innerHTML = '<span class="dot"></span> Auto-save on';
@@ -1919,14 +1927,14 @@
         const date = note.date ? new Date(note.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
         const tags = (note.tags || []).slice(0, 3).map(t => `<span class="note-tag">${esc(t)}</span>`).join('');
         return `
-          <div class="dash-timeline-item" onclick="window.memorableApp.navigateTo('memories')">
+          <button type="button" class="dash-timeline-item" data-nav-page="memories">
             <span class="dash-timeline-date">${date}</span>
             <span class="dash-timeline-dot" style="background:${dotColor}"></span>
             <div class="dash-timeline-body">
               <span class="dash-timeline-text">${esc(note.summary || note.title || 'Untitled')}</span>
               ${tags ? `<div class="dash-timeline-tags">${tags}</div>` : ''}
             </div>
-          </div>
+          </button>
         `;
       }).join('');
 
@@ -2012,6 +2020,11 @@
         </div>
       </div>
     `;
+
+    bindAll(container, '.dash-timeline-item[data-nav-page]', 'click', (_event, btn) => {
+      const page = btn.dataset.navPage;
+      if (page) window.memorableApp.navigateTo(page);
+    });
 
     // Async: fetch recent notes if cache is empty
     if (state.notesCache.length === 0) {
@@ -2207,11 +2220,11 @@
     if (ns.machines.length > 1) {
       const allActive = ns.machine === '' ? ' active' : '';
       machineTabsHtml = `<div class="notes-device-tabs">
-        <span class="notes-device-tab${allActive}" data-machine="">All</span>
+        <button type="button" class="notes-device-tab${allActive}" data-machine="">All</button>
         ${ns.machines.map(m => {
           const short = m.split('.')[0];
           const active = ns.machine === m ? ' active' : '';
-          return `<span class="notes-device-tab${active}" data-machine="${esc(m)}">${esc(short)}</span>`;
+          return `<button type="button" class="notes-device-tab${active}" data-machine="${esc(m)}">${esc(short)}</button>`;
         }).join('')}
       </div>`;
     }
@@ -4023,22 +4036,24 @@
     return `
       <div class="section ${disabledClass} ${collapsedClass} ${materialityClass}" id="section-${id}">
         <div class="section-header">
-          <div class="section-header-left" onclick="window.seedApp.toggleSection('section-${id}')">
+          <button type="button" class="section-header-left" data-section-expand="section-${id}" aria-expanded="${state.collapsedSections[id] ? 'false' : 'true'}" aria-controls="section-body-${id}">
             <div class="section-icon ${colorClass}">${icon}</div>
             <div>
               <div class="section-title">${title}</div>
               <div class="section-subtitle">${subtitle}</div>
             </div>
-          </div>
+          </button>
           <div class="section-header-right">
-            <label class="section-toggle" onclick="event.stopPropagation()">
+            <label class="section-toggle">
               <input type="checkbox" ${enabled ? 'checked' : ''} data-section-toggle="${id}">
               <span class="section-toggle-track"></span>
             </label>
-            <span class="section-chevron" onclick="window.seedApp.toggleSection('section-${id}')">${ICON.chevDown}</span>
+            <button type="button" class="section-chevron-btn" data-section-expand="section-${id}" aria-expanded="${state.collapsedSections[id] ? 'false' : 'true'}" aria-controls="section-body-${id}">
+              <span class="section-chevron">${ICON.chevDown}</span>
+            </button>
           </div>
         </div>
-        <div class="section-body">
+        <div class="section-body" id="section-body-${id}">
           ${body}
         </div>
       </div>
@@ -4257,6 +4272,7 @@
     bindUserSpecificEvents(container);
     bindPresetEvents(container);
     bindSectionToggleEvents(container);
+    bindSectionExpandEvents(container);
     bindReorderEvents(container);
     applySectionFadeIn(container);
   }
@@ -4421,6 +4437,7 @@
     bindAgentSpecificEvents(container);
     bindPresetEvents(container);
     bindSectionToggleEvents(container);
+    bindSectionExpandEvents(container);
     bindReorderEvents(container);
     applySectionFadeIn(container);
   }
@@ -4618,6 +4635,13 @@
         renderPreview();
         debouncedSave();
       });
+    });
+  }
+
+  function bindSectionExpandEvents(container) {
+    bindAll(container, '[data-section-expand]', 'click', (_event, btn) => {
+      const sectionRef = btn.dataset.sectionExpand;
+      if (sectionRef) window.memorableApp.toggleSection(sectionRef);
     });
   }
 
@@ -5352,15 +5376,16 @@
   }
 
   // ---- Import Modal ----
-  function showImportModal() {
+  function showImportModal(triggerEl) {
     const modalContainer = document.getElementById('modal-container');
+    const returnFocusEl = triggerEl || document.activeElement;
     const fileType = state.activeFile;
     modalContainer.innerHTML = `
       <div class="modal-overlay" id="import-overlay">
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
           <div class="modal-header">
-            <h3>Import ${fileType}.md</h3>
-            <button class="btn btn-icon btn-ghost" id="import-close-btn" title="Close">${ICON.x}</button>
+            <h3 id="import-modal-title">Import ${fileType}.md</h3>
+            <button type="button" class="btn btn-icon btn-ghost" id="import-close-btn" title="Close" aria-label="Close import modal">${ICON.x}</button>
           </div>
           <div class="modal-body">
             <div class="import-tabs">
@@ -5371,11 +5396,11 @@
               <textarea id="import-paste-area" placeholder="Paste your existing ${fileType}.md content here..." rows="12"></textarea>
             </div>
             <div id="import-tab-upload" style="display:none;">
-              <div class="file-drop-zone" id="file-drop-zone">
-                <div class="file-drop-zone-icon">${ICON.upload}</div>
-                <p>Drop a .md file here, or click to browse</p>
-                <input type="file" id="import-file-input" accept=".md,.txt,.markdown">
-              </div>
+              <button type="button" class="file-drop-zone" id="file-drop-zone">
+                <span class="file-drop-zone-icon">${ICON.upload}</span>
+                <span class="file-drop-zone-text">Drop a .md file here, or click to browse</span>
+              </button>
+              <input type="file" id="import-file-input" accept=".md,.txt,.markdown">
             </div>
             <div class="import-preview" id="import-preview">
               <div class="import-preview-empty">Paste or upload markdown to preview what will change.</div>
@@ -5392,6 +5417,29 @@
     let activeTab = 'paste';
     const pasteArea = document.getElementById('import-paste-area');
     const preview = document.getElementById('import-preview');
+    const modalEl = modalContainer.querySelector('.modal');
+
+    function getFocusableModalElements() {
+      return Array.from(modalEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+        .filter((el) => !el.disabled && el.offsetParent !== null);
+    }
+
+    function onModalKeydown(event) {
+      if (event.key !== 'Tab') return;
+      const focusable = getFocusableModalElements();
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+      if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
 
     function renderPreviewList(titles, emptyText) {
       if (!titles.length) {
@@ -5496,12 +5544,18 @@
     updatePreview();
 
     // Close
-    const closeModal = () => { modalContainer.innerHTML = ''; };
+    const closeModal = () => {
+      modalContainer.removeEventListener('keydown', onModalKeydown);
+      modalContainer.innerHTML = '';
+      if (returnFocusEl && typeof returnFocusEl.focus === 'function') returnFocusEl.focus();
+    };
     document.getElementById('import-close-btn').addEventListener('click', closeModal);
     document.getElementById('import-cancel-btn').addEventListener('click', closeModal);
     document.getElementById('import-overlay').addEventListener('click', (e) => {
       if (e.target.id === 'import-overlay') closeModal();
     });
+    modalContainer.addEventListener('keydown', onModalKeydown);
+    pasteArea.focus();
 
     // Confirm import
     document.getElementById('import-confirm-btn').addEventListener('click', () => {
@@ -6047,7 +6101,11 @@
       if (el && !el.classList.contains('section-disabled')) {
         el.classList.toggle('collapsed');
         const sectionId = id.startsWith('section-') ? id.slice('section-'.length) : id;
-        state.collapsedSections[sectionId] = el.classList.contains('collapsed');
+        const collapsed = el.classList.contains('collapsed');
+        state.collapsedSections[sectionId] = collapsed;
+        el.querySelectorAll('[data-section-expand]').forEach((btn) => {
+          btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        });
         debouncedSave();
       }
     },
@@ -6063,7 +6121,7 @@
     },
 
     showImportModal() {
-      showImportModal();
+      showImportModal(document.activeElement);
     },
 
     retrySave() {
@@ -6295,9 +6353,10 @@
 
       // Escape: close modal if open
       if (e.key === 'Escape') {
-        const modalContainer = document.getElementById('modal-container');
-        if (modalContainer && modalContainer.innerHTML.trim()) {
-          modalContainer.innerHTML = '';
+        const closeBtn = document.getElementById('import-close-btn');
+        if (closeBtn) {
+          closeBtn.click();
+          return;
         }
       }
     });
