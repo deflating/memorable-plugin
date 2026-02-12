@@ -40,7 +40,9 @@ class InstallScriptTests(unittest.TestCase):
             self.assertIn("llm_routing", config)
             self.assertIn("claude_cli", config)
             self.assertIn("daemon", config)
+            self.assertIn("semantic_default_depth", config)
             self.assertIn("context_files", config)
+            self.assertEqual(1, config["semantic_default_depth"])
 
             plugin_link = home / ".memorable" / "plugin"
             self.assertTrue(plugin_link.is_symlink())

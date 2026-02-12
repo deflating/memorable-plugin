@@ -49,6 +49,7 @@ if [ ! -f "$DATA_DIR/config.json" ]; then
     "enabled": false,
     "idle_threshold": 300
   },
+  "semantic_default_depth": 1,
   "context_files": []
 }
 EOF

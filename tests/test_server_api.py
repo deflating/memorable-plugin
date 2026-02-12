@@ -1,4 +1,5 @@
 import io
+import hashlib
 import json
 import os
 import sys
@@ -63,6 +64,7 @@ class ServerApiTests(unittest.TestCase):
             (files_dir / ".cache-test-depth1.md").write_text("cache", encoding="utf-8")
             (files_dir / "doc.md").write_text("hello", encoding="utf-8")
             (files_dir / "doc.md.anchored").write_text("\u26930\ufe0f\u20e3 a\nb \u2693", encoding="utf-8")
+            (files_dir / "doc.md.anchored.meta.json").write_text("{}", encoding="utf-8")
 
             server_api.FILES_DIR = files_dir
             server_api.load_config = lambda: {
@@ -73,6 +75,78 @@ class ServerApiTests(unittest.TestCase):
             self.assertEqual(200, status)
             self.assertEqual(["doc.md"], [f["name"] for f in data["files"]])
             self.assertTrue(data["files"][0]["anchored"])
+            self.assertTrue(data["files"][0]["manifest"])
+
+    def test_handle_process_file_auto_configures_context_entry_with_default_depth(self):
+        original_process_file = server_api._process_file
+        try:
+            captured = {}
+            server_api._process_file = lambda _name, force=False: {
+                "status": "ok",
+                "method": "llm",
+                "tokens_by_depth": {"full": 100, 0: 10, 1: 20, 2: 40, 3: 80},
+                "manifest_path": "/tmp/doc.md.anchored.meta.json",
+                "error": None,
+            }
+            server_api.load_config = lambda: {"semantic_default_depth": 3, "context_files": []}
+            server_api.save_config = lambda config: captured.setdefault("config", config)
+
+            status, data = server_api.handle_process_file("doc.md")
+            self.assertEqual(200, status)
+            self.assertEqual("ok", data["status"])
+            self.assertTrue(data["auto_load_configured"])
+            self.assertEqual(3, data["default_depth"])
+            self.assertTrue(data["enabled"])
+            self.assertEqual(
+                [{"filename": "doc.md", "depth": 3, "enabled": True}],
+                captured["config"]["context_files"],
+            )
+        finally:
+            server_api._process_file = original_process_file
+
+    def test_handle_get_file_levels_includes_manifest_and_depth_config(self):
+        with tempfile.TemporaryDirectory() as td:
+            files_dir = Path(td)
+            raw_path = files_dir / "doc.md"
+            anchored_path = files_dir / "doc.md.anchored"
+            manifest_path = files_dir / "doc.md.anchored.meta.json"
+            raw_text = "# Title\n\nBody"
+            raw_path.write_text(raw_text, encoding="utf-8")
+            anchored_path.write_text(
+                "\u26930\ufe0f\u20e3 docs\nShort summary \u2693\n"
+                "\u26931\ufe0f\u20e3 Body details \u2693\n",
+                encoding="utf-8",
+            )
+            source_hash = hashlib.sha256(raw_path.read_bytes()).hexdigest()
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "filename": "doc.md",
+                        "source": {"sha256": source_hash},
+                        "levels": {"full": {"tokens": 10, "compression_ratio": 1.0}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            server_api.FILES_DIR = files_dir
+            server_api.load_config = lambda: {
+                "semantic_default_depth": 2,
+                "context_files": [{"filename": "doc.md", "depth": 0, "enabled": True}],
+            }
+
+            status, data = server_api.handle_get_file_levels("doc.md")
+            self.assertEqual(200, status)
+            self.assertTrue(data["anchored"])
+            self.assertEqual("doc.md", data["filename"])
+            self.assertIn("full", data["levels"])
+            self.assertIn("0", data["levels"])
+            self.assertEqual(0, data["default_depth"])
+            self.assertTrue(data["enabled"])
+            self.assertTrue(data["recoverability"]["manifest_present"])
+            self.assertTrue(data["recoverability"]["source_hash_matches_manifest"])
+            self.assertIsInstance(data["manifest"], dict)
 
     def test_handle_post_file_upload_rejects_invalid_content_length(self):
         handler = SimpleNamespace(
@@ -147,6 +221,10 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(400, status)
         self.assertEqual("INVALID_TOKEN_BUDGET", data["error"]["code"])
 
+        status, data = server_api.handle_post_settings({"semantic_default_depth": "2"})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_SEMANTIC_DEFAULT_DEPTH", data["error"]["code"])
+
         status, data = server_api.handle_post_settings({"daemon": {"enabled": "true"}})
         self.assertEqual(400, status)
         self.assertEqual("INVALID_DAEMON_ENABLED", data["error"]["code"])
@@ -167,6 +245,10 @@ class ServerApiTests(unittest.TestCase):
         status, data = server_api.handle_post_settings({"server_port": 70000})
         self.assertEqual(400, status)
         self.assertEqual("INVALID_SERVER_PORT", data["error"]["code"])
+
+        status, data = server_api.handle_post_settings({"semantic_default_depth": 9})
+        self.assertEqual(400, status)
+        self.assertEqual("INVALID_SEMANTIC_DEFAULT_DEPTH", data["error"]["code"])
 
         status, data = server_api.handle_post_settings({"daemon": {"idle_threshold": 0}})
         self.assertEqual(400, status)
@@ -193,6 +275,7 @@ class ServerApiTests(unittest.TestCase):
         status, data = server_api.handle_post_settings(
             {
                 "token_budget": 123456,
+                "semantic_default_depth": 2,
                 "daemon": {"enabled": True, "idle_threshold": 120},
                 "llm_provider": {"model": "deepseek-reasoner"},
                 "llm_routing": {"now_md": "claude"},
@@ -203,6 +286,7 @@ class ServerApiTests(unittest.TestCase):
         self.assertTrue(data["ok"])
         self.assertIn("config", captured)
         self.assertEqual(123456, captured["config"]["token_budget"])
+        self.assertEqual(2, captured["config"]["semantic_default_depth"])
         self.assertTrue(captured["config"]["daemon"]["enabled"])
         self.assertEqual(120, captured["config"]["daemon"]["idle_threshold"])
         self.assertEqual("deepseek-reasoner", captured["config"]["llm_provider"]["model"])

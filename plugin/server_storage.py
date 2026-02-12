@@ -39,6 +39,7 @@ DEFAULT_CONFIG = {
         "enabled": False,
         "idle_threshold": 300,
     },
+    "semantic_default_depth": 1,
     "server_port": DEFAULT_PORT,
     "context_files": [],
 }

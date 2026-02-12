@@ -173,6 +173,33 @@ class EndToEndSmokeTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual(["doc.md"], [f["name"] for f in files["files"]])
 
+        status, levels = self._request_json("GET", "/api/files/doc.md/levels")
+        self.assertEqual(200, status)
+        self.assertEqual("doc.md", levels["filename"])
+        self.assertIn("levels", levels)
+        self.assertTrue(levels["recoverability"]["full_recoverable"])
+
+        status, cleanup_upload = self._request_json(
+            "POST",
+            "/api/files/upload",
+            {"filename": "cleanup.md", "content": "temp"},
+        )
+        self.assertEqual(200, status)
+        self.assertTrue(cleanup_upload["ok"])
+        (self.files_dir / "cleanup.md.anchored").write_text(
+            "\u26930\ufe0f\u20e3 temp\nt \u2693",
+            encoding="utf-8",
+        )
+        (self.files_dir / "cleanup.md.anchored.meta.json").write_text(
+            "{}",
+            encoding="utf-8",
+        )
+        status, delete_payload = self._request_json("DELETE", "/api/files/cleanup.md")
+        self.assertEqual(200, status)
+        self.assertTrue(delete_payload["ok"])
+        self.assertTrue(delete_payload["anchored_deleted"])
+        self.assertTrue(delete_payload["manifest_deleted"])
+
         status, depth_update = self._request_json(
             "PUT",
             "/api/files/doc.md/depth",

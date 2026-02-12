@@ -13,6 +13,7 @@ Anchor levels (cumulative):
 """
 
 import json
+import hashlib
 import os
 import re
 import subprocess
@@ -20,6 +21,7 @@ import time
 import urllib.request
 import urllib.error
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 # -- Paths -----------------------------------------------------------------
@@ -32,6 +34,8 @@ ERROR_LOG = Path.home() / ".memorable" / "hook-errors.log"
 CHARS_PER_TOKEN = 4
 DEFAULT_CLAUDE_CLI_COMMAND = "claude"
 DEFAULT_CLAUDE_CLI_PROMPT_FLAG = "-p"
+MANIFEST_SUFFIX = ".anchored.meta.json"
+MANIFEST_VERSION = 1
 
 # -- Anchor format constants -----------------------------------------------
 
@@ -104,6 +108,82 @@ def log_error(msg: str):
 def estimate_tokens(text: str) -> int:
     """Rough token estimate: chars / 4."""
     return len(text) // CHARS_PER_TOKEN
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def manifest_path_for(filename: str) -> Path:
+    return FILES_DIR / f"{filename}{MANIFEST_SUFFIX}"
+
+
+def _level_metrics(tokens_by_depth: dict) -> dict:
+    full_tokens = int(tokens_by_depth.get("full", 0) or 0)
+    full_denom = max(1, full_tokens)
+    levels = {
+        "full": {
+            "tokens": full_tokens,
+            "compression_ratio": 1.0,
+        }
+    }
+    for depth in range(4):
+        tokens = int(tokens_by_depth.get(depth, 0) or 0)
+        levels[str(depth)] = {
+            "tokens": tokens,
+            "compression_ratio": round(tokens / float(full_denom), 4),
+        }
+    return levels
+
+
+def build_processing_manifest(
+    filename: str,
+    raw_text: str,
+    anchored_text: str,
+    method: str,
+    tokens_by_depth: dict,
+    llm_error: str | None = None,
+) -> dict:
+    generated_at = datetime.now(timezone.utc).isoformat()
+    return {
+        "version": MANIFEST_VERSION,
+        "generated_at": generated_at,
+        "filename": filename,
+        "method": method,
+        "llm_error": llm_error,
+        "source": {
+            "path": str(FILES_DIR / filename),
+            "sha256": _sha256_text(raw_text),
+            "tokens": int(tokens_by_depth.get("full", 0) or 0),
+        },
+        "anchored": {
+            "path": str(FILES_DIR / (filename + ".anchored")),
+            "sha256": _sha256_text(anchored_text),
+        },
+        "levels": _level_metrics(tokens_by_depth),
+        "recoverability": {
+            "raw_exists": (FILES_DIR / filename).is_file(),
+            "full_recoverable": True,
+        },
+    }
+
+
+def write_processing_manifest(filename: str, manifest: dict):
+    _atomic_write(
+        manifest_path_for(filename),
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+    )
+
+
+def read_processing_manifest(filename: str) -> dict | None:
+    path = manifest_path_for(filename)
+    if not path.is_file():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return loaded if isinstance(loaded, dict) else None
 
 
 def _load_llm_config() -> dict:
@@ -621,18 +701,34 @@ def process_file(filename: str, force: bool = False) -> dict:
     anchored_path = FILES_DIR / (filename + ".anchored")
 
     if not raw_path.is_file():
-        return {"status": "error", "method": None,
-                "tokens_by_depth": None, "error": "File not found"}
+        return {
+            "status": "error",
+            "method": None,
+            "tokens_by_depth": None,
+            "manifest_path": None,
+            "error": "File not found",
+        }
 
     if anchored_path.exists() and not force:
-        return {"status": "skipped", "method": None,
-                "tokens_by_depth": None, "error": None}
+        manifest_path = manifest_path_for(filename)
+        return {
+            "status": "skipped",
+            "method": None,
+            "tokens_by_depth": None,
+            "manifest_path": str(manifest_path) if manifest_path.is_file() else None,
+            "error": None,
+        }
 
     try:
         text = raw_path.read_text(encoding="utf-8")
     except Exception as e:
-        return {"status": "error", "method": None,
-                "tokens_by_depth": None, "error": f"Read error: {e}"}
+        return {
+            "status": "error",
+            "method": None,
+            "tokens_by_depth": None,
+            "manifest_path": None,
+            "error": f"Read error: {e}",
+        }
 
     method = "llm"
     llm_error = None
@@ -649,8 +745,13 @@ def process_file(filename: str, force: bool = False) -> dict:
             anchored = process_document_mechanical(text)
         except Exception as e2:
             log_error(f"Mechanical also failed for {filename}: {e2}")
-            return {"status": "error", "method": None,
-                    "tokens_by_depth": None, "error": str(e)}
+            return {
+                "status": "error",
+                "method": None,
+                "tokens_by_depth": None,
+                "manifest_path": None,
+                "error": str(e),
+            }
 
     # Save anchored output
     _atomic_write(anchored_path, anchored)
@@ -662,10 +763,25 @@ def process_file(filename: str, force: bool = False) -> dict:
         tokens_by_depth[depth] = estimate_tokens(extracted)
     tokens_by_depth["full"] = estimate_tokens(text)
 
+    manifest_path = manifest_path_for(filename)
+    try:
+        manifest = build_processing_manifest(
+            filename=filename,
+            raw_text=text,
+            anchored_text=anchored,
+            method=method,
+            tokens_by_depth=tokens_by_depth,
+            llm_error=llm_error if method == "mechanical" else None,
+        )
+        write_processing_manifest(filename, manifest)
+    except Exception as e:
+        log_error(f"Failed to write manifest for {filename}: {e}")
+
     return {
         "status": "ok",
         "method": method,
         "tokens_by_depth": tokens_by_depth,
+        "manifest_path": str(manifest_path) if manifest_path.is_file() else None,
         "error": llm_error if method == "mechanical" else None,
     }
 

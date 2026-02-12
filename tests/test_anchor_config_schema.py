@@ -14,15 +14,19 @@ from processor import anchor  # noqa: E402
 class AnchorConfigSchemaTests(unittest.TestCase):
     def setUp(self):
         self.orig_llm_config_path = anchor.LLM_CONFIG_PATH
+        self.orig_files_dir = anchor.FILES_DIR
         self.orig_call_deepseek = anchor._call_deepseek
         self.orig_call_claude = anchor._call_claude
         self.orig_call_claude_cli = anchor._call_claude_cli
+        self.orig_process_document_llm = anchor.process_document_llm
 
     def tearDown(self):
         anchor.LLM_CONFIG_PATH = self.orig_llm_config_path
+        anchor.FILES_DIR = self.orig_files_dir
         anchor._call_deepseek = self.orig_call_deepseek
         anchor._call_claude = self.orig_call_claude
         anchor._call_claude_cli = self.orig_call_claude_cli
+        anchor.process_document_llm = self.orig_process_document_llm
 
     def test_call_llm_requires_llm_provider_key(self):
         with tempfile.TemporaryDirectory() as td:
@@ -182,6 +186,34 @@ class AnchorConfigSchemaTests(unittest.TestCase):
 
             self.assertEqual("ok-cli", result)
             self.assertEqual("hello world", called["prompt"])
+
+    def test_process_file_writes_manifest_sidecar_with_levels(self):
+        with tempfile.TemporaryDirectory() as td:
+            files_dir = Path(td)
+            anchor.FILES_DIR = files_dir
+            (files_dir / "doc.md").write_text("# Title\n\nBody text.", encoding="utf-8")
+
+            anchor.process_document_llm = lambda _text, _filename: (
+                "⚓0️⃣ docs\nSummary line. ⚓\n"
+                "⚓1️⃣ Body text. ⚓\n"
+            )
+
+            result = anchor.process_file("doc.md", force=True)
+            self.assertEqual("ok", result["status"])
+            self.assertTrue(result["manifest_path"])
+
+            manifest_path = Path(result["manifest_path"])
+            self.assertTrue(manifest_path.is_file())
+
+            manifest = anchor.read_processing_manifest("doc.md")
+            self.assertIsInstance(manifest, dict)
+            self.assertEqual("doc.md", manifest["filename"])
+            self.assertIn("source", manifest)
+            self.assertIn("anchored", manifest)
+            self.assertIn("levels", manifest)
+            self.assertIn("full", manifest["levels"])
+            self.assertIn("0", manifest["levels"])
+            self.assertTrue(manifest["recoverability"]["full_recoverable"])
 
 
 if __name__ == "__main__":

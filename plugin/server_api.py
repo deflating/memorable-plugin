@@ -29,6 +29,7 @@ _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "daemon"))
 from processor.anchor import (
     extract_at_depth as _extract_at_depth,
+    MANIFEST_SUFFIX as _ANCHOR_MANIFEST_SUFFIX,
     process_file as _process_file,
     read_file_at_depth as _read_file_at_depth,
     estimate_tokens as _anchor_estimate_tokens,
@@ -63,6 +64,8 @@ NOTE_SALIENCE_STEP = 0.25
 NOTE_SALIENCE_MIN = 0.0
 NOTE_SALIENCE_MAX = 3.0
 METRICS_RETENTION_LIMIT = 500
+SEMANTIC_DEPTH_VALUES = (-1, 0, 1, 2, 3)
+DEFAULT_SEMANTIC_DEPTH = 1
 
 
 def default_reliability_metrics() -> dict:
@@ -176,7 +179,58 @@ def record_lag_incident(last_activity_dt: datetime, lag_seconds: int | None):
 
 def is_internal_context_artifact(filename: str) -> bool:
     """Return True for internal helper files in the context directory."""
-    return filename.endswith(".anchored") or filename.startswith(".cache-")
+    return (
+        filename.endswith(".anchored")
+        or filename.endswith(_ANCHOR_MANIFEST_SUFFIX)
+        or filename.startswith(".cache-")
+    )
+
+
+def normalize_semantic_depth(value, fallback: int = DEFAULT_SEMANTIC_DEPTH) -> int:
+    try:
+        depth = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    if depth in SEMANTIC_DEPTH_VALUES:
+        return depth
+    return fallback
+
+
+def semantic_default_depth(config: dict) -> int:
+    return normalize_semantic_depth(
+        config.get("semantic_default_depth", DEFAULT_SEMANTIC_DEPTH),
+        DEFAULT_SEMANTIC_DEPTH,
+    )
+
+
+def ensure_context_file_entry(
+    config: dict,
+    filename: str,
+    depth: int,
+    enabled: bool,
+) -> tuple[bool, int, bool]:
+    context_files = config.get("context_files", [])
+    if not isinstance(context_files, list):
+        context_files = []
+
+    for entry in context_files:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("filename") != filename:
+            continue
+        existing_depth = normalize_semantic_depth(entry.get("depth", depth), depth)
+        existing_enabled = bool(entry.get("enabled", False))
+        return False, existing_depth, existing_enabled
+
+    context_files.append(
+        {
+            "filename": filename,
+            "depth": normalize_semantic_depth(depth, DEFAULT_SEMANTIC_DEPTH),
+            "enabled": bool(enabled),
+        }
+    )
+    config["context_files"] = context_files
+    return True, normalize_semantic_depth(depth, DEFAULT_SEMANTIC_DEPTH), bool(enabled)
 
 
 def note_row_id(source_path: Path, line_no: int, obj: dict) -> str:
@@ -880,6 +934,7 @@ def parse_settings_patch(body: dict):
         "llm_provider",
         "llm_routing",
         "claude_cli",
+        "semantic_default_depth",
         "token_budget",
         "daemon",
         "server_port",
@@ -891,7 +946,7 @@ def parse_settings_patch(body: dict):
             return None, error_response(
                 "INVALID_SETTINGS_KEY",
                 f"Invalid settings field: {key}",
-                "Allowed fields: llm_provider, llm_routing, claude_cli, token_budget, daemon, server_port, data_dir.",
+                "Allowed fields: llm_provider, llm_routing, claude_cli, semantic_default_depth, token_budget, daemon, server_port, data_dir.",
             )
 
     if "token_budget" in body:
@@ -899,6 +954,17 @@ def parse_settings_patch(body: dict):
         if err:
             return None, err
         patch["token_budget"] = parsed
+
+    if "semantic_default_depth" in body:
+        parsed, err = parse_int_setting(
+            body["semantic_default_depth"],
+            "semantic_default_depth",
+            -1,
+            3,
+        )
+        if err:
+            return None, err
+        patch["semantic_default_depth"] = parsed
 
     if "server_port" in body:
         parsed, err = parse_int_setting(body["server_port"], "server_port", 1, 65535)
@@ -947,7 +1013,7 @@ def handle_post_settings(body: dict):
 
     config = load_config()
 
-    for key in ("token_budget", "server_port", "data_dir"):
+    for key in ("token_budget", "semantic_default_depth", "server_port", "data_dir"):
         if key in patch:
             config[key] = patch[key]
 
@@ -1362,10 +1428,14 @@ def handle_get_files():
         return 200, {"files": files}
 
     config = load_config()
-    context_files = {
-        cf.get("filename"): cf
-        for cf in config.get("context_files", [])
-    }
+    default_depth = semantic_default_depth(config)
+    context_files = {}
+    for entry in config.get("context_files", []):
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("filename")
+        if isinstance(name, str) and name:
+            context_files[name] = entry
 
     for f in sorted(FILES_DIR.iterdir()):
         if not f.is_file():
@@ -1399,6 +1469,7 @@ def handle_get_files():
 
             # Config for this file
             cf = context_files.get(f.name, {})
+            manifest_path = FILES_DIR / (f.name + _ANCHOR_MANIFEST_SUFFIX)
 
             files.append({
                 "name": f.name,
@@ -1409,8 +1480,9 @@ def handle_get_files():
                 ).isoformat(),
                 "anchored": is_anchored,
                 "tokens_by_depth": tokens_by_depth,
-                "depth": cf.get("depth", 1),
-                "enabled": cf.get("enabled", False),
+                "depth": normalize_semantic_depth(cf.get("depth", default_depth), default_depth),
+                "enabled": bool(cf.get("enabled", False)),
+                "manifest": manifest_path.is_file(),
             })
         except Exception:
             continue
@@ -1571,6 +1643,32 @@ def handle_process_file(filename: str):
         )
 
     result = _process_file(safe, force=True)
+    auto_load_configured = False
+    depth = enabled = None
+    if result.get("status") == "ok":
+        config = load_config()
+        default_depth = semantic_default_depth(config)
+        auto_load_configured, depth, enabled = ensure_context_file_entry(
+            config,
+            safe,
+            default_depth,
+            True,
+        )
+        if auto_load_configured:
+            save_config(config)
+            append_audit(
+                "files.depth.update",
+                {
+                    "filename": safe,
+                    "depth": depth,
+                    "enabled": enabled,
+                    "source": "process_default",
+                },
+            )
+        result["default_depth"] = depth
+        result["enabled"] = enabled
+        result["auto_load_configured"] = auto_load_configured
+
     append_audit(
         "files.process",
         {
@@ -1580,6 +1678,105 @@ def handle_process_file(filename: str):
         },
     )
     return 200, result
+
+
+def handle_get_file_levels(filename: str):
+    """GET /api/files/<filename>/levels — semantic zoom metadata + recoverability."""
+    safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
+    if not safe:
+        return 400, error_response(
+            "INVALID_FILENAME",
+            "Invalid filename",
+            "Use only alphanumeric characters, dash, underscore, and dot.",
+        )
+
+    raw_path = FILES_DIR / safe
+    if not raw_path.is_file():
+        return 404, error_response(
+            "FILE_NOT_FOUND",
+            "File not found",
+            "Check the filename and upload the file if needed.",
+        )
+
+    try:
+        raw_bytes = raw_path.read_bytes()
+    except OSError:
+        return 500, error_response(
+            "READ_FAILED",
+            "Failed to read source file",
+            "Check file permissions and retry.",
+        )
+
+    raw_text = raw_bytes.decode("utf-8", errors="replace")
+    full_tokens = estimate_tokens(raw_text)
+    source_hash = hashlib.sha256(raw_bytes).hexdigest()
+    levels = {
+        "full": {
+            "tokens": full_tokens,
+            "compression_ratio": 1.0,
+        }
+    }
+
+    anchored_path = FILES_DIR / (safe + ".anchored")
+    anchored = anchored_path.is_file()
+    if anchored:
+        try:
+            anchored_text = anchored_path.read_text(encoding="utf-8")
+            denom = max(1, full_tokens)
+            for depth in range(4):
+                extracted = _extract_at_depth(anchored_text, depth)
+                tokens = _anchor_estimate_tokens(extracted)
+                levels[str(depth)] = {
+                    "tokens": tokens,
+                    "compression_ratio": round(tokens / float(denom), 4),
+                }
+        except Exception:
+            anchored = False
+
+    manifest = None
+    manifest_path = FILES_DIR / (safe + _ANCHOR_MANIFEST_SUFFIX)
+    if manifest_path.is_file():
+        try:
+            parsed = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                manifest = parsed
+        except Exception:
+            manifest = None
+    source_hash_matches_manifest = None
+    if isinstance(manifest, dict):
+        src = manifest.get("source", {})
+        if isinstance(src, dict):
+            manifest_hash = src.get("sha256")
+            if isinstance(manifest_hash, str) and manifest_hash:
+                source_hash_matches_manifest = manifest_hash == source_hash
+
+    config = load_config()
+    configured_depth = semantic_default_depth(config)
+    configured_enabled = False
+    for entry in config.get("context_files", []):
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("filename") != safe:
+            continue
+        configured_depth = normalize_semantic_depth(entry.get("depth", configured_depth), configured_depth)
+        configured_enabled = bool(entry.get("enabled", False))
+        break
+
+    return 200, {
+        "filename": safe,
+        "anchored": anchored,
+        "levels": levels,
+        "default_depth": configured_depth,
+        "enabled": configured_enabled,
+        "recoverability": {
+            "raw_exists": True,
+            "full_recoverable": True,
+            "source_sha256": source_hash,
+            "manifest_present": bool(manifest),
+            "source_hash_matches_manifest": source_hash_matches_manifest,
+        },
+        "manifest": manifest,
+    }
 
 
 def handle_preview_file(filename: str, query_params: dict):
@@ -1640,7 +1837,7 @@ def handle_put_file_depth(filename: str, body: dict):
             "Use only alphanumeric characters, dash, underscore, and dot.",
         )
 
-    raw_depth = body.get("depth", 1)
+    raw_depth = body.get("depth", DEFAULT_SEMANTIC_DEPTH)
     try:
         depth = int(raw_depth)
     except (TypeError, ValueError):
@@ -1649,7 +1846,7 @@ def handle_put_file_depth(filename: str, body: dict):
             "Invalid depth value",
             "Send depth as one of: -1, 0, 1, 2, 3.",
         )
-    if depth not in (-1, 0, 1, 2, 3):
+    if depth not in SEMANTIC_DEPTH_VALUES:
         return 400, error_response(
             "INVALID_DEPTH",
             "Invalid depth value",
