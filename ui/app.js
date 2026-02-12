@@ -3804,7 +3804,6 @@
 
   // ---- Seeds Page ----
   function renderSeedsPage(container) {
-    const progressRail = renderSetupProgressRail(state.activeFile);
     container.innerHTML = `
       <div class="seeds-page">
         <div class="seeds-header">
@@ -3819,7 +3818,6 @@
             </div>
             <span class="save-indicator save-state-idle"><span class="dot"></span> Auto-save on</span>
           </div>
-          ${progressRail}
           <div class="seeds-view-controls" id="seeds-view-controls"></div>
         </div>
         <div class="seeds-layout" id="seeds-layout">
@@ -3849,34 +3847,6 @@
     renderSeedsContent();
     // Render preview
     renderPreview();
-  }
-
-  function renderSetupProgressRail(file) {
-    const sectionIds = file === 'user' ? USER_SECTION_IDS : AGENT_SECTION_IDS;
-    const activeIds = sectionIds.filter((id) => state.enabledSections[id] !== false);
-    const total = activeIds.length || 1;
-    const sketch = activeIds.filter((id) => getSectionDensity(id) === 'sketch').length;
-    const forming = activeIds.filter((id) => getSectionDensity(id) === 'forming').length;
-    const substantial = activeIds.filter((id) => getSectionDensity(id) === 'substantial').length;
-    const completion = Math.round(((forming * 0.5) + substantial) / total * 100);
-    return `
-      <div class="seeds-progress">
-        <div class="seeds-progress-header">
-          <span class="seeds-progress-title">${file === 'user' ? 'User seed progress' : 'Agent seed progress'}</span>
-          <span class="seeds-progress-value">${completion}% ready</span>
-        </div>
-        <div class="seeds-progress-track" aria-hidden="true">
-          <span class="seeds-progress-seg sketch" style="width:${(sketch / total) * 100}%"></span>
-          <span class="seeds-progress-seg forming" style="width:${(forming / total) * 100}%"></span>
-          <span class="seeds-progress-seg substantial" style="width:${(substantial / total) * 100}%"></span>
-        </div>
-        <div class="seeds-progress-legend">
-          <span>Sketch ${sketch}</span>
-          <span>Forming ${forming}</span>
-          <span>Substantial ${substantial}</span>
-        </div>
-      </div>
-    `;
   }
 
   function renderSeedsViewControls() {

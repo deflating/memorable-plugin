@@ -2332,66 +2332,6 @@ p { color: var(--text-secondary); }
   justify-content: space-between;
 }
 
-.seeds-progress {
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  background: var(--cream);
-  padding: 10px 12px;
-}
-
-.seeds-progress-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.seeds-progress-title {
-  font-size: 0.84rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.seeds-progress-value {
-  font-size: 0.82rem;
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.seeds-progress-track {
-  display: flex;
-  height: 8px;
-  border-radius: 999px;
-  overflow: hidden;
-  margin-top: 8px;
-  background: var(--border-light);
-}
-
-.seeds-progress-seg {
-  height: 100%;
-}
-
-.seeds-progress-seg.sketch {
-  background: var(--border);
-}
-
-.seeds-progress-seg.forming {
-  background: var(--ochre-light);
-}
-
-.seeds-progress-seg.substantial {
-  background: var(--sage);
-}
-
-.seeds-progress-legend {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-  font-size: 0.76rem;
-  color: var(--text-muted);
-}
-
 .seeds-actions {
   display: flex;
   align-items: center;
