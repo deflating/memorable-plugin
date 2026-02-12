@@ -213,6 +213,10 @@ class AnchorConfigSchemaTests(unittest.TestCase):
             self.assertIn("levels", manifest)
             self.assertIn("full", manifest["levels"])
             self.assertIn("0", manifest["levels"])
+            self.assertIn("provenance", manifest)
+            self.assertIn("segments", manifest["provenance"])
+            self.assertIn("coverage", manifest["provenance"])
+            self.assertTrue(manifest["provenance"]["coverage"]["all_major_sections_represented"])
             self.assertTrue(manifest["recoverability"]["full_recoverable"])
 
 

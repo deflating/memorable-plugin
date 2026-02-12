@@ -147,6 +147,67 @@ class ServerApiTests(unittest.TestCase):
             self.assertTrue(data["recoverability"]["manifest_present"])
             self.assertTrue(data["recoverability"]["source_hash_matches_manifest"])
             self.assertIsInstance(data["manifest"], dict)
+            self.assertIn("provenance", data)
+            self.assertIn("segment_count", data["provenance"])
+
+    def test_handle_get_file_provenance_lists_and_resolves_segment(self):
+        with tempfile.TemporaryDirectory() as td:
+            files_dir = Path(td)
+            raw_path = files_dir / "doc.md"
+            manifest_path = files_dir / "doc.md.anchored.meta.json"
+            raw_path.write_text(
+                "# Intro\nLine A\nLine B\n## Details\nLine C\nLine D\n",
+                encoding="utf-8",
+            )
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "provenance": {
+                            "sections": [
+                                {"id": "sec-1", "title": "Intro", "major": True, "line_start": 1, "line_end": 3},
+                                {"id": "sec-2", "title": "Details", "major": True, "line_start": 4, "line_end": 6},
+                            ],
+                            "coverage": {
+                                "all_major_sections_represented": True,
+                                "missing_major_section_ids": [],
+                            },
+                            "segments": [
+                                {
+                                    "id": "seg-1-0001",
+                                    "depth": 1,
+                                    "preview": "Line C",
+                                    "content_sha256": "x",
+                                    "source": {
+                                        "section_id": "sec-2",
+                                        "line_start": 5,
+                                        "line_end": 5,
+                                        "byte_start": 0,
+                                        "byte_end": 6,
+                                        "exact_match": True,
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            server_api.FILES_DIR = files_dir
+
+            status, data = server_api.handle_get_file_provenance("doc.md", {})
+            self.assertEqual(200, status)
+            self.assertEqual(1, len(data["segments"]))
+            self.assertEqual("seg-1-0001", data["segments"][0]["id"])
+            self.assertTrue(data["coverage"]["all_major_sections_represented"])
+
+            status, data = server_api.handle_get_file_provenance(
+                "doc.md",
+                {"segment_id": ["seg-1-0001"], "context_lines": ["1"]},
+            )
+            self.assertEqual(200, status)
+            self.assertEqual("seg-1-0001", data["segment"]["id"])
+            self.assertIn("Line C", data["excerpt"]["text"])
+            self.assertIn("## Details", data["excerpt"]["text"])
 
     def test_handle_post_file_upload_rejects_invalid_content_length(self):
         handler = SimpleNamespace(

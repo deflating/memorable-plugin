@@ -66,6 +66,8 @@ NOTE_SALIENCE_MAX = 3.0
 METRICS_RETENTION_LIMIT = 500
 SEMANTIC_DEPTH_VALUES = (-1, 0, 1, 2, 3)
 DEFAULT_SEMANTIC_DEPTH = 1
+DEFAULT_PROVENANCE_CONTEXT_LINES = 1
+MAX_PROVENANCE_CONTEXT_LINES = 20
 
 
 def default_reliability_metrics() -> dict:
@@ -231,6 +233,26 @@ def ensure_context_file_entry(
     )
     config["context_files"] = context_files
     return True, normalize_semantic_depth(depth, DEFAULT_SEMANTIC_DEPTH), bool(enabled)
+
+
+def read_file_manifest(filename: str) -> dict | None:
+    path = FILES_DIR / (filename + _ANCHOR_MANIFEST_SUFFIX)
+    if not path.is_file():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def parse_context_lines(query_params: dict) -> int:
+    raw_value = query_params.get("context_lines", [DEFAULT_PROVENANCE_CONTEXT_LINES])[0]
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        return DEFAULT_PROVENANCE_CONTEXT_LINES
+    return max(0, min(MAX_PROVENANCE_CONTEXT_LINES, parsed))
 
 
 def note_row_id(source_path: Path, line_no: int, obj: dict) -> str:
@@ -1733,15 +1755,7 @@ def handle_get_file_levels(filename: str):
         except Exception:
             anchored = False
 
-    manifest = None
-    manifest_path = FILES_DIR / (safe + _ANCHOR_MANIFEST_SUFFIX)
-    if manifest_path.is_file():
-        try:
-            parsed = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if isinstance(parsed, dict):
-                manifest = parsed
-        except Exception:
-            manifest = None
+    manifest = read_file_manifest(safe)
     source_hash_matches_manifest = None
     if isinstance(manifest, dict):
         src = manifest.get("source", {})
@@ -1749,6 +1763,18 @@ def handle_get_file_levels(filename: str):
             manifest_hash = src.get("sha256")
             if isinstance(manifest_hash, str) and manifest_hash:
                 source_hash_matches_manifest = manifest_hash == source_hash
+    provenance = manifest.get("provenance", {}) if isinstance(manifest, dict) else {}
+    coverage = provenance.get("coverage", {}) if isinstance(provenance, dict) else {}
+    all_sections_covered = None
+    if isinstance(coverage, dict):
+        value = coverage.get("all_major_sections_represented")
+        if isinstance(value, bool):
+            all_sections_covered = value
+    segment_count = 0
+    if isinstance(provenance, dict):
+        segments = provenance.get("segments", [])
+        if isinstance(segments, list):
+            segment_count = len(segments)
 
     config = load_config()
     configured_depth = semantic_default_depth(config)
@@ -1775,7 +1801,130 @@ def handle_get_file_levels(filename: str):
             "manifest_present": bool(manifest),
             "source_hash_matches_manifest": source_hash_matches_manifest,
         },
+        "provenance": {
+            "segment_count": segment_count,
+            "all_major_sections_represented": all_sections_covered,
+        },
         "manifest": manifest,
+    }
+
+
+def handle_get_file_provenance(filename: str, query_params: dict):
+    """GET /api/files/<filename>/provenance — list segments or resolve one segment."""
+    safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
+    if not safe:
+        return 400, error_response(
+            "INVALID_FILENAME",
+            "Invalid filename",
+            "Use only alphanumeric characters, dash, underscore, and dot.",
+        )
+
+    raw_path = FILES_DIR / safe
+    if not raw_path.is_file():
+        return 404, error_response(
+            "FILE_NOT_FOUND",
+            "File not found",
+            "Check the filename and upload the file if needed.",
+        )
+
+    manifest = read_file_manifest(safe)
+    if not isinstance(manifest, dict):
+        return 404, error_response(
+            "MANIFEST_NOT_FOUND",
+            "File manifest not found",
+            "Process this file first to generate provenance metadata.",
+        )
+
+    provenance = manifest.get("provenance", {})
+    if not isinstance(provenance, dict):
+        return 404, error_response(
+            "PROVENANCE_NOT_FOUND",
+            "Provenance metadata not found",
+            "Re-process this file to regenerate provenance metadata.",
+        )
+
+    segments = provenance.get("segments", [])
+    sections = provenance.get("sections", [])
+    coverage = provenance.get("coverage", {})
+    if not isinstance(segments, list):
+        segments = []
+    if not isinstance(sections, list):
+        sections = []
+    if not isinstance(coverage, dict):
+        coverage = {}
+
+    segment_id = query_params.get("segment_id", [""])[0].strip()
+    if segment_id:
+        selected = None
+        for segment in segments:
+            if isinstance(segment, dict) and segment.get("id") == segment_id:
+                selected = segment
+                break
+        if not isinstance(selected, dict):
+            return 404, error_response(
+                "SEGMENT_NOT_FOUND",
+                "Segment not found",
+                "Check segment_id and retry with a segment returned by /provenance.",
+            )
+
+        source = selected.get("source", {})
+        if not isinstance(source, dict):
+            return 500, error_response(
+                "INVALID_SEGMENT_SOURCE",
+                "Segment source metadata is invalid",
+                "Re-process this file to regenerate segment source metadata.",
+            )
+
+        try:
+            line_start = int(source.get("line_start", 1) or 1)
+        except (TypeError, ValueError):
+            line_start = 1
+        try:
+            line_end = int(source.get("line_end", line_start) or line_start)
+        except (TypeError, ValueError):
+            line_end = line_start
+        if line_end < line_start:
+            line_end = line_start
+
+        raw_text = raw_path.read_text(encoding="utf-8", errors="replace")
+        lines = raw_text.splitlines()
+        if not lines:
+            lines = [""]
+        context_lines = parse_context_lines(query_params)
+        excerpt_start = max(1, line_start - context_lines)
+        excerpt_end = min(len(lines), line_end + context_lines)
+        excerpt_text = "\n".join(lines[excerpt_start - 1:excerpt_end]).strip()
+
+        return 200, {
+            "filename": safe,
+            "segment": selected,
+            "excerpt": {
+                "line_start": excerpt_start,
+                "line_end": excerpt_end,
+                "context_lines": context_lines,
+                "text": excerpt_text,
+            },
+        }
+
+    segment_summaries = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        segment_summaries.append(
+            {
+                "id": segment.get("id"),
+                "depth": segment.get("depth"),
+                "preview": segment.get("preview"),
+                "content_sha256": segment.get("content_sha256"),
+                "source": segment.get("source"),
+            }
+        )
+
+    return 200, {
+        "filename": safe,
+        "sections": sections,
+        "coverage": coverage,
+        "segments": segment_summaries,
     }
 
 

@@ -10,6 +10,7 @@ from server_api import (
     handle_get_export,
     handle_get_files,
     handle_get_file_levels,
+    handle_get_file_provenance,
     handle_get_health,
     handle_get_metrics,
     handle_get_machines,
@@ -222,6 +223,11 @@ class MemorableHandler(SimpleHTTPRequestHandler):
         if path.startswith("/api/files/") and path.endswith("/levels"):
             filename = unquote(path[len("/api/files/"):-len("/levels")])
             status, data = handle_get_file_levels(filename)
+            return self.send_json(status, data)
+
+        if path.startswith("/api/files/") and path.endswith("/provenance"):
+            filename = unquote(path[len("/api/files/"):-len("/provenance")])
+            status, data = handle_get_file_provenance(filename, query_params)
             return self.send_json(status, data)
 
         if path == "/api/budget":

@@ -36,6 +36,10 @@ DEFAULT_CLAUDE_CLI_COMMAND = "claude"
 DEFAULT_CLAUDE_CLI_PROMPT_FLAG = "-p"
 MANIFEST_SUFFIX = ".anchored.meta.json"
 MANIFEST_VERSION = 1
+PROVENANCE_VERSION = 1
+PROVENANCE_PREVIEW_MAX_CHARS = 240
+PROVENANCE_SLIDING_WINDOW_LINES = 3
+PROVENANCE_MAX_SEGMENTS = 400
 
 # -- Anchor format constants -----------------------------------------------
 
@@ -49,6 +53,16 @@ LEVEL_TAGS = {
 
 # Regex: match ⚓ optionally followed by a level indicator (digit + variation selector + keycap)
 _ANCHOR_RE = re.compile(ANCHOR + r"([0-3]\ufe0f\u20e3)?")
+_HEADING_RE = re.compile(r"^\s*(#{1,6})\s+(.+?)\s*$")
+_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9\-]{1,}")
+_STOPWORDS = {
+    "the", "and", "for", "that", "with", "this", "from", "into",
+    "you", "your", "are", "was", "were", "will", "would", "can",
+    "could", "should", "has", "have", "had", "not", "but", "all",
+    "any", "our", "out", "one", "two", "three", "about", "what",
+    "when", "where", "which", "their", "there", "them", "then",
+    "than", "they", "his", "her", "its", "who", "why", "how",
+}
 
 
 # -- LLM Prompt ------------------------------------------------------------
@@ -114,6 +128,317 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _normalize_ws(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _keyword_tokens(text: str) -> set[str]:
+    tokens = set()
+    for token in _TOKEN_RE.findall(text.lower()):
+        if token in _STOPWORDS:
+            continue
+        if len(token) < 3:
+            continue
+        tokens.add(token)
+    return tokens
+
+
+def _line_text_with_offsets(raw_text: str) -> tuple[list[str], list[int], int]:
+    raw_lines = raw_text.splitlines(keepends=True)
+    if not raw_lines:
+        raw_lines = [""]
+    line_start_chars = []
+    cursor = 0
+    line_text = []
+    for line in raw_lines:
+        line_start_chars.append(cursor)
+        cursor += len(line)
+        line_text.append(line.rstrip("\n"))
+    return line_text, line_start_chars, cursor
+
+
+def _char_span_to_line_span(raw_text: str, char_start: int, char_end: int) -> tuple[int, int]:
+    line_start = raw_text.count("\n", 0, max(0, char_start)) + 1
+    line_end = raw_text.count("\n", 0, max(0, char_end - 1)) + 1
+    if line_end < line_start:
+        line_end = line_start
+    return line_start, line_end
+
+
+def _char_to_byte_offset(raw_text: str, char_idx: int) -> int:
+    return len(raw_text[:max(0, char_idx)].encode("utf-8"))
+
+
+def _build_sections(raw_text: str, line_text: list[str], line_start_chars: list[int], total_chars: int) -> list[dict]:
+    headings = []
+    for idx, line in enumerate(line_text, start=1):
+        match = _HEADING_RE.match(line)
+        if not match:
+            continue
+        headings.append(
+            {
+                "line": idx,
+                "level": len(match.group(1)),
+                "title": match.group(2).strip(),
+            }
+        )
+
+    sections = []
+    section_num = 0
+    line_count = len(line_text)
+
+    if not headings:
+        return [
+            {
+                "id": "sec-1",
+                "title": "Document",
+                "level": 1,
+                "major": True,
+                "line_start": 1,
+                "line_end": line_count,
+                "char_start": 0,
+                "char_end": total_chars,
+                "tokens": _keyword_tokens("\n".join(line_text)),
+            }
+        ]
+
+    if headings[0]["line"] > 1:
+        section_num += 1
+        end_line = headings[0]["line"] - 1
+        sections.append(
+            {
+                "id": f"sec-{section_num}",
+                "title": "Introduction",
+                "level": 1,
+                "major": True,
+                "line_start": 1,
+                "line_end": end_line,
+                "char_start": 0,
+                "char_end": line_start_chars[end_line] if end_line < line_count else total_chars,
+                "tokens": _keyword_tokens("\n".join(line_text[:end_line])),
+            }
+        )
+
+    for idx, heading in enumerate(headings):
+        section_num += 1
+        next_line = headings[idx + 1]["line"] if idx + 1 < len(headings) else line_count + 1
+        line_start = heading["line"]
+        line_end = max(line_start, next_line - 1)
+        char_start = line_start_chars[line_start - 1]
+        if line_end < line_count:
+            char_end = line_start_chars[line_end]
+        else:
+            char_end = total_chars
+        body_text = "\n".join(line_text[line_start - 1:line_end])
+        sections.append(
+            {
+                "id": f"sec-{section_num}",
+                "title": heading["title"] or f"Section {section_num}",
+                "level": heading["level"],
+                "major": heading["level"] <= 2,
+                "line_start": line_start,
+                "line_end": line_end,
+                "char_start": char_start,
+                "char_end": char_end,
+                "tokens": _keyword_tokens(body_text),
+            }
+        )
+
+    if not any(section.get("major") for section in sections):
+        sections[0]["major"] = True
+    return sections
+
+
+def _extract_anchor_segments(anchored_text: str) -> list[dict]:
+    segments = []
+    stack = []
+
+    for match in _ANCHOR_RE.finditer(anchored_text):
+        level_str = match.group(1)
+        if level_str:
+            stack.append(
+                {
+                    "depth": int(level_str[0]),
+                    "start": match.end(),
+                }
+            )
+            continue
+
+        if not stack:
+            continue
+
+        opened = stack.pop()
+        segment_raw = anchored_text[opened["start"]:match.start()]
+        segment_text = _normalize_ws(_ANCHOR_RE.sub("", segment_raw))
+        if not segment_text:
+            continue
+        segments.append(
+            {
+                "depth": opened["depth"],
+                "text": segment_text,
+            }
+        )
+
+    return segments[:PROVENANCE_MAX_SEGMENTS]
+
+
+def _best_line_window_for_tokens(
+    line_text: list[str],
+    line_start: int,
+    line_end: int,
+    keywords: set[str],
+) -> tuple[int, int]:
+    if line_end < line_start:
+        return line_start, line_start
+
+    if not keywords:
+        return line_start, min(line_end, line_start + PROVENANCE_SLIDING_WINDOW_LINES - 1)
+
+    best_score = -1
+    best_line = line_start
+    for idx in range(line_start, line_end + 1):
+        score = len(_keyword_tokens(line_text[idx - 1]) & keywords)
+        if score > best_score:
+            best_score = score
+            best_line = idx
+
+    window_end = min(line_end, best_line + PROVENANCE_SLIDING_WINDOW_LINES - 1)
+    return best_line, window_end
+
+
+def _map_segment_to_source(
+    segment_text: str,
+    raw_text: str,
+    line_text: list[str],
+    line_start_chars: list[int],
+    total_chars: int,
+    sections: list[dict],
+) -> dict:
+    exact_match = False
+    char_start = char_end = 0
+
+    pos = raw_text.find(segment_text)
+    if pos >= 0:
+        exact_match = True
+        char_start = pos
+        char_end = pos + len(segment_text)
+    else:
+        words = segment_text.split()
+        longest_found = None
+        for chunk_len in (18, 12, 8, 6):
+            if len(words) < chunk_len:
+                continue
+            limit = min(len(words) - chunk_len + 1, 24)
+            for idx in range(limit):
+                chunk = " ".join(words[idx:idx + chunk_len])
+                chunk_pos = raw_text.find(chunk)
+                if chunk_pos >= 0:
+                    longest_found = (chunk_pos, chunk_pos + len(chunk))
+                    break
+            if longest_found:
+                break
+
+        if longest_found:
+            char_start, char_end = longest_found
+        else:
+            keywords = _keyword_tokens(segment_text)
+            best_section = sections[0]
+            best_score = -1
+            for section in sections:
+                score = len(keywords & section.get("tokens", set()))
+                if score > best_score:
+                    best_score = score
+                    best_section = section
+            line_start, line_end = _best_line_window_for_tokens(
+                line_text,
+                int(best_section["line_start"]),
+                int(best_section["line_end"]),
+                keywords,
+            )
+            char_start = line_start_chars[line_start - 1]
+            if line_end < len(line_text):
+                char_end = line_start_chars[line_end]
+            else:
+                char_end = total_chars
+
+    line_start, line_end = _char_span_to_line_span(raw_text, char_start, char_end)
+    byte_start = _char_to_byte_offset(raw_text, char_start)
+    byte_end = _char_to_byte_offset(raw_text, char_end)
+
+    section_match = sections[0]
+    for section in sections:
+        if line_start >= int(section["line_start"]) and line_start <= int(section["line_end"]):
+            section_match = section
+            break
+
+    return {
+        "section_id": section_match["id"],
+        "line_start": line_start,
+        "line_end": line_end,
+        "byte_start": byte_start,
+        "byte_end": byte_end,
+        "exact_match": exact_match,
+    }
+
+
+def build_provenance_map(raw_text: str, anchored_text: str) -> dict:
+    line_text, line_start_chars, total_chars = _line_text_with_offsets(raw_text)
+    sections = _build_sections(raw_text, line_text, line_start_chars, total_chars)
+    segments = _extract_anchor_segments(anchored_text)
+
+    provenance_segments = []
+    for idx, segment in enumerate(segments, start=1):
+        source = _map_segment_to_source(
+            segment["text"],
+            raw_text,
+            line_text,
+            line_start_chars,
+            total_chars,
+            sections,
+        )
+        preview = segment["text"][:PROVENANCE_PREVIEW_MAX_CHARS]
+        provenance_segments.append(
+            {
+                "id": f"seg-{segment['depth']}-{idx:04d}",
+                "depth": segment["depth"],
+                "preview": preview,
+                "content_sha256": _sha256_text(segment["text"]),
+                "source": source,
+            }
+        )
+
+    major_sections = [s for s in sections if bool(s.get("major"))]
+    covered_major = {
+        segment["source"]["section_id"]
+        for segment in provenance_segments
+        if int(segment.get("depth", 0)) >= 1
+    }
+    missing_major = [s["id"] for s in major_sections if s["id"] not in covered_major]
+
+    section_summary = [
+        {
+            "id": section["id"],
+            "title": section["title"],
+            "level": int(section["level"]),
+            "major": bool(section["major"]),
+            "line_start": int(section["line_start"]),
+            "line_end": int(section["line_end"]),
+        }
+        for section in sections
+    ]
+    return {
+        "version": PROVENANCE_VERSION,
+        "segments": provenance_segments,
+        "sections": section_summary,
+        "coverage": {
+            "major_section_ids": [s["id"] for s in major_sections],
+            "covered_major_section_ids": sorted(covered_major),
+            "missing_major_section_ids": missing_major,
+            "all_major_sections_represented": len(missing_major) == 0,
+        },
+    }
+
+
 def manifest_path_for(filename: str) -> Path:
     return FILES_DIR / f"{filename}{MANIFEST_SUFFIX}"
 
@@ -161,6 +486,7 @@ def build_processing_manifest(
             "sha256": _sha256_text(anchored_text),
         },
         "levels": _level_metrics(tokens_by_depth),
+        "provenance": build_provenance_map(raw_text, anchored_text),
         "recoverability": {
             "raw_exists": (FILES_DIR / filename).is_file(),
             "full_recoverable": True,

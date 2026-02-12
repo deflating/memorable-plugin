@@ -10,9 +10,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_DIR = REPO_ROOT / "plugin"
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 if str(PLUGIN_DIR) not in sys.path:
     sys.path.insert(0, str(PLUGIN_DIR))
 
+from processor import anchor  # noqa: E402
 import server_api  # noqa: E402
 import server_http  # noqa: E402
 import server_storage  # noqa: E402
@@ -45,6 +48,9 @@ class EndToEndSmokeTests(unittest.TestCase):
             "server_api.CONFIG_PATH": server_api.CONFIG_PATH,
             "server_http.DATA_DIR": server_http.DATA_DIR,
             "server_http.FILES_DIR": server_http.FILES_DIR,
+            "anchor.DATA_DIR": anchor.DATA_DIR,
+            "anchor.FILES_DIR": anchor.FILES_DIR,
+            "anchor.LLM_CONFIG_PATH": anchor.LLM_CONFIG_PATH,
         }
 
         server_storage.DATA_DIR = self.data_dir
@@ -63,6 +69,9 @@ class EndToEndSmokeTests(unittest.TestCase):
         server_api.CONFIG_PATH = self.config_path
         server_http.DATA_DIR = self.data_dir
         server_http.FILES_DIR = self.files_dir
+        anchor.DATA_DIR = self.data_dir
+        anchor.FILES_DIR = self.files_dir
+        anchor.LLM_CONFIG_PATH = self.config_path
 
         server_storage.ensure_dirs()
 
@@ -95,6 +104,9 @@ class EndToEndSmokeTests(unittest.TestCase):
         server_api.CONFIG_PATH = self._orig_values["server_api.CONFIG_PATH"]
         server_http.DATA_DIR = self._orig_values["server_http.DATA_DIR"]
         server_http.FILES_DIR = self._orig_values["server_http.FILES_DIR"]
+        anchor.DATA_DIR = self._orig_values["anchor.DATA_DIR"]
+        anchor.FILES_DIR = self._orig_values["anchor.FILES_DIR"]
+        anchor.LLM_CONFIG_PATH = self._orig_values["anchor.LLM_CONFIG_PATH"]
 
         self.temp.cleanup()
 
@@ -178,6 +190,24 @@ class EndToEndSmokeTests(unittest.TestCase):
         self.assertEqual("doc.md", levels["filename"])
         self.assertIn("levels", levels)
         self.assertTrue(levels["recoverability"]["full_recoverable"])
+
+        status, process_payload = self._request_json("POST", "/api/files/doc.md/process")
+        self.assertEqual(200, status)
+        self.assertEqual("ok", process_payload["status"])
+
+        status, provenance = self._request_json("GET", "/api/files/doc.md/provenance")
+        self.assertEqual(200, status)
+        self.assertIn("segments", provenance)
+        self.assertGreater(len(provenance["segments"]), 0)
+        first_segment_id = provenance["segments"][0]["id"]
+
+        status, resolved = self._request_json(
+            "GET",
+            f"/api/files/doc.md/provenance?segment_id={first_segment_id}&context_lines=1",
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(first_segment_id, resolved["segment"]["id"])
+        self.assertIn("text", resolved["excerpt"])
 
         status, cleanup_upload = self._request_json(
             "POST",
