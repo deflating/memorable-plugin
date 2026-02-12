@@ -2943,7 +2943,7 @@
       const depth = parseInt(select.value, 10);
       const enabledToggle = container.querySelector(`.file-enabled-toggle[data-filename="${filename}"]`);
       const enabled = enabledToggle ? enabledToggle.checked : false;
-      await runMutationAction(
+      const outcome = await runMutationAction(
         () => apiFetch(`/api/files/${encodeURIComponent(filename)}/depth`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -2954,6 +2954,12 @@
           failureMessage: 'Could not update depth',
         }
       );
+      if (outcome.ok) {
+        const card = select.closest('.file-card');
+        if (card && card.classList.contains('expanded')) {
+          await refreshSemanticFilePreview(card, { keepExisting: true, preserveScroll: true });
+        }
+      }
     });
 
     bindAll(container, '.file-enabled-toggle', 'change', async (e, toggle) => {
@@ -3012,7 +3018,22 @@
     }
 
     card.classList.add('expanded');
-    bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Loading preview...</div>';
+    await refreshSemanticFilePreview(card);
+  }
+
+  async function refreshSemanticFilePreview(card, options = {}) {
+    const { keepExisting = false, preserveScroll = false } = options;
+    const filename = card.dataset.filename;
+    const bodyId = 'file-body-' + filename.replace(/\./g, '-');
+    const bodyEl = document.getElementById(bodyId);
+    if (!bodyEl) return;
+
+    const anchorTopBefore = preserveScroll ? card.getBoundingClientRect().top : 0;
+    const scrollYBefore = preserveScroll ? window.scrollY : 0;
+
+    if (!keepExisting || !bodyEl.innerHTML.trim()) {
+      bodyEl.innerHTML = '<div style="padding:12px;color:var(--text-muted);">Loading preview...</div>';
+    }
 
     const depthSelect = card.querySelector('.file-depth-select');
     const selectedDepth = depthSelect ? Number.parseInt(depthSelect.value, 10) : -1;
@@ -3036,6 +3057,13 @@
       <div class="file-preview-content ${isRaw ? 'file-preview-raw' : 'rendered-md'}">${isRaw ? esc(data.content) : markdownToHtml(data.content)}</div>
       <div class="file-preview-meta">${data.tokens} tokens (${depthLabel})</div>
     `;
+    if (preserveScroll) {
+      const anchorTopAfter = card.getBoundingClientRect().top;
+      const delta = anchorTopAfter - anchorTopBefore;
+      if (Math.abs(delta) > 1) {
+        window.scrollTo(0, scrollYBefore + delta);
+      }
+    }
   }
 
   function uploadSemanticFileWithProgress(file, onProgress) {
