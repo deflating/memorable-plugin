@@ -27,12 +27,9 @@ from urllib.parse import parse_qs, urlparse, unquote
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "daemon"))
-from processor.anchor import (
-    extract_at_depth as _extract_at_depth,
-    MANIFEST_SUFFIX as _ANCHOR_MANIFEST_SUFFIX,
+from processor.levels import (
+    LEVELS_SUFFIX as _LEVELS_SUFFIX,
     process_file as _process_file,
-    read_file_at_depth as _read_file_at_depth,
-    estimate_tokens as _anchor_estimate_tokens,
 )
 from server_storage import (
     CHARS_PER_TOKEN,
@@ -64,7 +61,7 @@ NOTE_SALIENCE_STEP = 0.25
 NOTE_SALIENCE_MIN = 0.0
 NOTE_SALIENCE_MAX = 3.0
 METRICS_RETENTION_LIMIT = 500
-SEMANTIC_DEPTH_VALUES = (-1, 0, 1, 2, 3)
+SEMANTIC_DEPTH_VALUES = tuple([-1] + list(range(1, 51)))
 DEFAULT_SEMANTIC_DEPTH = 1
 DEFAULT_PROVENANCE_CONTEXT_LINES = 1
 MAX_PROVENANCE_CONTEXT_LINES = 20
@@ -182,8 +179,9 @@ def record_lag_incident(last_activity_dt: datetime, lag_seconds: int | None):
 def is_internal_context_artifact(filename: str) -> bool:
     """Return True for internal helper files in the context directory."""
     return (
-        filename.endswith(".anchored")
-        or filename.endswith(_ANCHOR_MANIFEST_SUFFIX)
+        filename.endswith(_LEVELS_SUFFIX)
+        or filename.endswith(".anchored")
+        or filename.endswith(".anchored.meta.json")
         or filename.startswith(".cache-")
     )
 
@@ -235,8 +233,8 @@ def ensure_context_file_entry(
     return True, normalize_semantic_depth(depth, DEFAULT_SEMANTIC_DEPTH), bool(enabled)
 
 
-def read_file_manifest(filename: str) -> dict | None:
-    path = FILES_DIR / (filename + _ANCHOR_MANIFEST_SUFFIX)
+def read_file_levels(filename: str) -> dict | None:
+    path = FILES_DIR / (filename + _LEVELS_SUFFIX)
     if not path.is_file():
         return None
     try:
@@ -244,6 +242,24 @@ def read_file_manifest(filename: str) -> dict | None:
     except Exception:
         return None
     return loaded if isinstance(loaded, dict) else None
+
+
+def read_file_at_level(filename: str, level: int) -> str | None:
+    levels_doc = read_file_levels(filename)
+    if isinstance(levels_doc, dict) and level >= 1:
+        content = levels_doc.get("content", {})
+        if isinstance(content, dict):
+            selected = content.get(str(level))
+            if isinstance(selected, str):
+                return selected
+
+    raw_path = FILES_DIR / filename
+    if not raw_path.is_file():
+        return None
+    try:
+        return raw_path.read_text(encoding="utf-8")
+    except Exception:
+        return None
 
 
 def parse_context_lines(query_params: dict) -> int:
@@ -849,7 +865,7 @@ def parse_llm_provider_patch(raw):
     return patch, None
 
 
-_ALLOWED_LLM_ROUTE_KEYS = {"session_notes", "now_md", "anchors"}
+_ALLOWED_LLM_ROUTE_KEYS = {"session_notes", "now_md", "document_levels", "anchors"}
 
 
 def _normalize_llm_route(value: str) -> str:
@@ -874,7 +890,7 @@ def parse_llm_routing_patch(raw):
             return None, error_response(
                 "INVALID_LLM_ROUTING_KEY",
                 f"Invalid llm_routing field: {key}",
-                "Allowed llm_routing fields: session_notes, now_md, anchors.",
+                "Allowed llm_routing fields: session_notes, now_md, document_levels.",
             )
         parsed, err = parse_string_setting(value, f"llm_routing.{key}")
         if err:
@@ -886,7 +902,8 @@ def parse_llm_routing_patch(raw):
                 f"Invalid llm_routing.{key}",
                 "Allowed values: deepseek, gemini, claude_cli (or claude), claude_api.",
             )
-        patch[key] = normalized
+        target_key = "document_levels" if key == "anchors" else key
+        patch[target_key] = normalized
     return patch, None
 
 
@@ -981,8 +998,8 @@ def parse_settings_patch(body: dict):
         parsed, err = parse_int_setting(
             body["semantic_default_depth"],
             "semantic_default_depth",
-            -1,
-            3,
+            1,
+            50,
         )
         if err:
             return None, err
@@ -1444,7 +1461,7 @@ def handle_get_health():
 
 
 def handle_get_files():
-    """GET /api/files — list uploaded context files with metadata + anchor info."""
+    """GET /api/files — list uploaded context files with levels metadata."""
     files = []
     if not FILES_DIR.is_dir():
         return 200, {"files": files}
@@ -1474,24 +1491,25 @@ def handle_get_files():
             except (UnicodeDecodeError, Exception):
                 pass
 
-            anchored_path = FILES_DIR / (f.name + ".anchored")
-            is_anchored = anchored_path.is_file()
-
-            # Token counts at each depth if anchored
-            tokens_by_depth = None
-            if is_anchored:
-                try:
-                    anch_text = anchored_path.read_text(encoding="utf-8")
-                    tokens_by_depth = {}
-                    for d in range(4):
-                        extracted = _extract_at_depth(anch_text, d)
-                        tokens_by_depth[str(d)] = _anchor_estimate_tokens(extracted)
-                except Exception:
-                    pass
+            levels_doc = read_file_levels(f.name)
+            level_count = 0
+            tokens_by_level = {}
+            if isinstance(levels_doc, dict):
+                level_count = int(levels_doc.get("levels", 0) or 0)
+                tokens_map = levels_doc.get("tokens", {})
+                if isinstance(tokens_map, dict):
+                    for key, value in tokens_map.items():
+                        if isinstance(key, str) and isinstance(value, int):
+                            tokens_by_level[key] = value
 
             # Config for this file
             cf = context_files.get(f.name, {})
-            manifest_path = FILES_DIR / (f.name + _ANCHOR_MANIFEST_SUFFIX)
+            configured_depth = normalize_semantic_depth(
+                cf.get("depth", default_depth),
+                default_depth,
+            )
+            if level_count > 0 and configured_depth > level_count:
+                configured_depth = level_count
 
             files.append({
                 "name": f.name,
@@ -1500,11 +1518,12 @@ def handle_get_files():
                 "modified": datetime.fromtimestamp(
                     stat.st_mtime, tz=timezone.utc
                 ).isoformat(),
-                "anchored": is_anchored,
-                "tokens_by_depth": tokens_by_depth,
-                "depth": normalize_semantic_depth(cf.get("depth", default_depth), default_depth),
+                "processed": bool(levels_doc),
+                "levels": level_count,
+                "tokens_by_level": tokens_by_level or None,
+                "depth": configured_depth,
                 "enabled": bool(cf.get("enabled", False)),
-                "manifest": manifest_path.is_file(),
+                "levels_file": bool(levels_doc),
             })
         except Exception:
             continue
@@ -1655,7 +1674,7 @@ def handle_post_file_upload(handler):
 
 
 def handle_process_file(filename: str):
-    """POST /api/files/<filename>/process — trigger LLM anchor processing."""
+    """POST /api/files/<filename>/process — generate hierarchical semantic levels."""
     safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
     if not safe:
         return 400, error_response(
@@ -1732,49 +1751,28 @@ def handle_get_file_levels(filename: str):
     raw_text = raw_bytes.decode("utf-8", errors="replace")
     full_tokens = estimate_tokens(raw_text)
     source_hash = hashlib.sha256(raw_bytes).hexdigest()
-    levels = {
-        "full": {
-            "tokens": full_tokens,
-            "compression_ratio": 1.0,
-        }
-    }
-
-    anchored_path = FILES_DIR / (safe + ".anchored")
-    anchored = anchored_path.is_file()
-    if anchored:
-        try:
-            anchored_text = anchored_path.read_text(encoding="utf-8")
-            denom = max(1, full_tokens)
-            for depth in range(4):
-                extracted = _extract_at_depth(anchored_text, depth)
-                tokens = _anchor_estimate_tokens(extracted)
-                levels[str(depth)] = {
-                    "tokens": tokens,
-                    "compression_ratio": round(tokens / float(denom), 4),
+    levels_doc = read_file_levels(safe)
+    levels = {}
+    level_count = 0
+    model = None
+    generated_at = None
+    if isinstance(levels_doc, dict):
+        level_count = int(levels_doc.get("levels", 0) or 0)
+        model = levels_doc.get("model")
+        generated_at = levels_doc.get("generated_at")
+        tokens_map = levels_doc.get("tokens", {})
+        if isinstance(tokens_map, dict):
+            for key, value in tokens_map.items():
+                if not isinstance(key, str) or not isinstance(value, int):
+                    continue
+                if key == "full":
+                    continue
+                denom = max(1, full_tokens)
+                levels[key] = {
+                    "tokens": value,
+                    "compression_ratio": round(value / float(denom), 4),
                 }
-        except Exception:
-            anchored = False
-
-    manifest = read_file_manifest(safe)
-    source_hash_matches_manifest = None
-    if isinstance(manifest, dict):
-        src = manifest.get("source", {})
-        if isinstance(src, dict):
-            manifest_hash = src.get("sha256")
-            if isinstance(manifest_hash, str) and manifest_hash:
-                source_hash_matches_manifest = manifest_hash == source_hash
-    provenance = manifest.get("provenance", {}) if isinstance(manifest, dict) else {}
-    coverage = provenance.get("coverage", {}) if isinstance(provenance, dict) else {}
-    all_sections_covered = None
-    if isinstance(coverage, dict):
-        value = coverage.get("all_major_sections_represented")
-        if isinstance(value, bool):
-            all_sections_covered = value
-    segment_count = 0
-    if isinstance(provenance, dict):
-        segments = provenance.get("segments", [])
-        if isinstance(segments, list):
-            segment_count = len(segments)
+    levels["full"] = {"tokens": full_tokens, "compression_ratio": 1.0}
 
     config = load_config()
     configured_depth = semantic_default_depth(config)
@@ -1785,12 +1783,15 @@ def handle_get_file_levels(filename: str):
         if entry.get("filename") != safe:
             continue
         configured_depth = normalize_semantic_depth(entry.get("depth", configured_depth), configured_depth)
+        if level_count > 0 and configured_depth > level_count:
+            configured_depth = level_count
         configured_enabled = bool(entry.get("enabled", False))
         break
 
     return 200, {
         "filename": safe,
-        "anchored": anchored,
+        "processed": bool(levels_doc),
+        "levels_count": level_count,
         "levels": levels,
         "default_depth": configured_depth,
         "enabled": configured_enabled,
@@ -1798,142 +1799,28 @@ def handle_get_file_levels(filename: str):
             "raw_exists": True,
             "full_recoverable": True,
             "source_sha256": source_hash,
-            "manifest_present": bool(manifest),
-            "source_hash_matches_manifest": source_hash_matches_manifest,
+            "levels_file_present": bool(levels_doc),
         },
-        "provenance": {
-            "segment_count": segment_count,
-            "all_major_sections_represented": all_sections_covered,
-        },
-        "manifest": manifest,
+        "generated_at": generated_at,
+        "model": model,
+        "levels_doc": levels_doc,
     }
 
 
 def handle_get_file_provenance(filename: str, query_params: dict):
-    """GET /api/files/<filename>/provenance — list segments or resolve one segment."""
-    safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
-    if not safe:
-        return 400, error_response(
-            "INVALID_FILENAME",
-            "Invalid filename",
-            "Use only alphanumeric characters, dash, underscore, and dot.",
-        )
-
-    raw_path = FILES_DIR / safe
-    if not raw_path.is_file():
-        return 404, error_response(
-            "FILE_NOT_FOUND",
-            "File not found",
-            "Check the filename and upload the file if needed.",
-        )
-
-    manifest = read_file_manifest(safe)
-    if not isinstance(manifest, dict):
-        return 404, error_response(
-            "MANIFEST_NOT_FOUND",
-            "File manifest not found",
-            "Process this file first to generate provenance metadata.",
-        )
-
-    provenance = manifest.get("provenance", {})
-    if not isinstance(provenance, dict):
-        return 404, error_response(
-            "PROVENANCE_NOT_FOUND",
-            "Provenance metadata not found",
-            "Re-process this file to regenerate provenance metadata.",
-        )
-
-    segments = provenance.get("segments", [])
-    sections = provenance.get("sections", [])
-    coverage = provenance.get("coverage", {})
-    if not isinstance(segments, list):
-        segments = []
-    if not isinstance(sections, list):
-        sections = []
-    if not isinstance(coverage, dict):
-        coverage = {}
-
-    segment_id = query_params.get("segment_id", [""])[0].strip()
-    if segment_id:
-        selected = None
-        for segment in segments:
-            if isinstance(segment, dict) and segment.get("id") == segment_id:
-                selected = segment
-                break
-        if not isinstance(selected, dict):
-            return 404, error_response(
-                "SEGMENT_NOT_FOUND",
-                "Segment not found",
-                "Check segment_id and retry with a segment returned by /provenance.",
-            )
-
-        source = selected.get("source", {})
-        if not isinstance(source, dict):
-            return 500, error_response(
-                "INVALID_SEGMENT_SOURCE",
-                "Segment source metadata is invalid",
-                "Re-process this file to regenerate segment source metadata.",
-            )
-
-        try:
-            line_start = int(source.get("line_start", 1) or 1)
-        except (TypeError, ValueError):
-            line_start = 1
-        try:
-            line_end = int(source.get("line_end", line_start) or line_start)
-        except (TypeError, ValueError):
-            line_end = line_start
-        if line_end < line_start:
-            line_end = line_start
-
-        raw_text = raw_path.read_text(encoding="utf-8", errors="replace")
-        lines = raw_text.splitlines()
-        if not lines:
-            lines = [""]
-        context_lines = parse_context_lines(query_params)
-        excerpt_start = max(1, line_start - context_lines)
-        excerpt_end = min(len(lines), line_end + context_lines)
-        excerpt_text = "\n".join(lines[excerpt_start - 1:excerpt_end]).strip()
-
-        return 200, {
-            "filename": safe,
-            "segment": selected,
-            "excerpt": {
-                "line_start": excerpt_start,
-                "line_end": excerpt_end,
-                "context_lines": context_lines,
-                "text": excerpt_text,
-            },
-        }
-
-    segment_summaries = []
-    for segment in segments:
-        if not isinstance(segment, dict):
-            continue
-        segment_summaries.append(
-            {
-                "id": segment.get("id"),
-                "depth": segment.get("depth"),
-                "preview": segment.get("preview"),
-                "content_sha256": segment.get("content_sha256"),
-                "source": segment.get("source"),
-            }
-        )
-
-    return 200, {
-        "filename": safe,
-        "sections": sections,
-        "coverage": coverage,
-        "segments": segment_summaries,
-    }
+    """Provenance endpoint retired with levels-based redesign."""
+    return 410, error_response(
+        "PROVENANCE_RETIRED",
+        "Provenance endpoint retired",
+        "Use /api/files/<filename>/levels and /api/files/<filename>/preview for levels-based retrieval.",
+    )
 
 
 def handle_preview_file(filename: str, query_params: dict):
-    """GET /api/files/<filename>/preview — preview at a depth.
+    """GET /api/files/<filename>/preview — preview at a selected semantic level.
 
     Query params:
-      depth=N  — extract at this depth (0-3, or -1/full for raw)
-      raw=true — return the .anchored file as-is with ⚓ tags visible
+      depth=N  — level number (1..N), or -1/full for raw fallback
     """
     safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
     if not safe:
@@ -1943,25 +1830,13 @@ def handle_preview_file(filename: str, query_params: dict):
             "Use only alphanumeric characters, dash, underscore, and dot.",
         )
 
-    # raw=true returns the anchored file with tags intact
-    if query_params.get("raw", [""])[0] == "true":
-        anchored_path = FILES_DIR / (safe + ".anchored")
-        if anchored_path.is_file():
-            content = anchored_path.read_text(encoding="utf-8")
-            return 200, {
-                "content": content,
-                "tokens": estimate_tokens(content),
-                "depth": "raw",
-            }
-        # Fall through to raw file if no .anchored exists
-
     depth_str = query_params.get("depth", ["1"])[0]
     try:
         depth = int(depth_str)
     except ValueError:
         depth = -1 if depth_str == "full" else 1
 
-    content = _read_file_at_depth(safe, depth)
+    content = read_file_at_level(safe, depth)
     if content is None:
         return 404, error_response(
             "FILE_NOT_FOUND",
@@ -1993,13 +1868,13 @@ def handle_put_file_depth(filename: str, body: dict):
         return 400, error_response(
             "INVALID_DEPTH",
             "Invalid depth value",
-            "Send depth as one of: -1, 0, 1, 2, 3.",
+            "Send depth as -1 (raw) or an integer level >= 1.",
         )
     if depth not in SEMANTIC_DEPTH_VALUES:
         return 400, error_response(
             "INVALID_DEPTH",
             "Invalid depth value",
-            "Send depth as one of: -1, 0, 1, 2, 3.",
+            "Send depth as -1 (raw) or an integer level between 1 and 50.",
         )
 
     enabled = body.get("enabled", True)
@@ -2116,7 +1991,7 @@ def handle_post_process(body: dict):
     """
     content = body.get("content", "")
     filename = body.get("filename", "document.md")
-    depth = body.get("anchor_depth", 3)
+    level = body.get("level", 1)
 
     if not isinstance(content, str):
         return 400, error_response(
@@ -2151,7 +2026,7 @@ def handle_post_process(body: dict):
         {
             "filename": safe_name,
             "tokens": estimate_tokens(content),
-            "anchor_depth": depth,
+            "level": level,
         },
     )
 
@@ -2159,9 +2034,9 @@ def handle_post_process(body: dict):
         "ok": True,
         "stored": str(original_path),
         "tokens": estimate_tokens(content),
-        "anchor_depth": depth,
+        "level": level,
         "status": "stored",
-        "message": "Document stored. Use the processor to extract anchors.",
+        "message": "Document stored. Use the processor to generate semantic levels.",
     }
 
 
@@ -2206,15 +2081,22 @@ def handle_get_budget():
 
         # Check FILES_DIR first (semantic file), then fall back to seeds
         raw_path = FILES_DIR / filename
-        anchored_path = FILES_DIR / (filename + ".anchored")
+        levels_doc = read_file_levels(filename)
         seed_path = SEEDS_DIR / filename
 
         try:
             if raw_path.is_file():
-                if depth is not None and depth >= 0 and anchored_path.is_file():
-                    anchored_text = anchored_path.read_text(encoding="utf-8")
-                    extracted = _extract_at_depth(anchored_text, depth)
-                    tokens = estimate_tokens(extracted)
+                if depth is not None and int(depth) >= 1 and isinstance(levels_doc, dict):
+                    level_content = levels_doc.get("content", {})
+                    if isinstance(level_content, dict):
+                        selected = level_content.get(str(int(depth)))
+                    else:
+                        selected = None
+                    if isinstance(selected, str):
+                        tokens = estimate_tokens(selected)
+                    else:
+                        content = raw_path.read_text(encoding="utf-8")
+                        tokens = estimate_tokens(content)
                 else:
                     content = raw_path.read_text(encoding="utf-8")
                     tokens = estimate_tokens(content)

@@ -39,7 +39,7 @@ if [ ! -f "$DATA_DIR/config.json" ]; then
   "llm_routing": {
     "session_notes": "deepseek",
     "now_md": "deepseek",
-    "anchors": "deepseek"
+    "document_levels": "deepseek"
   },
   "claude_cli": {
     "command": "claude",

@@ -15,7 +15,7 @@ if str(REPO_ROOT) not in sys.path:
 if str(PLUGIN_DIR) not in sys.path:
     sys.path.insert(0, str(PLUGIN_DIR))
 
-from processor import anchor  # noqa: E402
+from processor import levels as levels_processor  # noqa: E402
 import server_api  # noqa: E402
 import server_http  # noqa: E402
 import server_storage  # noqa: E402
@@ -48,9 +48,10 @@ class EndToEndSmokeTests(unittest.TestCase):
             "server_api.CONFIG_PATH": server_api.CONFIG_PATH,
             "server_http.DATA_DIR": server_http.DATA_DIR,
             "server_http.FILES_DIR": server_http.FILES_DIR,
-            "anchor.DATA_DIR": anchor.DATA_DIR,
-            "anchor.FILES_DIR": anchor.FILES_DIR,
-            "anchor.LLM_CONFIG_PATH": anchor.LLM_CONFIG_PATH,
+            "levels.DATA_DIR": levels_processor.DATA_DIR,
+            "levels.FILES_DIR": levels_processor.FILES_DIR,
+            "levels.LLM_CONFIG_PATH": levels_processor.LLM_CONFIG_PATH,
+            "levels.call_llm": levels_processor.call_llm,
         }
 
         server_storage.DATA_DIR = self.data_dir
@@ -69,9 +70,21 @@ class EndToEndSmokeTests(unittest.TestCase):
         server_api.CONFIG_PATH = self.config_path
         server_http.DATA_DIR = self.data_dir
         server_http.FILES_DIR = self.files_dir
-        anchor.DATA_DIR = self.data_dir
-        anchor.FILES_DIR = self.files_dir
-        anchor.LLM_CONFIG_PATH = self.config_path
+        levels_processor.DATA_DIR = self.data_dir
+        levels_processor.FILES_DIR = self.files_dir
+        levels_processor.LLM_CONFIG_PATH = self.config_path
+        levels_processor.call_llm = lambda prompt, max_tokens=4096: (
+            json.dumps(
+                {
+                    "levels": 2,
+                    "content": {
+                        "1": "Short summary",
+                        "2": "Longer summary",
+                    },
+                }
+            ),
+            "test-levels-model",
+        )
 
         server_storage.ensure_dirs()
 
@@ -104,9 +117,10 @@ class EndToEndSmokeTests(unittest.TestCase):
         server_api.CONFIG_PATH = self._orig_values["server_api.CONFIG_PATH"]
         server_http.DATA_DIR = self._orig_values["server_http.DATA_DIR"]
         server_http.FILES_DIR = self._orig_values["server_http.FILES_DIR"]
-        anchor.DATA_DIR = self._orig_values["anchor.DATA_DIR"]
-        anchor.FILES_DIR = self._orig_values["anchor.FILES_DIR"]
-        anchor.LLM_CONFIG_PATH = self._orig_values["anchor.LLM_CONFIG_PATH"]
+        levels_processor.DATA_DIR = self._orig_values["levels.DATA_DIR"]
+        levels_processor.FILES_DIR = self._orig_values["levels.FILES_DIR"]
+        levels_processor.LLM_CONFIG_PATH = self._orig_values["levels.LLM_CONFIG_PATH"]
+        levels_processor.call_llm = self._orig_values["levels.call_llm"]
 
         self.temp.cleanup()
 
@@ -194,20 +208,18 @@ class EndToEndSmokeTests(unittest.TestCase):
         status, process_payload = self._request_json("POST", "/api/files/doc.md/process")
         self.assertEqual(200, status)
         self.assertEqual("ok", process_payload["status"])
+        self.assertEqual(2, process_payload["levels"])
 
-        status, provenance = self._request_json("GET", "/api/files/doc.md/provenance")
+        status, post_levels = self._request_json("GET", "/api/files/doc.md/levels")
         self.assertEqual(200, status)
-        self.assertIn("segments", provenance)
-        self.assertGreater(len(provenance["segments"]), 0)
-        first_segment_id = provenance["segments"][0]["id"]
+        self.assertTrue(post_levels["processed"])
+        self.assertEqual(2, post_levels["levels_count"])
+        self.assertEqual("test-levels-model", post_levels["model"])
+        self.assertIn("1", post_levels["levels"])
 
-        status, resolved = self._request_json(
-            "GET",
-            f"/api/files/doc.md/provenance?segment_id={first_segment_id}&context_lines=1",
-        )
+        status, preview = self._request_json("GET", "/api/files/doc.md/preview?depth=1")
         self.assertEqual(200, status)
-        self.assertEqual(first_segment_id, resolved["segment"]["id"])
-        self.assertIn("text", resolved["excerpt"])
+        self.assertIn("Short summary", preview["content"])
 
         status, cleanup_upload = self._request_json(
             "POST",
@@ -216,19 +228,19 @@ class EndToEndSmokeTests(unittest.TestCase):
         )
         self.assertEqual(200, status)
         self.assertTrue(cleanup_upload["ok"])
-        (self.files_dir / "cleanup.md.anchored").write_text(
-            "\u26930\ufe0f\u20e3 temp\nt \u2693",
-            encoding="utf-8",
-        )
-        (self.files_dir / "cleanup.md.anchored.meta.json").write_text(
-            "{}",
+        (self.files_dir / "cleanup.md.levels.json").write_text(
+            json.dumps(
+                {
+                    "levels": 2,
+                    "content": {"1": "temp", "2": "temp"},
+                }
+            ),
             encoding="utf-8",
         )
         status, delete_payload = self._request_json("DELETE", "/api/files/cleanup.md")
         self.assertEqual(200, status)
         self.assertTrue(delete_payload["ok"])
-        self.assertTrue(delete_payload["anchored_deleted"])
-        self.assertTrue(delete_payload["manifest_deleted"])
+        self.assertTrue(delete_payload["levels_deleted"])
 
         status, depth_update = self._request_json(
             "PUT",

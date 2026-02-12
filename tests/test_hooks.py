@@ -122,7 +122,8 @@ class SessionStartSelectionTests(unittest.TestCase):
     def test_parse_context_depth_clamps_invalid_values(self):
         self.assertEqual(2, session_start.parse_context_depth("2", -1))
         self.assertEqual(-1, session_start.parse_context_depth("banana", -1))
-        self.assertEqual(-1, session_start.parse_context_depth(9, -1))
+        self.assertEqual(9, session_start.parse_context_depth(9, -1))
+        self.assertEqual(-1, session_start.parse_context_depth(99, -1))
 
     def test_core_seed_paths_includes_knowledge_seed_when_present(self):
         with tempfile.TemporaryDirectory() as td:
@@ -151,20 +152,12 @@ class SessionStartSelectionTests(unittest.TestCase):
 
             for filename in ("high.md", "low.md"):
                 (files_dir / filename).write_text("# Title\n\nBody", encoding="utf-8")
-                (files_dir / f"{filename}.anchored").write_text(
-                    "⚓0️⃣ tags\nsummary ⚓\n⚓1️⃣ one ⚓\n⚓2️⃣ two ⚓\n⚓3️⃣ three ⚓\n",
-                    encoding="utf-8",
-                )
-                (files_dir / f"{filename}.anchored.meta.json").write_text(
+                (files_dir / f"{filename}.levels.json").write_text(
                     json.dumps(
                         {
-                            "levels": {
-                                "0": {"tokens": 20},
-                                "1": {"tokens": 60},
-                                "2": {"tokens": 120},
-                                "3": {"tokens": 240},
-                                "full": {"tokens": 320},
-                            }
+                            "levels": 3,
+                            "tokens": {"1": 40, "2": 100, "3": 220},
+                            "content": {"1": "summary", "2": "detail", "3": "full-ish"},
                         }
                     ),
                     encoding="utf-8",
@@ -187,7 +180,7 @@ class SessionStartSelectionTests(unittest.TestCase):
             semantic_entries = [item for item in plan if item.get("type") == "semantic"]
             by_file = {item["filename"]: item for item in semantic_entries}
             self.assertEqual(3, by_file["high.md"]["depth"])
-            self.assertEqual(0, by_file["low.md"]["depth"])
+            self.assertEqual(1, by_file["low.md"]["depth"])
             self.assertEqual("deescalated_for_budget", by_file["low.md"]["reason"])
 
     def test_build_context_plan_escalates_high_relevance_with_headroom(self):
@@ -202,30 +195,22 @@ class SessionStartSelectionTests(unittest.TestCase):
 
             for filename in ("high.md", "low.md"):
                 (files_dir / filename).write_text("# Title\n\nBody", encoding="utf-8")
-                (files_dir / f"{filename}.anchored").write_text(
-                    "⚓0️⃣ tags\nsummary ⚓\n⚓1️⃣ one ⚓\n⚓2️⃣ two ⚓\n⚓3️⃣ three ⚓\n",
-                    encoding="utf-8",
-                )
-                (files_dir / f"{filename}.anchored.meta.json").write_text(
+                (files_dir / f"{filename}.levels.json").write_text(
                     json.dumps(
                         {
-                            "levels": {
-                                "0": {"tokens": 20},
-                                "1": {"tokens": 60},
-                                "2": {"tokens": 120},
-                                "3": {"tokens": 180},
-                                "full": {"tokens": 260},
-                            }
+                            "levels": 3,
+                            "tokens": {"1": 30, "2": 70, "3": 110},
+                            "content": {"1": "summary", "2": "detail", "3": "full-ish"},
                         }
                     ),
                     encoding="utf-8",
                 )
 
             config = {
-                "token_budget": 200,
+                "token_budget": 150,
                 "context_files": [
-                    {"filename": "high.md", "depth": 0, "enabled": True},
-                    {"filename": "low.md", "depth": 0, "enabled": True},
+                    {"filename": "high.md", "depth": 1, "enabled": True},
+                    {"filename": "low.md", "depth": 1, "enabled": True},
                 ],
             }
 
@@ -238,7 +223,7 @@ class SessionStartSelectionTests(unittest.TestCase):
             semantic_entries = [item for item in plan if item.get("type") == "semantic"]
             by_file = {item["filename"]: item for item in semantic_entries}
             self.assertEqual(3, by_file["high.md"]["depth"])
-            self.assertEqual(0, by_file["low.md"]["depth"])
+            self.assertEqual(1, by_file["low.md"]["depth"])
             self.assertEqual("escalated_for_relevance", by_file["high.md"]["reason"])
 
 

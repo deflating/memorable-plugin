@@ -65,6 +65,16 @@ class ServerApiTests(unittest.TestCase):
             (files_dir / "doc.md").write_text("hello", encoding="utf-8")
             (files_dir / "doc.md.anchored").write_text("\u26930\ufe0f\u20e3 a\nb \u2693", encoding="utf-8")
             (files_dir / "doc.md.anchored.meta.json").write_text("{}", encoding="utf-8")
+            (files_dir / "doc.md.levels.json").write_text(
+                json.dumps(
+                    {
+                        "levels": 2,
+                        "tokens": {"1": 1, "2": 1},
+                        "content": {"1": "h", "2": "hello"},
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             server_api.FILES_DIR = files_dir
             server_api.load_config = lambda: {
@@ -74,8 +84,8 @@ class ServerApiTests(unittest.TestCase):
             status, data = server_api.handle_get_files()
             self.assertEqual(200, status)
             self.assertEqual(["doc.md"], [f["name"] for f in data["files"]])
-            self.assertTrue(data["files"][0]["anchored"])
-            self.assertTrue(data["files"][0]["manifest"])
+            self.assertTrue(data["files"][0]["processed"])
+            self.assertTrue(data["files"][0]["levels_file"])
 
     def test_handle_process_file_auto_configures_context_entry_with_default_depth(self):
         original_process_file = server_api._process_file
@@ -83,9 +93,9 @@ class ServerApiTests(unittest.TestCase):
             captured = {}
             server_api._process_file = lambda _name, force=False: {
                 "status": "ok",
-                "method": "llm",
-                "tokens_by_depth": {"full": 100, 0: 10, 1: 20, 2: 40, 3: 80},
-                "manifest_path": "/tmp/doc.md.anchored.meta.json",
+                "levels": 3,
+                "tokens_by_level": {"1": 10, "2": 30, "3": 60},
+                "levels_path": "/tmp/doc.md.levels.json",
                 "error": None,
             }
             server_api.load_config = lambda: {"semantic_default_depth": 3, "context_files": []}
@@ -108,23 +118,18 @@ class ServerApiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             files_dir = Path(td)
             raw_path = files_dir / "doc.md"
-            anchored_path = files_dir / "doc.md.anchored"
-            manifest_path = files_dir / "doc.md.anchored.meta.json"
+            levels_path = files_dir / "doc.md.levels.json"
             raw_text = "# Title\n\nBody"
             raw_path.write_text(raw_text, encoding="utf-8")
-            anchored_path.write_text(
-                "\u26930\ufe0f\u20e3 docs\nShort summary \u2693\n"
-                "\u26931\ufe0f\u20e3 Body details \u2693\n",
-                encoding="utf-8",
-            )
-            source_hash = hashlib.sha256(raw_path.read_bytes()).hexdigest()
-            manifest_path.write_text(
+            levels_path.write_text(
                 json.dumps(
                     {
-                        "version": 1,
                         "filename": "doc.md",
-                        "source": {"sha256": source_hash},
-                        "levels": {"full": {"tokens": 10, "compression_ratio": 1.0}},
+                        "levels": 3,
+                        "tokens": {"1": 3, "2": 6, "3": 9},
+                        "content": {"1": "a", "2": "ab", "3": "abc"},
+                        "generated_at": "2026-02-12T00:00:00+00:00",
+                        "model": "deepseek-chat",
                     }
                 ),
                 encoding="utf-8",
@@ -133,81 +138,24 @@ class ServerApiTests(unittest.TestCase):
             server_api.FILES_DIR = files_dir
             server_api.load_config = lambda: {
                 "semantic_default_depth": 2,
-                "context_files": [{"filename": "doc.md", "depth": 0, "enabled": True}],
+                "context_files": [{"filename": "doc.md", "depth": 2, "enabled": True}],
             }
 
             status, data = server_api.handle_get_file_levels("doc.md")
             self.assertEqual(200, status)
-            self.assertTrue(data["anchored"])
+            self.assertTrue(data["processed"])
             self.assertEqual("doc.md", data["filename"])
             self.assertIn("full", data["levels"])
-            self.assertIn("0", data["levels"])
-            self.assertEqual(0, data["default_depth"])
+            self.assertIn("1", data["levels"])
+            self.assertEqual(2, data["default_depth"])
             self.assertTrue(data["enabled"])
-            self.assertTrue(data["recoverability"]["manifest_present"])
-            self.assertTrue(data["recoverability"]["source_hash_matches_manifest"])
-            self.assertIsInstance(data["manifest"], dict)
-            self.assertIn("provenance", data)
-            self.assertIn("segment_count", data["provenance"])
+            self.assertTrue(data["recoverability"]["levels_file_present"])
+            self.assertIsInstance(data["levels_doc"], dict)
 
     def test_handle_get_file_provenance_lists_and_resolves_segment(self):
-        with tempfile.TemporaryDirectory() as td:
-            files_dir = Path(td)
-            raw_path = files_dir / "doc.md"
-            manifest_path = files_dir / "doc.md.anchored.meta.json"
-            raw_path.write_text(
-                "# Intro\nLine A\nLine B\n## Details\nLine C\nLine D\n",
-                encoding="utf-8",
-            )
-            manifest_path.write_text(
-                json.dumps(
-                    {
-                        "provenance": {
-                            "sections": [
-                                {"id": "sec-1", "title": "Intro", "major": True, "line_start": 1, "line_end": 3},
-                                {"id": "sec-2", "title": "Details", "major": True, "line_start": 4, "line_end": 6},
-                            ],
-                            "coverage": {
-                                "all_major_sections_represented": True,
-                                "missing_major_section_ids": [],
-                            },
-                            "segments": [
-                                {
-                                    "id": "seg-1-0001",
-                                    "depth": 1,
-                                    "preview": "Line C",
-                                    "content_sha256": "x",
-                                    "source": {
-                                        "section_id": "sec-2",
-                                        "line_start": 5,
-                                        "line_end": 5,
-                                        "byte_start": 0,
-                                        "byte_end": 6,
-                                        "exact_match": True,
-                                    },
-                                }
-                            ],
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-            server_api.FILES_DIR = files_dir
-
-            status, data = server_api.handle_get_file_provenance("doc.md", {})
-            self.assertEqual(200, status)
-            self.assertEqual(1, len(data["segments"]))
-            self.assertEqual("seg-1-0001", data["segments"][0]["id"])
-            self.assertTrue(data["coverage"]["all_major_sections_represented"])
-
-            status, data = server_api.handle_get_file_provenance(
-                "doc.md",
-                {"segment_id": ["seg-1-0001"], "context_lines": ["1"]},
-            )
-            self.assertEqual(200, status)
-            self.assertEqual("seg-1-0001", data["segment"]["id"])
-            self.assertIn("Line C", data["excerpt"]["text"])
-            self.assertIn("## Details", data["excerpt"]["text"])
+        status, data = server_api.handle_get_file_provenance("doc.md", {})
+        self.assertEqual(410, status)
+        self.assertEqual("PROVENANCE_RETIRED", data["error"]["code"])
 
     def test_handle_post_file_upload_rejects_invalid_content_length(self):
         handler = SimpleNamespace(
@@ -307,7 +255,7 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(400, status)
         self.assertEqual("INVALID_SERVER_PORT", data["error"]["code"])
 
-        status, data = server_api.handle_post_settings({"semantic_default_depth": 9})
+        status, data = server_api.handle_post_settings({"semantic_default_depth": 99})
         self.assertEqual(400, status)
         self.assertEqual("INVALID_SEMANTIC_DEFAULT_DEPTH", data["error"]["code"])
 
@@ -691,7 +639,7 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(400, status)
         self.assertEqual("INVALID_DEPTH", data["error"]["code"])
 
-        status, data = server_api.handle_put_file_depth("doc.md", {"depth": 9, "enabled": True})
+        status, data = server_api.handle_put_file_depth("doc.md", {"depth": 99, "enabled": True})
         self.assertEqual(400, status)
         self.assertEqual("INVALID_DEPTH", data["error"]["code"])
 

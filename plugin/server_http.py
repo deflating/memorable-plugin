@@ -10,7 +10,6 @@ from server_api import (
     handle_get_export,
     handle_get_files,
     handle_get_file_levels,
-    handle_get_file_provenance,
     handle_get_health,
     handle_get_metrics,
     handle_get_machines,
@@ -63,7 +62,7 @@ CONTENT_TYPES = {
     ".ttf": "font/ttf",
     ".map": "application/json",
 }
-ANCHOR_MANIFEST_SUFFIX = ".anchored.meta.json"
+LEVELS_FILE_SUFFIX = ".levels.json"
 
 
 class MemorableHandler(SimpleHTTPRequestHandler):
@@ -225,11 +224,6 @@ class MemorableHandler(SimpleHTTPRequestHandler):
             status, data = handle_get_file_levels(filename)
             return self.send_json(status, data)
 
-        if path.startswith("/api/files/") and path.endswith("/provenance"):
-            filename = unquote(path[len("/api/files/"):-len("/provenance")])
-            status, data = handle_get_file_provenance(filename, query_params)
-            return self.send_json(status, data)
-
         if path == "/api/budget":
             status, data = handle_get_budget()
             return self.send_json(status, data)
@@ -346,16 +340,11 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                     file_path = FILES_DIR / safe
                     if file_path.is_file():
                         file_path.unlink()
-                        anchored = FILES_DIR / (safe + ".anchored")
-                        manifest = FILES_DIR / (safe + ANCHOR_MANIFEST_SUFFIX)
-                        anchored_deleted = False
-                        manifest_deleted = False
-                        if anchored.is_file():
-                            anchored.unlink()
-                            anchored_deleted = True
-                        if manifest.is_file():
-                            manifest.unlink()
-                            manifest_deleted = True
+                        levels_file = FILES_DIR / (safe + LEVELS_FILE_SUFFIX)
+                        levels_deleted = False
+                        if levels_file.is_file():
+                            levels_file.unlink()
+                            levels_deleted = True
                         config = load_config()
                         cf = config.get("context_files", [])
                         config["context_files"] = [
@@ -366,8 +355,7 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                             "files.delete",
                             {
                                 "filename": safe,
-                                "anchored_deleted": anchored_deleted,
-                                "manifest_deleted": manifest_deleted,
+                                "levels_deleted": levels_deleted,
                             },
                         )
                         return self.send_json(
@@ -375,8 +363,7 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                             {
                                 "ok": True,
                                 "deleted": safe,
-                                "anchored_deleted": anchored_deleted,
-                                "manifest_deleted": manifest_deleted,
+                                "levels_deleted": levels_deleted,
                             },
                         )
             return self.send_json(

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """SessionStart / PreCompact hook for Memorable.
 
-Outputs read instructions for seed files and context files so Claude
-actively reads them with the Read tool, rather than passively receiving
-content in a system reminder. Also surfaces session notes with a recency
-ceiling: the most recent notes are always included regardless of salience.
+Outputs read instructions for seed files and semantic context files.
+For semantic documents, Claude should read `<filename>.levels.json` and use
+`content[<level>]` for the configured zoom level.
 """
 
 import json
@@ -28,11 +27,10 @@ SEEDS_DIR = DATA_DIR / "seeds"
 FILES_DIR = DATA_DIR / "files"
 CONFIG_PATH = DATA_DIR / "config.json"
 
-ANCHOR = "\u2693"
-_ANCHOR_RE = re.compile(ANCHOR + r"([0-3]\ufe0f\u20e3)?")
 _WORD_RE = re.compile(r"[a-z0-9][a-z0-9_-]{1,}")
 DEFAULT_TOKEN_BUDGET = 200000
-DETAIL_ORDER = (0, 1, 2, 3, -1)
+LEVELS_SUFFIX = ".levels.json"
+MAX_LEVEL = 50
 
 
 def load_config() -> dict:
@@ -45,88 +43,7 @@ def load_config() -> dict:
 
 
 def sanitize_filename(filename: str) -> str:
-    """Keep only safe filename characters."""
     return "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
-
-
-def apply_anchor_marker(
-    match: re.Match,
-    anchored_text: str,
-    max_depth: int,
-    result: list[str],
-    depth_stack: list[int],
-    pos: int,
-) -> int:
-    level_str = match.group(1)
-    start = match.start()
-    end = match.end()
-    if level_str:
-        level = int(level_str[0])
-        if depth_stack and depth_stack[-1] <= max_depth:
-            result.append(anchored_text[pos:start])
-        elif not depth_stack and pos == 0:
-            before = anchored_text[:start].strip()
-            if before:
-                result.append(before + " ")
-        depth_stack.append(level)
-        return end
-    if depth_stack and depth_stack[-1] <= max_depth:
-        result.append(anchored_text[pos:start])
-    if depth_stack:
-        depth_stack.pop()
-    return end
-
-
-def append_trailing_extracted_text(
-    anchored_text: str,
-    max_depth: int,
-    result: list[str],
-    depth_stack: list[int],
-    pos: int,
-):
-    if depth_stack and depth_stack[-1] <= max_depth:
-        result.append(anchored_text[pos:])
-        return
-    if not depth_stack:
-        trailing = anchored_text[pos:].strip()
-        if trailing:
-            result.append(trailing)
-
-
-def compact_extracted_text(parts: list[str]) -> str:
-    text = "".join(parts).strip()
-    text = re.sub(r" {2,}", " ", text)
-    return re.sub(r"\n{3,}", "\n\n", text)
-
-
-def extract_at_depth(anchored_text: str, max_depth: int) -> str:
-    """Extract content from anchored text up to max_depth, stripping markers."""
-    if max_depth < 0:
-        return anchored_text
-    result = []
-    pos = 0
-    depth_stack = []
-    for match in _ANCHOR_RE.finditer(anchored_text):
-        pos = apply_anchor_marker(match, anchored_text, max_depth, result, depth_stack, pos)
-    append_trailing_extracted_text(anchored_text, max_depth, result, depth_stack, pos)
-    return compact_extracted_text(result)
-
-
-def prepare_context_file(filename: str, depth: int) -> str | None:
-    safe_filename = sanitize_filename(filename)
-    if not safe_filename:
-        return None
-    raw_path = FILES_DIR / safe_filename
-    anchored_path = FILES_DIR / f"{safe_filename}.anchored"
-    if anchored_path.is_file() and depth >= 0:
-        anchored_text = anchored_path.read_text(encoding="utf-8")
-        extracted = extract_at_depth(anchored_text, depth)
-        cache_path = FILES_DIR / f".cache-{safe_filename}-depth{depth}.md"
-        cache_path.write_text(extracted, encoding="utf-8")
-        return str(cache_path)
-    if raw_path.is_file():
-        return str(raw_path)
-    return None
 
 
 def core_seed_paths() -> list[str]:
@@ -138,12 +55,14 @@ def core_seed_paths() -> list[str]:
     return paths
 
 
-def parse_context_depth(value, fallback: int = -1) -> int:
+def parse_context_depth(value, fallback: int = 1) -> int:
     try:
         depth = int(value)
     except (TypeError, ValueError):
         return fallback
-    if depth in (-1, 0, 1, 2, 3):
+    if depth == -1:
+        return -1
+    if 1 <= depth <= MAX_LEVEL:
         return depth
     return fallback
 
@@ -192,8 +111,8 @@ def collect_relevance_tokens(limit: int = 40) -> set[str]:
     return keyword_tokens(" ".join(cues))
 
 
-def read_manifest(filename: str) -> dict | None:
-    path = FILES_DIR / f"{filename}.anchored.meta.json"
+def read_levels_document(filename: str) -> dict | None:
+    path = FILES_DIR / f"{filename}{LEVELS_SUFFIX}"
     if not path.is_file():
         return None
     try:
@@ -203,82 +122,105 @@ def read_manifest(filename: str) -> dict | None:
     return loaded if isinstance(loaded, dict) else None
 
 
-def manifest_level_tokens(manifest: dict | None, depth: int) -> int | None:
-    if not isinstance(manifest, dict):
+def level_count(levels_doc: dict | None) -> int:
+    if not isinstance(levels_doc, dict):
+        return 0
+    raw = levels_doc.get("levels", 0)
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(MAX_LEVEL, parsed))
+
+
+def content_for_level(levels_doc: dict | None, level: int) -> str | None:
+    if not isinstance(levels_doc, dict) or level < 1:
         return None
-    levels = manifest.get("levels", {})
-    if not isinstance(levels, dict):
+    content = levels_doc.get("content", {})
+    if not isinstance(content, dict):
         return None
-    key = "full" if depth < 0 else str(depth)
-    info = levels.get(key, {})
-    if not isinstance(info, dict):
-        return None
-    tokens = info.get("tokens")
-    if isinstance(tokens, int) and tokens >= 0:
-        return tokens
+    value = content.get(str(level))
+    if isinstance(value, str) and value.strip():
+        return value
     return None
 
 
-def available_tokens_by_depth(filename: str) -> tuple[dict[int, int], bool, dict | None]:
+def available_tokens_by_level(filename: str) -> tuple[dict[int, int], int, dict | None]:
     raw_path = FILES_DIR / filename
-    anchored_path = FILES_DIR / f"{filename}.anchored"
-    manifest = read_manifest(filename)
-    anchored = anchored_path.is_file()
+    levels_doc = read_levels_document(filename)
 
-    tokens_map = {-1: estimate_file_tokens(raw_path)}
-    if not anchored:
-        return tokens_map, False, manifest
+    tokens = {-1: estimate_file_tokens(raw_path)}
+    max_level = level_count(levels_doc)
+    if max_level <= 0:
+        return tokens, 0, levels_doc
 
-    anchored_text = None
-    for depth in (0, 1, 2, 3):
-        from_manifest = manifest_level_tokens(manifest, depth)
+    tokens_map = levels_doc.get("tokens", {}) if isinstance(levels_doc, dict) else {}
+    for level in range(1, max_level + 1):
+        from_manifest = None
+        if isinstance(tokens_map, dict):
+            value = tokens_map.get(str(level))
+            if isinstance(value, int) and value >= 0:
+                from_manifest = value
         if from_manifest is not None:
-            tokens_map[depth] = from_manifest
+            tokens[level] = from_manifest
             continue
-        if anchored_text is None:
-            try:
-                anchored_text = anchored_path.read_text(encoding="utf-8")
-            except Exception:
-                anchored_text = ""
-        tokens_map[depth] = estimate_tokens(extract_at_depth(anchored_text, depth))
-    full_from_manifest = manifest_level_tokens(manifest, -1)
-    if full_from_manifest is not None:
-        tokens_map[-1] = full_from_manifest
-    return tokens_map, True, manifest
+        level_text = content_for_level(levels_doc, level)
+        tokens[level] = estimate_tokens(level_text or "")
+
+    return tokens, max_level, levels_doc
 
 
-def context_entry_relevance(filename: str, relevance_tokens: set[str], manifest: dict | None) -> int:
+def context_entry_relevance(filename: str, relevance_tokens: set[str], levels_doc: dict | None) -> int:
     score = len(keyword_tokens(filename.replace(".", " ")) & relevance_tokens) * 3
+    if not isinstance(levels_doc, dict):
+        return score
 
-    if isinstance(manifest, dict):
-        provenance = manifest.get("provenance", {})
-        if isinstance(provenance, dict):
-            sections = provenance.get("sections", [])
-            if isinstance(sections, list):
-                for section in sections:
-                    if not isinstance(section, dict):
-                        continue
-                    title_tokens = keyword_tokens(str(section.get("title", "")))
-                    score += len(title_tokens & relevance_tokens)
+    content = levels_doc.get("content", {})
+    if isinstance(content, dict):
+        for level in ("1", "2"):
+            text = content.get(level)
+            if isinstance(text, str):
+                score += len(keyword_tokens(text[:400]) & relevance_tokens)
     return score
 
 
-def next_shallower_depth(current_depth: int, anchored: bool) -> int | None:
-    if not anchored:
+def next_shallower_level(current_level: int, max_level_value: int) -> int | None:
+    if current_level == -1 and max_level_value >= 1:
+        return max_level_value
+    if current_level > 1:
+        return current_level - 1
+    if current_level == 1:
         return None
-    idx = DETAIL_ORDER.index(current_depth)
-    if idx == 0:
-        return None
-    return DETAIL_ORDER[idx - 1]
+    return None
 
 
-def next_deeper_depth(current_depth: int, anchored: bool) -> int | None:
-    if not anchored:
+def next_deeper_level(current_level: int, max_level_value: int) -> int | None:
+    if current_level < 1:
         return None
-    idx = DETAIL_ORDER.index(current_depth)
-    if idx >= len(DETAIL_ORDER) - 1:
-        return None
-    return DETAIL_ORDER[idx + 1]
+    if current_level < max_level_value:
+        return current_level + 1
+    return None
+
+
+def choose_initial_level(configured_level: int, max_level_value: int) -> int:
+    if max_level_value <= 0:
+        return -1
+    if configured_level == -1:
+        return -1
+    if configured_level < 1:
+        return 1
+    return min(configured_level, max_level_value)
+
+
+def semantic_read_path(filename: str, selected_level: int, levels_doc: dict | None) -> str | None:
+    raw_path = FILES_DIR / filename
+    levels_path = FILES_DIR / f"{filename}{LEVELS_SUFFIX}"
+
+    if selected_level >= 1 and isinstance(levels_doc, dict) and levels_path.is_file():
+        return str(levels_path)
+    if raw_path.is_file():
+        return str(raw_path)
+    return None
 
 
 def build_context_plan(config: dict) -> list[dict]:
@@ -297,6 +239,8 @@ def build_context_plan(config: dict) -> list[dict]:
 
     token_budget = parse_token_budget(config)
     budget_remaining = token_budget - sum(int(item.get("tokens", 0)) for item in plan)
+    if budget_remaining < 0:
+        budget_remaining = 0
 
     relevance_tokens = collect_relevance_tokens()
     candidates = []
@@ -316,73 +260,75 @@ def build_context_plan(config: dict) -> list[dict]:
         if not raw_path.is_file():
             continue
 
-        default_depth = parse_context_depth(entry.get("depth", -1), -1)
-        tokens_by_depth, anchored, manifest = available_tokens_by_depth(filename)
-        if default_depth not in tokens_by_depth:
-            default_depth = -1
-        relevance = context_entry_relevance(filename, relevance_tokens, manifest)
+        configured = parse_context_depth(entry.get("depth", 1), 1)
+        tokens_by_level, max_level_value, levels_doc = available_tokens_by_level(filename)
+        selected_level = choose_initial_level(configured, max_level_value)
+        relevance = context_entry_relevance(filename, relevance_tokens, levels_doc)
         candidates.append(
             {
                 "filename": filename,
-                "anchored": anchored,
-                "tokens_by_depth": tokens_by_depth,
-                "depth": default_depth,
+                "levels_doc": levels_doc,
+                "max_level": max_level_value,
+                "tokens_by_level": tokens_by_level,
+                "depth": selected_level,
                 "relevance": relevance,
-                "reason": "default_depth",
+                "reason": "default_level",
             }
         )
 
-    total_tokens = sum(candidate["tokens_by_depth"].get(candidate["depth"], 0) for candidate in candidates)
-    if budget_remaining < 0:
-        budget_remaining = 0
+    total_tokens = sum(candidate["tokens_by_level"].get(candidate["depth"], 0) for candidate in candidates)
 
+    # De-escalate lower relevance first until budget fits.
     for candidate in sorted(candidates, key=lambda item: (item["relevance"], item["filename"])):
         while total_tokens > budget_remaining:
-            next_depth = next_shallower_depth(candidate["depth"], candidate["anchored"])
-            if next_depth is not None and next_depth in candidate["tokens_by_depth"]:
-                current = candidate["tokens_by_depth"].get(candidate["depth"], 0)
-                downgraded = candidate["tokens_by_depth"].get(next_depth, current)
-                candidate["depth"] = next_depth
+            next_level = next_shallower_level(candidate["depth"], candidate["max_level"])
+            if next_level is not None and next_level in candidate["tokens_by_level"]:
+                current = candidate["tokens_by_level"].get(candidate["depth"], 0)
+                downgraded = candidate["tokens_by_level"].get(next_level, current)
+                candidate["depth"] = next_level
                 candidate["reason"] = "deescalated_for_budget"
                 total_tokens -= max(0, current - downgraded)
                 continue
             if candidate["depth"] is not None:
-                current = candidate["tokens_by_depth"].get(candidate["depth"], 0)
+                current = candidate["tokens_by_level"].get(candidate["depth"], 0)
                 candidate["depth"] = None
                 candidate["reason"] = "skipped_for_budget"
                 total_tokens -= current
             break
 
+    # Escalate higher relevance docs with remaining budget.
     for candidate in sorted(candidates, key=lambda item: (-item["relevance"], item["filename"])):
         while candidate["depth"] is not None and total_tokens < budget_remaining:
-            next_depth = next_deeper_depth(candidate["depth"], candidate["anchored"])
-            if next_depth is None or next_depth not in candidate["tokens_by_depth"]:
+            next_level = next_deeper_level(candidate["depth"], candidate["max_level"])
+            if next_level is None or next_level not in candidate["tokens_by_level"]:
                 break
-            current = candidate["tokens_by_depth"].get(candidate["depth"], 0)
-            deepened = candidate["tokens_by_depth"].get(next_depth, current)
+            current = candidate["tokens_by_level"].get(candidate["depth"], 0)
+            deepened = candidate["tokens_by_level"].get(next_level, current)
             delta = max(0, deepened - current)
             if total_tokens + delta > budget_remaining:
                 break
-            candidate["depth"] = next_depth
+            candidate["depth"] = next_level
             candidate["reason"] = "escalated_for_relevance"
             total_tokens += delta
 
     for candidate in candidates:
-        depth = candidate.get("depth")
-        if depth is None:
+        selected_level = candidate.get("depth")
+        if selected_level is None:
             continue
-        prepared = prepare_context_file(candidate["filename"], depth)
-        if not prepared:
+        read_path = semantic_read_path(candidate["filename"], selected_level, candidate["levels_doc"])
+        if not read_path:
             continue
         plan.append(
             {
                 "type": "semantic",
-                "path": prepared,
+                "path": read_path,
                 "filename": candidate["filename"],
-                "depth": depth,
-                "tokens": candidate["tokens_by_depth"].get(depth, 0),
+                "depth": selected_level,
+                "tokens": candidate["tokens_by_level"].get(selected_level, 0),
                 "relevance": candidate["relevance"],
                 "reason": candidate["reason"],
+                "levels_count": candidate["max_level"],
+                "is_levels_file": read_path.endswith(LEVELS_SUFFIX),
             }
         )
     return plan
@@ -408,7 +354,7 @@ def format_depth_label(depth: int | None) -> str:
     if depth is None:
         return "n/a"
     if depth < 0:
-        return "full"
+        return "raw"
     return str(depth)
 
 
@@ -423,8 +369,15 @@ def print_context_instructions(plan: list[dict], is_compact: bool):
         if item.get("type") == "semantic":
             depth_label = format_depth_label(item.get("depth"))
             tokens = int(item.get("tokens", 0))
-            reason = str(item.get("reason", "default_depth"))
-            suffix = f" (depth {depth_label}, ~{tokens} tokens, {reason})"
+            reason = str(item.get("reason", "default_level"))
+            levels_count = int(item.get("levels_count", 0) or 0)
+            if item.get("is_levels_file") and int(item.get("depth", -1)) >= 1:
+                suffix = (
+                    f" (zoom level {depth_label}/{levels_count}, ~{tokens} tokens, {reason}; "
+                    f"use content[\"{depth_label}\"] from this JSON)"
+                )
+            else:
+                suffix = f" (raw fallback, ~{tokens} tokens, {reason})"
         elif item.get("type") == "seed":
             suffix = " (core seed)"
         print(f"{i}. Read {path}{suffix}")
