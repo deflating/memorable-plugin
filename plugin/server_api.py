@@ -13,7 +13,6 @@ import io
 import json
 import os
 import re
-import sqlite3
 import shutil
 import time
 import uuid
@@ -29,12 +28,23 @@ import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "daemon"))
 _sys.path.insert(0, str(Path(__file__).resolve().parent / "hooks" / "scripts"))
+from api_files import (
+    handle_get_file_levels as _api_files_handle_get_file_levels,
+    handle_get_file_provenance as _api_files_handle_get_file_provenance,
+    handle_get_files as _api_files_handle_get_files,
+    handle_post_file_upload as _api_files_handle_post_file_upload,
+    handle_preview_file as _api_files_handle_preview_file,
+    handle_process_file as _api_files_handle_process_file,
+    handle_put_file_depth as _api_files_handle_put_file_depth,
+)
+from api_deep import (
+    handle_delete_deep_file as _api_deep_handle_delete_deep_file,
+    handle_get_deep_files as _api_deep_handle_get_deep_files,
+    handle_get_deep_search as _api_deep_handle_get_deep_search,
+    handle_post_deep_upload as _api_deep_handle_post_deep_upload,
+    handle_process_deep_file as _api_deep_handle_process_deep_file,
+)
 from processor.levels import (
-    DELTA_FILE_PREFIX as _DELTA_FILE_PREFIX,
-    DELTA_FILE_SUFFIX as _DELTA_FILE_SUFFIX,
-    FLOOR_FILE_SUFFIX as _FLOOR_FILE_SUFFIX,
-    LEVEL_FILE_PREFIX as _LEVEL_FILE_PREFIX,
-    LEVEL_FILE_SUFFIX as _LEVEL_FILE_SUFFIX,
     LEVELS_SUFFIX as _LEVELS_SUFFIX,
     process_file as _process_file,
 )
@@ -74,7 +84,11 @@ SEMANTIC_DEPTH_VALUES = tuple([-1] + list(range(1, 51)))
 DEFAULT_SEMANTIC_DEPTH = 1
 DEFAULT_PROVENANCE_CONTEXT_LINES = 1
 MAX_PROVENANCE_CONTEXT_LINES = 20
-DEEP_MAX_UPLOAD_SIZE = 200 * 1024 * 1024
+_LEVEL_FILE_PREFIX = ".level"
+_LEVEL_FILE_SUFFIX = ".md"
+_FLOOR_FILE_SUFFIX = ".floor.md"
+_DELTA_FILE_PREFIX = ".delta"
+_DELTA_FILE_SUFFIX = ".md"
 
 
 def default_reliability_metrics() -> dict:
@@ -1599,1054 +1613,112 @@ def handle_get_health():
 
 # -- Deep memory -----------------------------------------------------------
 
-DEEP_CHUNK_TARGET_CHARS = 900
-DEEP_CHUNK_MAX_CHARS = 1400
-DEEP_SEARCH_DEFAULT_LIMIT = 20
-DEEP_SEARCH_MAX_LIMIT = 50
-
-
-def _sanitize_filename(filename: str) -> str:
-    return "".join(c for c in str(filename or "") if c.isalnum() or c in "-_.").strip()
-
-
-def _deep_db_connect() -> sqlite3.Connection:
-    ensure_dirs()
-    conn = sqlite3.connect(DEEP_INDEX_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS deep_files (
-            filename TEXT PRIMARY KEY,
-            size_bytes INTEGER NOT NULL,
-            uploaded_at TEXT NOT NULL,
-            modified_at TEXT NOT NULL,
-            processed_at TEXT,
-            chunk_count INTEGER NOT NULL DEFAULT 0,
-            token_count INTEGER NOT NULL DEFAULT 0,
-            source_sha256 TEXT
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS deep_chunks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT NOT NULL,
-            chunk_index INTEGER NOT NULL,
-            content TEXT NOT NULL,
-            token_estimate INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            UNIQUE(filename, chunk_index)
-        )
-        """
-    )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_deep_chunks_filename ON deep_chunks(filename)")
-    return conn
-
-
-def _deep_ensure_fts_schema(conn: sqlite3.Connection) -> bool:
-    """Create/sync FTS5 table for deep chunk retrieval. Returns True if usable."""
-    try:
-        conn.execute(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS deep_chunks_fts USING fts5(
-                content,
-                filename UNINDEXED,
-                chunk_index UNINDEXED
-            )
-            """
-        )
-    except sqlite3.OperationalError:
-        return False
-
-    try:
-        total_chunks = int(
-            conn.execute("SELECT COUNT(*) FROM deep_chunks").fetchone()[0] or 0
-        )
-        total_fts = int(
-            conn.execute("SELECT COUNT(*) FROM deep_chunks_fts").fetchone()[0] or 0
-        )
-        if total_fts != total_chunks:
-            conn.execute("DELETE FROM deep_chunks_fts")
-            conn.execute(
-                """
-                INSERT INTO deep_chunks_fts (rowid, content, filename, chunk_index)
-                SELECT id, content, filename, chunk_index
-                FROM deep_chunks
-                """
-            )
-    except sqlite3.DatabaseError:
-        return False
-    return True
-
-
-def _deep_build_fts_query(terms: list[str], fallback: str) -> str:
-    cleaned = []
-    for term in terms[:8]:
-        safe = re.sub(r"[^a-zA-Z0-9_]", "", term or "")
-        if len(safe) >= 2:
-            cleaned.append(f"{safe}*")
-    if cleaned:
-        return " AND ".join(cleaned)
-
-    literal = str(fallback or "").strip().replace('"', " ")
-    if not literal:
-        return ""
-    return f'"{literal}"'
-
-
-def _deep_file_metadata_map() -> dict[str, dict]:
-    try:
-        with _deep_db_connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT filename, processed_at, chunk_count, token_count, source_sha256
-                FROM deep_files
-                """
-            ).fetchall()
-    except Exception:
-        return {}
-
-    out = {}
-    for row in rows:
-        out[str(row["filename"])] = {
-            "processed_at": row["processed_at"],
-            "chunk_count": int(row["chunk_count"] or 0),
-            "token_count": int(row["token_count"] or 0),
-            "source_sha256": row["source_sha256"],
-        }
-    return out
-
-
-def _deep_split_long_block(block: str, max_chars: int) -> list[str]:
-    block = block.strip()
-    if not block:
-        return []
-    if len(block) <= max_chars:
-        return [block]
-
-    chunks: list[str] = []
-    sentences = re.split(r"(?<=[.!?])\s+", block)
-    buf = ""
-    for sentence in sentences:
-        s = sentence.strip()
-        if not s:
-            continue
-        candidate = f"{buf} {s}".strip()
-        if buf and len(candidate) > max_chars:
-            chunks.append(buf)
-            buf = s
-        else:
-            buf = candidate
-    if buf:
-        chunks.append(buf)
-
-    out: list[str] = []
-    for chunk in chunks:
-        if len(chunk) <= max_chars:
-            out.append(chunk)
-            continue
-        for idx in range(0, len(chunk), max_chars):
-            out.append(chunk[idx : idx + max_chars].strip())
-    return [item for item in out if item]
-
-
-def _deep_chunk_text(text: str) -> list[str]:
-    cleaned = str(text or "").strip()
-    if not cleaned:
-        return []
-
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", cleaned) if p.strip()]
-    if not paragraphs:
-        return _deep_split_long_block(cleaned, DEEP_CHUNK_MAX_CHARS)
-
-    chunks: list[str] = []
-    buf = ""
-    for para in paragraphs:
-        expanded = _deep_split_long_block(para, DEEP_CHUNK_MAX_CHARS)
-        for piece in expanded:
-            candidate = f"{buf}\n\n{piece}".strip() if buf else piece
-            if buf and len(candidate) > DEEP_CHUNK_TARGET_CHARS:
-                chunks.append(buf)
-                buf = piece
-            else:
-                buf = candidate
-    if buf:
-        chunks.append(buf)
-    return [chunk for chunk in chunks if chunk]
-
-
-def _deep_process_file(safe_filename: str) -> dict:
-    source_path = DEEP_FILES_DIR / safe_filename
-    if not source_path.is_file():
-        return {
-            "status": "error",
-            "error": "file_not_found",
-            "message": "File not found",
-        }
-
-    try:
-        raw_bytes = source_path.read_bytes()
-    except OSError:
-        return {
-            "status": "error",
-            "error": "read_failed",
-            "message": "Failed to read file",
-        }
-
-    text = raw_bytes.decode("utf-8", errors="replace")
-    chunks = _deep_chunk_text(text)
-    tokens = estimate_tokens(text)
-    now_iso = datetime.now(timezone.utc).isoformat()
-    source_hash = hashlib.sha256(raw_bytes).hexdigest()
-
-    try:
-        stat = source_path.stat()
-        modified_iso = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
-        size_bytes = int(stat.st_size)
-    except OSError:
-        modified_iso = now_iso
-        size_bytes = len(raw_bytes)
-
-    with _deep_db_connect() as conn:
-        fts_enabled = _deep_ensure_fts_schema(conn)
-        conn.execute(
-            """
-            INSERT INTO deep_files (
-                filename, size_bytes, uploaded_at, modified_at, processed_at,
-                chunk_count, token_count, source_sha256
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(filename) DO UPDATE SET
-                size_bytes=excluded.size_bytes,
-                modified_at=excluded.modified_at,
-                processed_at=excluded.processed_at,
-                chunk_count=excluded.chunk_count,
-                token_count=excluded.token_count,
-                source_sha256=excluded.source_sha256
-            """,
-            (
-                safe_filename,
-                size_bytes,
-                now_iso,
-                modified_iso,
-                now_iso,
-                len(chunks),
-                tokens,
-                source_hash,
-            ),
-        )
-        if fts_enabled:
-            conn.execute("DELETE FROM deep_chunks_fts WHERE filename = ?", (safe_filename,))
-        conn.execute("DELETE FROM deep_chunks WHERE filename = ?", (safe_filename,))
-        conn.executemany(
-            """
-            INSERT INTO deep_chunks (filename, chunk_index, content, token_estimate, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    safe_filename,
-                    idx + 1,
-                    chunk,
-                    estimate_tokens(chunk),
-                    now_iso,
-                )
-                for idx, chunk in enumerate(chunks)
-            ],
-        )
-        if fts_enabled:
-            rows = conn.execute(
-                """
-                SELECT id, content, filename, chunk_index
-                FROM deep_chunks
-                WHERE filename = ?
-                ORDER BY chunk_index ASC
-                """,
-                (safe_filename,),
-            ).fetchall()
-            conn.executemany(
-                """
-                INSERT INTO deep_chunks_fts (rowid, content, filename, chunk_index)
-                VALUES (?, ?, ?, ?)
-                """,
-                [
-                    (
-                        int(row["id"]),
-                        str(row["content"]),
-                        str(row["filename"]),
-                        int(row["chunk_index"]),
-                    )
-                    for row in rows
-                ],
-            )
-
-    return {
-        "status": "ok",
-        "filename": safe_filename,
-        "chunks": len(chunks),
-        "tokens": tokens,
-        "source_sha256": source_hash,
-        "processed_at": now_iso,
-    }
-
-
-def _deep_extract_snippet(content: str, query: str, max_len: int = 220) -> str:
-    text = str(content or "").replace("\n", " ").strip()
-    if len(text) <= max_len:
-        return text
-    q = str(query or "").strip().lower()
-    if not q:
-        return text[:max_len].strip() + "..."
-    pos = text.lower().find(q)
-    if pos < 0:
-        terms = [t for t in re.findall(r"[a-zA-Z0-9]{2,}", q) if t]
-        for term in terms:
-            pos = text.lower().find(term)
-            if pos >= 0:
-                break
-    if pos < 0:
-        return text[:max_len].strip() + "..."
-    start = max(0, pos - (max_len // 3))
-    end = min(len(text), start + max_len)
-    snippet = text[start:end].strip()
-    if start > 0:
-        snippet = "..." + snippet
-    if end < len(text):
-        snippet = snippet + "..."
-    return snippet
-
 
 def handle_get_deep_files():
-    """GET /api/deep/files — list files uploaded to Deep memory."""
-    ensure_dirs()
-    files = []
-    meta = _deep_file_metadata_map()
-
-    if not DEEP_FILES_DIR.is_dir():
-        return 200, {"files": files}
-
-    for f in sorted(DEEP_FILES_DIR.iterdir()):
-        if not f.is_file() or f.name.startswith("."):
-            continue
-        safe = f.name
-        try:
-            stat = f.stat()
-            m = meta.get(safe, {})
-            processed_at = m.get("processed_at")
-            chunk_count = int(m.get("chunk_count") or 0)
-            token_count = int(m.get("token_count") or 0)
-            files.append(
-                {
-                    "name": safe,
-                    "size": stat.st_size,
-                    "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-                    "processed": bool(processed_at),
-                    "processed_at": processed_at,
-                    "chunks": chunk_count,
-                    "tokens": token_count,
-                }
-            )
-        except Exception:
-            continue
-
-    return 200, {"files": files}
+    return _api_deep_handle_get_deep_files(
+        deep_files_dir=DEEP_FILES_DIR,
+        deep_index_path=DEEP_INDEX_PATH,
+    )
 
 
 def handle_post_deep_upload(handler):
-    """POST /api/deep/files/upload — upload a source file for Deep memory."""
-    ensure_dirs()
-    content_type = handler.headers.get("Content-Type", "")
-
-    raw_length = handler.headers.get("Content-Length", "0")
-    try:
-        length = int(raw_length)
-    except (TypeError, ValueError):
-        return 400, error_response(
-            "INVALID_CONTENT_LENGTH",
-            "Invalid Content-Length header",
-            "Send a valid numeric Content-Length header.",
-        )
-    if length < 0:
-        return 400, error_response(
-            "INVALID_CONTENT_LENGTH",
-            "Invalid Content-Length header",
-            "Send a non-negative Content-Length header.",
-        )
-    if length == 0:
-        return 400, error_response(
-            "EMPTY_BODY",
-            "Empty body",
-            "Provide file content in the request body.",
-        )
-    if length > DEEP_MAX_UPLOAD_SIZE:
-        return 413, error_response(
-            "UPLOAD_TOO_LARGE",
-            "Upload too large",
-            f"Reduce payload to <= {DEEP_MAX_UPLOAD_SIZE} bytes.",
-        )
-
-    if "application/json" in content_type:
-        raw = handler.rfile.read(length)
-        try:
-            body = json.loads(raw)
-        except json.JSONDecodeError:
-            return 400, error_response(
-                "INVALID_JSON",
-                "Invalid JSON",
-                "Send a valid JSON object.",
-            )
-        if not isinstance(body, dict):
-            return 400, error_response(
-                "INVALID_JSON_OBJECT",
-                "JSON body must be an object",
-                "Send a JSON object payload.",
-            )
-
-        filename = body.get("filename", "")
-        content = body.get("content", "")
-        if not isinstance(filename, str) or not isinstance(content, str):
-            return 400, error_response(
-                "INVALID_UPLOAD_FIELDS_TYPE",
-                "'filename' and 'content' must be strings",
-                "Send JSON with string values for both filename and content.",
-            )
-
-        safe = _sanitize_filename(filename)
-        if not safe:
-            safe = f"deep-{uuid.uuid4().hex[:8]}.txt"
-
-        path = DEEP_FILES_DIR / safe
-        atomic_write(path, content)
-        now_iso = datetime.now(timezone.utc).isoformat()
-        with _deep_db_connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO deep_files (filename, size_bytes, uploaded_at, modified_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(filename) DO UPDATE SET
-                    size_bytes=excluded.size_bytes,
-                    modified_at=excluded.modified_at
-                """,
-                (safe, len(content.encode("utf-8")), now_iso, now_iso),
-            )
-
-        append_audit("deep.upload", {"filename": safe, "size_bytes": len(content), "mode": "json"})
-        return 200, {"ok": True, "filename": safe, "size": len(content), "tokens": estimate_tokens(content)}
-
-    # Raw upload fallback
-    filename = handler.headers.get("X-Filename", "")
-    raw = handler.rfile.read(length)
-    safe = _sanitize_filename(filename)
-    if not safe:
-        safe = f"deep-{uuid.uuid4().hex[:8]}.bin"
-
-    path = DEEP_FILES_DIR / safe
-    atomic_write_bytes(path, raw)
-    now_iso = datetime.now(timezone.utc).isoformat()
-    with _deep_db_connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO deep_files (filename, size_bytes, uploaded_at, modified_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(filename) DO UPDATE SET
-                size_bytes=excluded.size_bytes,
-                modified_at=excluded.modified_at
-            """,
-            (safe, len(raw), now_iso, now_iso),
-        )
-
-    tokens = 0
-    try:
-        tokens = estimate_tokens(raw.decode("utf-8"))
-    except (UnicodeDecodeError, Exception):
-        pass
-
-    append_audit("deep.upload", {"filename": safe, "size_bytes": len(raw), "mode": "raw"})
-    return 200, {"ok": True, "filename": safe, "size": len(raw), "tokens": tokens}
+    return _api_deep_handle_post_deep_upload(
+        handler,
+        deep_files_dir=DEEP_FILES_DIR,
+        deep_index_path=DEEP_INDEX_PATH,
+    )
 
 
 def handle_process_deep_file(filename: str):
-    """POST /api/deep/files/<filename>/process — process file into retrievable chunks."""
-    safe = _sanitize_filename(filename)
-    if not safe:
-        return 400, error_response(
-            "INVALID_FILENAME",
-            "Invalid filename",
-            "Use only alphanumeric characters, dash, underscore, and dot.",
-        )
-
-    result = _deep_process_file(safe)
-    append_audit(
-        "deep.process",
-        {"filename": safe, "status": result.get("status")},
+    return _api_deep_handle_process_deep_file(
+        filename,
+        deep_files_dir=DEEP_FILES_DIR,
+        deep_index_path=DEEP_INDEX_PATH,
     )
-    if result.get("status") != "ok":
-        return 404, error_response(
-            "FILE_NOT_FOUND",
-            "File not found",
-            "Check the filename and upload the file if needed.",
-        )
-    return 200, result
 
 
 def handle_delete_deep_file(filename: str):
-    """DELETE /api/deep/files/<filename> — delete source file and indexed chunks."""
-    safe = _sanitize_filename(filename)
-    if not safe:
-        return 400, error_response(
-            "INVALID_FILENAME",
-            "Invalid filename",
-            "Use only alphanumeric characters, dash, underscore, and dot.",
-        )
-
-    source_path = DEEP_FILES_DIR / safe
-    deleted = False
-    if source_path.is_file():
-        source_path.unlink()
-        deleted = True
-
-    with _deep_db_connect() as conn:
-        fts_enabled = _deep_ensure_fts_schema(conn)
-        if fts_enabled:
-            conn.execute("DELETE FROM deep_chunks_fts WHERE filename = ?", (safe,))
-        conn.execute("DELETE FROM deep_chunks WHERE filename = ?", (safe,))
-        conn.execute("DELETE FROM deep_files WHERE filename = ?", (safe,))
-
-    if not deleted:
-        return 404, error_response(
-            "FILE_NOT_FOUND",
-            "File not found",
-            "Check the filename and try again.",
-        )
-
-    append_audit("deep.delete", {"filename": safe})
-    return 200, {"ok": True, "deleted": safe}
+    return _api_deep_handle_delete_deep_file(
+        filename,
+        deep_files_dir=DEEP_FILES_DIR,
+        deep_index_path=DEEP_INDEX_PATH,
+    )
 
 
 def handle_get_deep_search(query_params: dict):
-    """GET /api/deep/search?q=... — keyword retrieval over indexed Deep chunks."""
-    raw_q = (query_params.get("q", [""])[0] or "").strip()
-    if not raw_q:
-        return 400, error_response(
-            "MISSING_QUERY",
-            "Missing query",
-            "Provide a `q` query parameter.",
-        )
+    return _api_deep_handle_get_deep_search(
+        query_params,
+        deep_index_path=DEEP_INDEX_PATH,
+    )
 
-    try:
-        limit = int(query_params.get("limit", [str(DEEP_SEARCH_DEFAULT_LIMIT)])[0])
-    except (TypeError, ValueError):
-        limit = DEEP_SEARCH_DEFAULT_LIMIT
-    limit = max(1, min(DEEP_SEARCH_MAX_LIMIT, limit))
 
-    terms = [t.lower() for t in re.findall(r"[a-zA-Z0-9]{2,}", raw_q)]
-    if not terms:
-        terms = [raw_q.lower()]
-
-    search_mode = "like_fallback"
-    with _deep_db_connect() as conn:
-        fts_enabled = _deep_ensure_fts_schema(conn)
-        if fts_enabled:
-            fts_query = _deep_build_fts_query(terms, raw_q)
-            if fts_query:
-                rows = conn.execute(
-                    """
-                    SELECT
-                        deep_chunks.filename AS filename,
-                        deep_chunks.chunk_index AS chunk_index,
-                        deep_chunks.content AS content,
-                        deep_chunks.token_estimate AS token_estimate,
-                        bm25(deep_chunks_fts) AS rank
-                    FROM deep_chunks_fts
-                    JOIN deep_chunks ON deep_chunks.id = deep_chunks_fts.rowid
-                    WHERE deep_chunks_fts MATCH ?
-                    ORDER BY rank ASC, deep_chunks.filename ASC, deep_chunks.chunk_index ASC
-                    LIMIT ?
-                    """,
-                    (fts_query, limit),
-                ).fetchall()
-                search_mode = "fts5"
-            else:
-                rows = []
-        else:
-            where = " AND ".join(["LOWER(content) LIKE ?" for _ in terms])
-            params = [f"%{term}%" for term in terms]
-            params.append(limit)
-            rows = conn.execute(
-                f"""
-                SELECT filename, chunk_index, content, token_estimate
-                FROM deep_chunks
-                WHERE {where}
-                ORDER BY token_estimate ASC, filename ASC, chunk_index ASC
-                LIMIT ?
-                """,
-                params,
-            ).fetchall()
-
-    results = []
-    for row in rows:
-        content = str(row["content"])
-        results.append(
-            {
-                "filename": row["filename"],
-                "chunk_index": int(row["chunk_index"]),
-                "tokens": int(row["token_estimate"]),
-                "snippet": _deep_extract_snippet(content, raw_q),
-            }
-        )
-
-    return 200, {
-        "query": raw_q,
-        "terms": terms,
-        "results": results,
-        "count": len(results),
-        "search_mode": search_mode,
-    }
 # -- Files -----------------------------------------------------------------
 
 
 def handle_get_files():
-    """GET /api/files — list uploaded context files with levels metadata."""
-    files = []
-    if not FILES_DIR.is_dir():
-        return 200, {"files": files}
-
-    config = load_config()
-    default_depth = semantic_default_depth(config)
-    context_files = {}
-    for entry in config.get("context_files", []):
-        if not isinstance(entry, dict):
-            continue
-        name = entry.get("filename")
-        if isinstance(name, str) and name:
-            context_files[name] = entry
-
-    for f in sorted(FILES_DIR.iterdir()):
-        if not f.is_file():
-            continue
-        # Skip internal helper artifacts.
-        if is_internal_context_artifact(f.name):
-            continue
-        try:
-            stat = f.stat()
-            tokens = 0
-            try:
-                content = f.read_text(encoding="utf-8")
-                tokens = estimate_tokens(content)
-            except (UnicodeDecodeError, Exception):
-                pass
-
-            level_count, tokens_by_level, processed = semantic_artifact_metadata(f.name)
-
-            # Config for this file
-            cf = context_files.get(f.name, {})
-            configured_depth = normalize_semantic_depth(
-                cf.get("depth", default_depth),
-                default_depth,
-            )
-            if level_count > 0 and configured_depth > level_count:
-                configured_depth = level_count
-
-            files.append({
-                "name": f.name,
-                "size": stat.st_size,
-                "tokens": tokens,
-                "modified": datetime.fromtimestamp(
-                    stat.st_mtime, tz=timezone.utc
-                ).isoformat(),
-                "processed": bool(processed),
-                "levels": level_count,
-                "tokens_by_level": tokens_by_level or None,
-                "depth": configured_depth,
-                "enabled": bool(cf.get("enabled", False)),
-            })
-        except Exception:
-            continue
-
-    return 200, {"files": files}
+    return _api_files_handle_get_files(
+        files_dir=FILES_DIR,
+        load_config=load_config,
+        semantic_default_depth=semantic_default_depth,
+        normalize_semantic_depth=normalize_semantic_depth,
+        semantic_artifact_metadata=semantic_artifact_metadata,
+        is_internal_context_artifact=is_internal_context_artifact,
+    )
 
 
 def handle_post_file_upload(handler):
-    """POST /api/files/upload — handle file upload via multipart or raw body.
-
-    Supports two modes:
-    1. JSON body: {"filename": "name.md", "content": "text content"}
-    2. Raw body with X-Filename header
-    """
     ensure_dirs()
-    content_type = handler.headers.get("Content-Type", "")
-
-    raw_length = handler.headers.get("Content-Length", "0")
-    try:
-        length = int(raw_length)
-    except (TypeError, ValueError):
-        return 400, error_response(
-            "INVALID_CONTENT_LENGTH",
-            "Invalid Content-Length header",
-            "Send a valid numeric Content-Length header.",
-        )
-    if length < 0:
-        return 400, error_response(
-            "INVALID_CONTENT_LENGTH",
-            "Invalid Content-Length header",
-            "Send a non-negative Content-Length header.",
-        )
-
-    if "application/json" in content_type:
-        if length == 0:
-            return 400, error_response(
-                "EMPTY_BODY",
-                "Empty body",
-                "Provide a JSON body with filename and content.",
-            )
-        if length > MAX_UPLOAD_SIZE:
-            return 413, error_response(
-                "UPLOAD_TOO_LARGE",
-                "Upload too large",
-                f"Reduce payload to <= {MAX_UPLOAD_SIZE} bytes.",
-            )
-        raw = handler.rfile.read(length)
-        try:
-            body = json.loads(raw)
-        except json.JSONDecodeError:
-            return 400, error_response(
-                "INVALID_JSON",
-                "Invalid JSON",
-                "Send a valid JSON object.",
-            )
-        if not isinstance(body, dict):
-            return 400, error_response(
-                "INVALID_JSON_OBJECT",
-                "JSON body must be an object",
-                "Send a JSON object payload.",
-            )
-
-        filename = body.get("filename", "")
-        content = body.get("content", "")
-
-        if not isinstance(filename, str) or not isinstance(content, str):
-            return 400, error_response(
-                "INVALID_UPLOAD_FIELDS_TYPE",
-                "'filename' and 'content' must be strings",
-                "Send JSON with string values for both filename and content.",
-            )
-
-        if not filename or not content:
-            return 400, error_response(
-                "MISSING_UPLOAD_FIELDS",
-                "Missing 'filename' or 'content'",
-                "Include both filename and content in the JSON body.",
-            )
-
-        # Sanitize filename
-        safe = "".join(
-            c for c in filename if c.isalnum() or c in "-_."
-        ).strip()
-        if not safe:
-            safe = f"upload-{uuid.uuid4().hex[:8]}.txt"
-
-        path = FILES_DIR / safe
-        atomic_write(path, content)
-        append_audit(
-            "files.upload",
-            {"filename": safe, "size_bytes": len(content), "mode": "json"},
-        )
-
-        return 200, {
-            "ok": True,
-            "filename": safe,
-            "size": len(content),
-            "tokens": estimate_tokens(content),
-        }
-    else:
-        # Raw body upload
-        filename = handler.headers.get("X-Filename", "")
-        if length == 0:
-            return 400, error_response(
-                "EMPTY_BODY",
-                "Empty body",
-                "Provide request body bytes and optional X-Filename header.",
-            )
-        if length > MAX_UPLOAD_SIZE:
-            return 413, error_response(
-                "UPLOAD_TOO_LARGE",
-                "Upload too large",
-                f"Reduce payload to <= {MAX_UPLOAD_SIZE} bytes.",
-            )
-
-        raw = handler.rfile.read(length)
-
-        safe = ""
-        if filename:
-            safe = "".join(
-                c for c in filename if c.isalnum() or c in "-_."
-            ).strip()
-        if not safe:
-            safe = f"upload-{uuid.uuid4().hex[:8]}.bin"
-
-        path = FILES_DIR / safe
-        atomic_write_bytes(path, raw)
-        append_audit(
-            "files.upload",
-            {"filename": safe, "size_bytes": len(raw), "mode": "raw"},
-        )
-
-        tokens = 0
-        try:
-            tokens = estimate_tokens(raw.decode("utf-8"))
-        except (UnicodeDecodeError, Exception):
-            pass
-
-        return 200, {
-            "ok": True,
-            "filename": safe,
-            "size": len(raw),
-            "tokens": tokens,
-        }
-
-
-# -- Anchor processing endpoints -------------------------------------------
+    return _api_files_handle_post_file_upload(
+        handler,
+        max_upload_size=MAX_UPLOAD_SIZE,
+        files_dir=FILES_DIR,
+    )
 
 
 def handle_process_file(filename: str):
-    """POST /api/files/<filename>/process — generate hierarchical semantic levels."""
-    safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
-    if not safe:
-        return 400, error_response(
-            "INVALID_FILENAME",
-            "Invalid filename",
-            "Use only alphanumeric characters, dash, underscore, and dot.",
-        )
-
-    result = _process_file(safe, force=True)
-    auto_load_configured = False
-    depth = enabled = None
-    if result.get("status") == "ok":
-        config = load_config()
-        default_depth = semantic_default_depth(config)
-        auto_load_configured, depth, enabled = ensure_context_file_entry(
-            config,
-            safe,
-            default_depth,
-            True,
-        )
-        if auto_load_configured:
-            save_config(config)
-            append_audit(
-                "files.depth.update",
-                {
-                    "filename": safe,
-                    "depth": depth,
-                    "enabled": enabled,
-                    "source": "process_default",
-                },
-            )
-        result["default_depth"] = depth
-        result["enabled"] = enabled
-        result["auto_load_configured"] = auto_load_configured
-
-    append_audit(
-        "files.process",
-        {
-            "filename": safe,
-            "status": result.get("status"),
-            "method": result.get("method"),
-        },
+    return _api_files_handle_process_file(
+        filename,
+        process_file_fn=_process_file,
+        load_config=load_config,
+        save_config=save_config,
+        semantic_default_depth=semantic_default_depth,
+        ensure_context_file_entry=ensure_context_file_entry,
     )
-    return 200, result
 
 
 def handle_get_file_levels(filename: str):
-    """GET /api/files/<filename>/levels — semantic zoom metadata + recoverability."""
-    safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
-    if not safe:
-        return 400, error_response(
-            "INVALID_FILENAME",
-            "Invalid filename",
-            "Use only alphanumeric characters, dash, underscore, and dot.",
-        )
-
-    raw_path = FILES_DIR / safe
-    if not raw_path.is_file():
-        return 404, error_response(
-            "FILE_NOT_FOUND",
-            "File not found",
-            "Check the filename and upload the file if needed.",
-        )
-
-    try:
-        raw_bytes = raw_path.read_bytes()
-    except OSError:
-        return 500, error_response(
-            "READ_FAILED",
-            "Failed to read source file",
-            "Check file permissions and retry.",
-        )
-
-    raw_text = raw_bytes.decode("utf-8", errors="replace")
-    full_tokens = estimate_tokens(raw_text)
-    source_hash = hashlib.sha256(raw_bytes).hexdigest()
-    levels_doc = read_file_levels(safe)
-    levels = {}
-    level_count, tokens_by_level, processed = semantic_artifact_metadata(safe)
-    model = None
-    generated_at = None
-    if isinstance(levels_doc, dict):
-        model = levels_doc.get("model")
-        generated_at = levels_doc.get("generated_at")
-    for key, value in tokens_by_level.items():
-        if key == "raw":
-            continue
-        if not isinstance(value, int):
-            continue
-        denom = max(1, full_tokens)
-        levels[key] = {
-            "tokens": value,
-            "compression_ratio": round(value / float(denom), 4),
-        }
-    levels["full"] = {"tokens": full_tokens, "compression_ratio": 1.0}
-
-    config = load_config()
-    configured_depth = semantic_default_depth(config)
-    configured_enabled = False
-    for entry in config.get("context_files", []):
-        if not isinstance(entry, dict):
-            continue
-        if entry.get("filename") != safe:
-            continue
-        configured_depth = normalize_semantic_depth(entry.get("depth", configured_depth), configured_depth)
-        if level_count > 0 and configured_depth > level_count:
-            configured_depth = level_count
-        configured_enabled = bool(entry.get("enabled", False))
-        break
-
-    return 200, {
-        "filename": safe,
-        "processed": bool(processed),
-        "levels_count": level_count,
-        "levels": levels,
-        "default_depth": configured_depth,
-        "enabled": configured_enabled,
-        "recoverability": {
-            "raw_exists": True,
-            "full_recoverable": True,
-            "source_sha256": source_hash,
-            "levels_file_present": bool(levels_doc),
-        },
-        "generated_at": generated_at,
-        "model": model,
-        "levels_doc": levels_doc,
-    }
+    return _api_files_handle_get_file_levels(
+        filename,
+        files_dir=FILES_DIR,
+        read_file_levels=read_file_levels,
+        semantic_artifact_metadata=semantic_artifact_metadata,
+        load_config=load_config,
+        semantic_default_depth=semantic_default_depth,
+        normalize_semantic_depth=normalize_semantic_depth,
+    )
 
 
 def handle_get_file_provenance(filename: str, query_params: dict):
-    """Provenance endpoint retired with levels-based redesign."""
-    return 410, error_response(
-        "PROVENANCE_RETIRED",
-        "Provenance endpoint retired",
-        "Use /api/files/<filename>/levels and /api/files/<filename>/preview for levels-based retrieval.",
-    )
+    return _api_files_handle_get_file_provenance(filename, query_params)
 
 
 def handle_preview_file(filename: str, query_params: dict):
-    """GET /api/files/<filename>/preview — preview at a selected semantic level.
-
-    Query params:
-      depth=N  — level number (1..N), or -1/full for raw fallback
-    """
-    safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
-    if not safe:
-        return 400, error_response(
-            "INVALID_FILENAME",
-            "Invalid filename",
-            "Use only alphanumeric characters, dash, underscore, and dot.",
-        )
-
-    depth_str = query_params.get("depth", ["1"])[0]
-    try:
-        depth = int(depth_str)
-    except ValueError:
-        depth = -1 if depth_str == "full" else 1
-
-    content = read_file_at_level(safe, depth)
-    if content is None:
-        return 404, error_response(
-            "FILE_NOT_FOUND",
-            "File not found",
-            "Check the filename and upload the file if needed.",
-        )
-
-    return 200, {
-        "content": content,
-        "tokens": estimate_tokens(content),
-        "depth": depth,
-    }
+    return _api_files_handle_preview_file(
+        filename,
+        query_params,
+        read_file_at_level=read_file_at_level,
+    )
 
 
 def handle_put_file_depth(filename: str, body: dict):
-    """PUT /api/files/<filename>/depth — set loading depth + enabled."""
-    safe = "".join(c for c in filename if c.isalnum() or c in "-_.").strip()
-    if not safe:
-        return 400, error_response(
-            "INVALID_FILENAME",
-            "Invalid filename",
-            "Use only alphanumeric characters, dash, underscore, and dot.",
-        )
-
-    raw_depth = body.get("depth", DEFAULT_SEMANTIC_DEPTH)
-    try:
-        depth = int(raw_depth)
-    except (TypeError, ValueError):
-        return 400, error_response(
-            "INVALID_DEPTH",
-            "Invalid depth value",
-            "Send depth as -1 (raw) or an integer level >= 1.",
-        )
-    if depth not in SEMANTIC_DEPTH_VALUES:
-        return 400, error_response(
-            "INVALID_DEPTH",
-            "Invalid depth value",
-            "Send depth as -1 (raw) or an integer level between 1 and 50.",
-        )
-
-    enabled = body.get("enabled", True)
-    if not isinstance(enabled, bool):
-        return 400, error_response(
-            "INVALID_ENABLED",
-            "Invalid enabled value",
-            "Send enabled as a boolean true/false.",
-        )
-
-    config = load_config()
-    context_files = config.get("context_files", [])
-    if not isinstance(context_files, list):
-        context_files = []
-
-    # Update or insert
-    found = False
-    for cf in context_files:
-        if not isinstance(cf, dict):
-            continue
-        if cf.get("filename") == safe:
-            cf["depth"] = depth
-            cf["enabled"] = enabled
-            found = True
-            break
-    if not found:
-        context_files.append({
-            "filename": safe,
-            "depth": depth,
-            "enabled": enabled,
-        })
-
-    config["context_files"] = context_files
-    save_config(config)
-    append_audit(
-        "files.depth.update",
-        {"filename": safe, "depth": depth, "enabled": enabled},
+    return _api_files_handle_put_file_depth(
+        filename,
+        body,
+        default_semantic_depth=DEFAULT_SEMANTIC_DEPTH,
+        semantic_depth_values=SEMANTIC_DEPTH_VALUES,
+        load_config=load_config,
+        save_config=save_config,
     )
-
-    return 200, {"ok": True, "filename": safe, "depth": depth, "enabled": enabled}
 
 
 def handle_post_deploy(body: dict):
