@@ -1644,6 +1644,57 @@ def _deep_db_connect() -> sqlite3.Connection:
     return conn
 
 
+def _deep_ensure_fts_schema(conn: sqlite3.Connection) -> bool:
+    """Create/sync FTS5 table for deep chunk retrieval. Returns True if usable."""
+    try:
+        conn.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS deep_chunks_fts USING fts5(
+                content,
+                filename UNINDEXED,
+                chunk_index UNINDEXED
+            )
+            """
+        )
+    except sqlite3.OperationalError:
+        return False
+
+    try:
+        total_chunks = int(
+            conn.execute("SELECT COUNT(*) FROM deep_chunks").fetchone()[0] or 0
+        )
+        total_fts = int(
+            conn.execute("SELECT COUNT(*) FROM deep_chunks_fts").fetchone()[0] or 0
+        )
+        if total_fts != total_chunks:
+            conn.execute("DELETE FROM deep_chunks_fts")
+            conn.execute(
+                """
+                INSERT INTO deep_chunks_fts (rowid, content, filename, chunk_index)
+                SELECT id, content, filename, chunk_index
+                FROM deep_chunks
+                """
+            )
+    except sqlite3.DatabaseError:
+        return False
+    return True
+
+
+def _deep_build_fts_query(terms: list[str], fallback: str) -> str:
+    cleaned = []
+    for term in terms[:8]:
+        safe = re.sub(r"[^a-zA-Z0-9_]", "", term or "")
+        if len(safe) >= 2:
+            cleaned.append(f"{safe}*")
+    if cleaned:
+        return " AND ".join(cleaned)
+
+    literal = str(fallback or "").strip().replace('"', " ")
+    if not literal:
+        return ""
+    return f'"{literal}"'
+
+
 def _deep_file_metadata_map() -> dict[str, dict]:
     try:
         with _deep_db_connect() as conn:
@@ -1758,6 +1809,7 @@ def _deep_process_file(safe_filename: str) -> dict:
         size_bytes = len(raw_bytes)
 
     with _deep_db_connect() as conn:
+        fts_enabled = _deep_ensure_fts_schema(conn)
         conn.execute(
             """
             INSERT INTO deep_files (
@@ -1783,6 +1835,8 @@ def _deep_process_file(safe_filename: str) -> dict:
                 source_hash,
             ),
         )
+        if fts_enabled:
+            conn.execute("DELETE FROM deep_chunks_fts WHERE filename = ?", (safe_filename,))
         conn.execute("DELETE FROM deep_chunks WHERE filename = ?", (safe_filename,))
         conn.executemany(
             """
@@ -1800,6 +1854,31 @@ def _deep_process_file(safe_filename: str) -> dict:
                 for idx, chunk in enumerate(chunks)
             ],
         )
+        if fts_enabled:
+            rows = conn.execute(
+                """
+                SELECT id, content, filename, chunk_index
+                FROM deep_chunks
+                WHERE filename = ?
+                ORDER BY chunk_index ASC
+                """,
+                (safe_filename,),
+            ).fetchall()
+            conn.executemany(
+                """
+                INSERT INTO deep_chunks_fts (rowid, content, filename, chunk_index)
+                VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (
+                        int(row["id"]),
+                        str(row["content"]),
+                        str(row["filename"]),
+                        int(row["chunk_index"]),
+                    )
+                    for row in rows
+                ],
+            )
 
     return {
         "status": "ok",
@@ -2027,6 +2106,9 @@ def handle_delete_deep_file(filename: str):
         deleted = True
 
     with _deep_db_connect() as conn:
+        fts_enabled = _deep_ensure_fts_schema(conn)
+        if fts_enabled:
+            conn.execute("DELETE FROM deep_chunks_fts WHERE filename = ?", (safe,))
         conn.execute("DELETE FROM deep_chunks WHERE filename = ?", (safe,))
         conn.execute("DELETE FROM deep_files WHERE filename = ?", (safe,))
 
@@ -2061,21 +2143,45 @@ def handle_get_deep_search(query_params: dict):
     if not terms:
         terms = [raw_q.lower()]
 
-    where = " AND ".join(["LOWER(content) LIKE ?" for _ in terms])
-    params = [f"%{term}%" for term in terms]
-    params.append(limit)
-
+    search_mode = "like_fallback"
     with _deep_db_connect() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT filename, chunk_index, content, token_estimate
-            FROM deep_chunks
-            WHERE {where}
-            ORDER BY token_estimate ASC, filename ASC, chunk_index ASC
-            LIMIT ?
-            """,
-            params,
-        ).fetchall()
+        fts_enabled = _deep_ensure_fts_schema(conn)
+        if fts_enabled:
+            fts_query = _deep_build_fts_query(terms, raw_q)
+            if fts_query:
+                rows = conn.execute(
+                    """
+                    SELECT
+                        deep_chunks.filename AS filename,
+                        deep_chunks.chunk_index AS chunk_index,
+                        deep_chunks.content AS content,
+                        deep_chunks.token_estimate AS token_estimate,
+                        bm25(deep_chunks_fts) AS rank
+                    FROM deep_chunks_fts
+                    JOIN deep_chunks ON deep_chunks.id = deep_chunks_fts.rowid
+                    WHERE deep_chunks_fts MATCH ?
+                    ORDER BY rank ASC, deep_chunks.filename ASC, deep_chunks.chunk_index ASC
+                    LIMIT ?
+                    """,
+                    (fts_query, limit),
+                ).fetchall()
+                search_mode = "fts5"
+            else:
+                rows = []
+        else:
+            where = " AND ".join(["LOWER(content) LIKE ?" for _ in terms])
+            params = [f"%{term}%" for term in terms]
+            params.append(limit)
+            rows = conn.execute(
+                f"""
+                SELECT filename, chunk_index, content, token_estimate
+                FROM deep_chunks
+                WHERE {where}
+                ORDER BY token_estimate ASC, filename ASC, chunk_index ASC
+                LIMIT ?
+                """,
+                params,
+            ).fetchall()
 
     results = []
     for row in rows:
@@ -2094,6 +2200,7 @@ def handle_get_deep_search(query_params: dict):
         "terms": terms,
         "results": results,
         "count": len(results),
+        "search_mode": search_mode,
     }
 # -- Files -----------------------------------------------------------------
 
