@@ -5,145 +5,20 @@
 (function () {
   'use strict';
 
-  // ---- Default options for toggle/switch sections ----
-  // These are the built-in options. Users can add custom ones.
-  const DEFAULT_COGNITIVE_OPTIONS = [
-    { key: 'adhd', label: 'ADHD' },
-    { key: 'autism', label: 'Autism' },
-    { key: 'dyslexia', label: 'Dyslexia' },
-    { key: 'dyscalculia', label: 'Dyscalculia' },
-    { key: 'dyspraxia', label: 'Dyspraxia' }
-  ];
-
-  const DEFAULT_COGNITIVE_STYLE_DIMS = [
-    { key: 'thinking', label: 'Guidance Style', left: 'Give me structured outlines', right: 'Let ideas wander' },
-    { key: 'abstraction', label: 'Starting Point', left: 'Start with specifics', right: 'Start with the big picture' },
-    { key: 'focus', label: 'Zoom Level', left: 'Detail-first', right: 'Big picture first' },
-    { key: 'processing', label: 'Threading', left: 'Explain step by step', right: 'I can juggle multiple threads' }
-  ];
-
-  const DEFAULT_COMMUNICATION_OPTIONS = [
-    { key: 'beDirect', label: 'Be direct', desc: 'Don\'t soften or hedge unnecessarily' },
-    { key: 'noSycophancy', label: 'No sycophancy', desc: 'Skip the "great question!" and "absolutely!"' },
-    { key: 'skipPreamble', label: 'Skip preamble', desc: 'Get to the point, skip disclaimers' },
-    { key: 'noEmojis', label: 'No emojis', desc: 'Keep responses text-only' }
-  ];
-
-  const DEFAULT_BEHAVIOR_OPTIONS = [
-    { key: 'holdOwnViews', label: 'Hold your own views' },
-    { key: 'challengeWhenWrong', label: 'Challenge me when I\'m wrong' },
-    { key: 'admitUncertainty', label: 'Admit uncertainty clearly' },
-    { key: 'askClarifyingQuestions', label: 'Ask clarifying questions when ambiguity blocks progress' },
-    { key: 'calibrateTone', label: 'Calibrate emotional tone to context' }
-  ];
-
-  const DEFAULT_WHEN_LOW_OPTIONS = [
-    { key: 'shorterReplies', label: 'Keep replies shorter', desc: 'Reduce output length' },
-    { key: 'dontProbe', label: 'Don\'t probe — let me lead', desc: 'Avoid digging unless invited' },
-    { key: 'silenceProcessing', label: 'Silence often means processing', desc: 'Don\'t assume disengagement' },
-    { key: 'noReframing', label: 'Don\'t reframe or silver-lining', desc: 'Avoid turning negatives into positives' },
-    { key: 'noForcedPositivity', label: 'No forced positivity', desc: 'Skip cheerfulness that isn\'t warranted' },
-    { key: 'justAcknowledge', label: 'Just acknowledge, don\'t fix', desc: 'Sometimes people need to be heard' },
-    { key: 'nameConstraints', label: 'Name constraints honestly', desc: 'Say what you can\'t do instead of deflecting' },
-    { key: 'offerSpace', label: 'Offer space when needed', desc: 'Recognize when to step back' }
-  ];
-
-  const DEFAULT_TECH_STYLE_OPTIONS = [
-    { key: 'avoidOverEngineering', label: 'Avoid over-engineering', desc: 'Keep solutions proportional to the problem' },
-    { key: 'preferSimpleSolutions', label: 'Prefer simple solutions', desc: 'Simplicity over cleverness' },
-    { key: 'explainTradeoffs', label: 'Explain tradeoffs', desc: 'Show what you\'re giving up with each choice' },
-    { key: 'codeCommentsMinimal', label: 'Minimal code comments', desc: 'Code should be self-documenting' },
-    { key: 'suggestTests', label: 'Suggest tests', desc: 'Recommend testing strategies' },
-    { key: 'functionalStyle', label: 'Prefer functional style', desc: 'Favor immutability and pure functions' },
-    { key: 'typeAnnotations', label: 'Include type annotations', desc: 'Add types to code examples' }
-  ];
-
-  const DEFAULT_TRAIT_OPTIONS = [
-    { key: 'warmth', label: 'Warmth', endpoints: ['Clinical', 'Very warm'] },
-    { key: 'directness', label: 'Directness', endpoints: ['Gentle', 'Blunt'] },
-    { key: 'humor', label: 'Humor', endpoints: ['Serious', 'Playful'] },
-    { key: 'formality', label: 'Formality', endpoints: ['Casual', 'Formal'] },
-    { key: 'verbosity', label: 'Verbosity', endpoints: ['Terse', 'Detailed'] },
-    { key: 'curiosity', label: 'Curiosity', endpoints: ['Focused', 'Highly curious'] },
-    { key: 'independence', label: 'Independence', endpoints: ['Deferential', 'Independent'] }
-  ];
-
-  // ---- Presets ----
-  const PRESETS = {
-    technical: {
-      label: 'Technical / Coding',
-      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'tech-style', 'agent-custom']
-    },
-    research: {
-      label: 'Research / Academic',
-      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'agent-custom']
-    },
-    personal: {
-      label: 'Personal / Companion',
-      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'user-custom'],
-      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'agent-custom']
-    },
-    custom: {
-      label: 'Custom',
-      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'],
-      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'tech-style', 'agent-custom']
-    }
-  };
-
-  const USER_SECTION_IDS = [
-    'identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'
-  ];
-  const AGENT_SECTION_IDS = [
-    'agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'tech-style', 'agent-custom'
-  ];
-  const DEFAULT_COLLAPSED_SECTIONS = {
-    'autonomy': true,
-    'rules': true,
-    'tech-style': true,
-    'user-custom': true,
-    'agent-custom': true,
-  };
-
-  // ---- Icons (inline SVG, feather style) ----
-  const _i = (d) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
-  const ICON = {
-    star:     _i('<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>'),
-    edit:     _i('<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>'),
-    sparkle:  _i('<path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5z"/>'),
-    settings: _i('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>'),
-    scale:    _i('<path d="M16 3l5 5-5 5"/><path d="M21 8H9"/><path d="M8 21l-5-5 5-5"/><path d="M3 16h12"/>'),
-    heart:    _i('<path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>'),
-    users:    _i('<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>'),
-    folder:   _i('<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>'),
-    code:     _i('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'),
-    chat:     _i('<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>'),
-    sliders:  _i('<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>'),
-    check:    _i('<polyline points="20 6 9 17 4 12"/>'),
-    x:        _i('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
-    plus:     _i('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>'),
-    ban:      _i('<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>'),
-    circle:   _i('<circle cx="12" cy="12" r="10"/>'),
-    penTool:  _i('<path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/>'),
-    fileText: _i('<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>'),
-    file:     _i('<path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/>'),
-    search:   _i('<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>'),
-    alert:    _i('<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
-    moon:     _i('<path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>'),
-    sun:      _i('<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'),
-    book:     _i('<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>'),
-    user:     _i('<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>'),
-    link:     _i('<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>'),
-    plug:     _i('<path d="M12 2v6"/><path d="M6 8h12"/><path d="M8 8v4a4 4 0 008 0V8"/><path d="M12 16v6"/>'),
-    compass:  _i('<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>'),
-    chevDown: _i('<polyline points="6 9 12 15 18 9"/>'),
-    grip:     _i('<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>'),
-    globe:    _i('<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>'),
-    upload:   _i('<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
-    clipboard:_i('<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>'),
-    refresh:  _i('<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>'),
-  };
+  // ---- Static UI config/options ----
+  const UI_CONFIG = window.MemorableUIConfig || {};
+  const DEFAULT_COGNITIVE_OPTIONS = UI_CONFIG.DEFAULT_COGNITIVE_OPTIONS || [];
+  const DEFAULT_COGNITIVE_STYLE_DIMS = UI_CONFIG.DEFAULT_COGNITIVE_STYLE_DIMS || [];
+  const DEFAULT_COMMUNICATION_OPTIONS = UI_CONFIG.DEFAULT_COMMUNICATION_OPTIONS || [];
+  const DEFAULT_BEHAVIOR_OPTIONS = UI_CONFIG.DEFAULT_BEHAVIOR_OPTIONS || [];
+  const DEFAULT_WHEN_LOW_OPTIONS = UI_CONFIG.DEFAULT_WHEN_LOW_OPTIONS || [];
+  const DEFAULT_TECH_STYLE_OPTIONS = UI_CONFIG.DEFAULT_TECH_STYLE_OPTIONS || [];
+  const DEFAULT_TRAIT_OPTIONS = UI_CONFIG.DEFAULT_TRAIT_OPTIONS || [];
+  const PRESETS = UI_CONFIG.PRESETS || {};
+  const USER_SECTION_IDS = UI_CONFIG.USER_SECTION_IDS || [];
+  const AGENT_SECTION_IDS = UI_CONFIG.AGENT_SECTION_IDS || [];
+  const DEFAULT_COLLAPSED_SECTIONS = UI_CONFIG.DEFAULT_COLLAPSED_SECTIONS || {};
+  const ICON = UI_CONFIG.ICON || {};
 
   // ---- Materiality: Content Density ----
   function getSectionDensity(sectionId) {
@@ -311,13 +186,12 @@
     },
     // --- New app-level state ---
     activePage: 'dashboard',  // which page is shown: dashboard, configure, memories, settings
-    memoriesSubTab: 'episodic', // memories sub-tab: episodic, working, semantic
+    memoriesSubTab: 'episodic', // memories sub-tab: episodic, working, semantic, deep
     notesCache: [],           // cached session notes from API
     settingsCache: null,      // cached settings from API
     statusCache: null,        // cached status from API
     metricsCache: null,       // cached local reliability metrics from API
     serverConnected: false,   // whether server is reachable
-    onboardingStep: 1,        // dashboard onboarding wizard step
     seedSync: {
       deploymentKnown: false, // whether we have a deployed baseline to compare against
       deployedHash: "",       // hash-like fingerprint of deployed user+agent seeds
@@ -325,6 +199,12 @@
     },
     semanticProcessing: {
       files: [],
+    },
+    deepSearch: {
+      query: '',
+      results: [],
+      count: 0,
+      ran: false,
     },
   };
 
@@ -708,7 +588,7 @@
       md += `## About\n\n${u.about.trim()}\n\n`;
     }
 
-    // Neurotype
+    // Neurodivergence
     if (sec['cognitive']) {
       const activeCog = u.cognitiveOptions.filter(k => u.cognitiveActive[k]).map(k => getCognitiveLabel(k));
       if (activeCog.length) {
@@ -814,7 +694,9 @@
 
     // Tone & Format
     if (sec['communication']) {
-      const commPrefs = a.communicationOptions.filter(k => a.communicationActive[k]).map(k => getCommLabel(k));
+      const commPrefs = a.communicationOptions
+        .filter(k => isDefaultComm(k) ? !!a.communicationActive[k] : true)
+        .map(k => getCommLabel(k));
       if (commPrefs.length) {
         md += '## Tone & Format\n\n';
         commPrefs.forEach(p => { md += `- ${p}\n`; });
@@ -822,11 +704,11 @@
       }
     }
 
-    // Disposition
+    // Behaviors
     if (sec['behaviors']) {
       const activeBehaviors = a.behaviorOptions.filter(k => a.behaviorsActive[k]).map(k => getBehaviorLabel(k));
       if (activeBehaviors.length) {
-        md += '## Disposition\n\n';
+        md += '## Behaviors\n\n';
         activeBehaviors.forEach(b => { md += `- ${b}\n`; });
         md += '\n';
       }
@@ -834,7 +716,9 @@
 
     // When user is low
     if (sec['when-low']) {
-      const lowPrefs = a.whenLowOptions.filter(k => a.whenLowActive[k]).map(k => getWhenLowLabel(k));
+      const lowPrefs = a.whenLowOptions
+        .filter(k => isDefaultWhenLow(k) ? !!a.whenLowActive[k] : true)
+        .map(k => getWhenLowLabel(k));
       if (lowPrefs.length) {
         md += '## When User Is Low\n\n';
         lowPrefs.forEach(p => { md += `- ${p}\n`; });
@@ -885,7 +769,9 @@
 
     // Technical style
     if (sec['tech-style']) {
-      const techPrefs = a.techStyleOptions.filter(k => a.techStyleActive[k]).map(k => getTechLabel(k));
+      const techPrefs = a.techStyleOptions
+        .filter(k => isDefaultTech(k) ? !!a.techStyleActive[k] : true)
+        .map(k => getTechLabel(k));
       if (techPrefs.length) {
         md += '## Technical Style\n\n';
         techPrefs.forEach(p => { md += `- ${p}\n`; });
@@ -953,8 +839,8 @@
       state.enabledSections['about'] = true;
     }
 
-    // Parse Neurodivergence (also accept old "Neurotype" / "Cognitive Style" headings)
-    const neurotypeSrc = getSection(sections, 'Neurodivergence') || getSection(sections, 'Neurotype') || getSection(sections, 'Cognitive Style');
+    // Parse Neurodivergence
+    const neurotypeSrc = getSection(sections, 'Neurodivergence');
     if (neurotypeSrc) {
       state.enabledSections['cognitive'] = true;
       // Neurotype is comma-separated labels (not bullet list)
@@ -963,24 +849,19 @@
       const isToggleList = items.every(i => !i.includes(':'));
       if (isToggleList) {
         items.forEach(item => {
-          const existing = u.cognitiveOptions.find(k => getCognitiveLabel(k).toLowerCase() === item.toLowerCase());
-          if (existing) {
-            u.cognitiveActive[existing] = true;
-          } else {
-            const key = labelToKey(item);
-            if (!u.cognitiveOptions.includes(key)) {
-              u.cognitiveOptions.push(key);
-              u.cognitiveLabels[key] = item;
-            }
-            u.cognitiveActive[key] = true;
-          }
+          activateOptionByLabel({
+            options: u.cognitiveOptions,
+            active: u.cognitiveActive,
+            labelFor: getCognitiveLabel,
+            text: item,
+            labels: u.cognitiveLabels,
+          });
         });
       }
     }
 
     // Parse Cognitive Style (spectrum dimensions)
-    // If we already consumed "Cognitive Style" as neurotype above, check for a separate one
-    const cogStyleSrc = (getSection(sections, 'Neurodivergence') || getSection(sections, 'Neurotype')) ? getSection(sections, 'Cognitive Style') : null;
+    const cogStyleSrc = getSection(sections, 'Cognitive Style');
     if (cogStyleSrc) {
       state.enabledSections['cogStyle'] = true;
       const lines = cogStyleSrc.split('\n').filter(l => l.trim().startsWith('-'));
@@ -1023,28 +904,20 @@
     // Interests
     if (getSection(sections, 'Interests')) {
       state.enabledSections['interests'] = true;
-      const intText = getSection(sections, 'Interests');
-      const intParts = intText.split(/^###\s+/m).filter(Boolean);
-      intParts.forEach(part => {
-        const lines = part.split('\n');
-        const name = lines[0].trim();
-        const context = lines.slice(1).join('\n').trim();
-        if (name) u.interests.push({ name, context });
+      parseTitledSubsections(getSection(sections, 'Interests')).forEach(({ title, body }) => {
+        u.interests.push({ name: title, context: body });
       });
     }
 
     if (getSection(sections, 'People')) {
       state.enabledSections['people'] = true;
-      const peopleText = getSection(sections, 'People');
-      const peopleParts = peopleText.split(/^###\s+/m).filter(Boolean);
-      peopleParts.forEach(part => {
-        const lines = part.split('\n');
-        const firstLine = lines[0].trim();
+      parseTitledSubsections(getSection(sections, 'People')).forEach(({ title, body }) => {
+        const firstLine = title;
         const relMatch = firstLine.match(/^(.+?)\s*\(([^)]+)\)/);
         const person = {
           name: relMatch ? relMatch[1].trim() : firstLine,
           relationship: relMatch ? relMatch[2].trim() : '',
-          notes: lines.slice(1).join('\n').trim()
+          notes: body
         };
         if (person.name) u.people.push(person);
       });
@@ -1052,22 +925,19 @@
 
     if (getSection(sections, 'Projects')) {
       state.enabledSections['projects'] = true;
-      const projText = getSection(sections, 'Projects');
-      const projParts = projText.split(/^###\s+/m).filter(Boolean);
-      projParts.forEach(part => {
-        const lines = part.split('\n');
-        const firstLine = lines[0].trim();
+      parseTitledSubsections(getSection(sections, 'Projects')).forEach(({ title, body }) => {
+        const firstLine = title;
         const statusMatch = firstLine.match(/^(.+?)\s*\[([^\]]+)\]/);
         const project = {
           name: statusMatch ? statusMatch[1].trim() : firstLine,
           status: statusMatch ? statusMatch[2].trim() : 'active',
-          description: lines.slice(1).join('\n').trim()
+          description: body
         };
         if (project.name) u.projects.push(project);
       });
     }
 
-    const knownSections = ['about', 'neurodivergence', 'neurotype', 'cognitive style', 'values', 'interests', 'people', 'projects'];
+    const knownSections = ['about', 'neurodivergence', 'cognitive style', 'values', 'interests', 'people', 'projects'];
     Object.entries(sections).forEach(([title, content]) => {
       if (title.startsWith('_')) return;
       if (knownSections.includes(title.toLowerCase())) return;
@@ -1109,48 +979,20 @@
       a.about = getSection(sections, 'About').trim();
     }
 
-    const legacyCommToBehavior = {
-      'admit uncertainty': 'admitUncertainty',
-      'challenge me when i\'m wrong': 'challengeWhenWrong',
-      'match my energy': 'calibrateTone'
-    };
-    const legacyCommToWhenLow = {
-      'short replies when i\'m low': 'shorterReplies'
-    };
-
-    // Tone & Format (backward-compatible with old heading)
-    const toneSrc = getSection(sections, 'Tone & Format') || getSection(sections, 'Tone and Format') || getSection(sections, 'Communication Preferences');
+    // Tone & Format
+    const toneSrc = getSection(sections, 'Tone & Format');
     if (toneSrc) {
       state.enabledSections['communication'] = true;
-      const lines = toneSrc.split('\n').filter(l => l.trim().startsWith('-'));
-      lines.forEach(line => {
-        const text = line.replace(/^-\s*/, '').trim();
-        if (!text) return;
-        const lowered = text.toLowerCase();
-        if (legacyCommToBehavior[lowered]) {
-          const behaviorKey = legacyCommToBehavior[lowered];
-          if (!a.behaviorOptions.includes(behaviorKey)) a.behaviorOptions.push(behaviorKey);
-          a.behaviorsActive[behaviorKey] = true;
-          return;
-        }
-        if (legacyCommToWhenLow[lowered]) {
-          const lowKey = legacyCommToWhenLow[lowered];
-          if (!a.whenLowOptions.includes(lowKey)) a.whenLowOptions.push(lowKey);
-          a.whenLowActive[lowKey] = true;
-          return;
-        }
-        const existing = a.communicationOptions.find(k => getCommLabel(k).toLowerCase() === text.toLowerCase());
-        if (existing) {
-          a.communicationActive[existing] = true;
-        } else {
-          const key = labelToKey(text);
-          if (!a.communicationOptions.includes(key)) {
-            a.communicationOptions.push(key);
-            a.communicationLabels[key] = text;
-            a.communicationDescs[key] = '';
-          }
-          a.communicationActive[key] = true;
-        }
+      getBulletLines(toneSrc).forEach((text) => {
+        activateOptionByLabel({
+          options: a.communicationOptions,
+          active: a.communicationActive,
+          labelFor: getCommLabel,
+          text,
+          labels: a.communicationLabels,
+          descs: a.communicationDescs,
+          defaultDesc: '',
+        });
       });
     }
 
@@ -1180,43 +1022,23 @@
       });
     }
 
-    const legacyBehaviorLabels = {
-      'be uncertain when appropriate': 'admitUncertainty',
-      'adapt to user\'s mood': 'calibrateTone',
-      'match my energy': 'calibrateTone'
-    };
-    const dispositionSrc = getSection(sections, 'Disposition') || getSection(sections, 'Behaviors');
-    if (dispositionSrc) {
+    const behaviorSrc = getSection(sections, 'Behaviors');
+    if (behaviorSrc) {
       state.enabledSections['behaviors'] = true;
-      const lines = dispositionSrc.split('\n').filter(l => l.trim().startsWith('-'));
-      lines.forEach(line => {
-        const text = line.replace(/^-\s*/, '').trim();
-        if (!text) return;
-        const lowered = text.toLowerCase();
-        if (legacyBehaviorLabels[lowered]) {
-          const behaviorKey = legacyBehaviorLabels[lowered];
-          if (!a.behaviorOptions.includes(behaviorKey)) a.behaviorOptions.push(behaviorKey);
-          a.behaviorsActive[behaviorKey] = true;
-          return;
-        }
-        const existing = a.behaviorOptions.find(k => getBehaviorLabel(k).toLowerCase() === text.toLowerCase());
-        if (existing) {
-          a.behaviorsActive[existing] = true;
-        } else {
-          const key = labelToKey(text);
-          if (!a.behaviorOptions.includes(key)) {
-            a.behaviorOptions.push(key);
-            a.behaviorLabels[key] = text;
-          }
-          a.behaviorsActive[key] = true;
-        }
+      getBulletLines(behaviorSrc).forEach((text) => {
+        activateOptionByLabel({
+          options: a.behaviorOptions,
+          active: a.behaviorsActive,
+          labelFor: getBehaviorLabel,
+          text,
+          labels: a.behaviorLabels,
+        });
       });
     }
 
     if (getSection(sections, 'Autonomy')) {
       state.enabledSections['autonomy'] = true;
-      const lines = getSection(sections, 'Autonomy').split('\n').filter(l => l.trim().startsWith('-'));
-      for (const line of lines) {
+      for (const line of getBulletLines(getSection(sections, 'Autonomy'))) {
         const match = line.match(/\((\d+)\/100\)/);
         if (match) {
           const n = parseInt(match[1], 10);
@@ -1231,9 +1053,7 @@
     const rulesSrc = getSection(sections, 'Conditional Rules') || getSection(sections, 'Rules');
     if (rulesSrc) {
       state.enabledSections['rules'] = true;
-      const lines = rulesSrc.split('\n').filter(l => l.trim().startsWith('-'));
-      lines.forEach((line) => {
-        const text = line.replace(/^-\s*/, '').trim();
+      getBulletLines(rulesSrc).forEach((text) => {
         if (!text) return;
         const match = text.match(/^when\s+(.+?)\s*(?:->|→)\s*(.+)$/i);
         if (match) {
@@ -1246,51 +1066,36 @@
 
     if (getSection(sections, 'Avoid')) {
       state.enabledSections['avoid'] = true;
-      a.avoid = getSection(sections, 'Avoid').split('\n')
-        .filter(l => l.trim().startsWith('-'))
-        .map(l => l.replace(/^-\s*/, '').trim())
-        .filter(Boolean);
+      a.avoid = getBulletLines(getSection(sections, 'Avoid')).filter(Boolean);
     }
 
     if (getSection(sections, 'When User Is Low')) {
       state.enabledSections['when-low'] = true;
-      const lines = getSection(sections, 'When User Is Low').split('\n').filter(l => l.trim().startsWith('-'));
-      lines.forEach(line => {
-        const text = line.replace(/^-\s*/, '').trim();
-        if (!text) return;
-        const existing = a.whenLowOptions.find(k => getWhenLowLabel(k).toLowerCase() === text.toLowerCase());
-        if (existing) {
-          a.whenLowActive[existing] = true;
-        } else {
-          const key = labelToKey(text);
-          if (!a.whenLowOptions.includes(key)) {
-            a.whenLowOptions.push(key);
-            a.whenLowLabels[key] = text;
-            a.whenLowDescs[key] = '';
-          }
-          a.whenLowActive[key] = true;
-        }
+      getBulletLines(getSection(sections, 'When User Is Low')).forEach((text) => {
+        activateOptionByLabel({
+          options: a.whenLowOptions,
+          active: a.whenLowActive,
+          labelFor: getWhenLowLabel,
+          text,
+          labels: a.whenLowLabels,
+          descs: a.whenLowDescs,
+          defaultDesc: '',
+        });
       });
     }
 
     if (getSection(sections, 'Technical Style')) {
       state.enabledSections['tech-style'] = true;
-      const lines = getSection(sections, 'Technical Style').split('\n').filter(l => l.trim().startsWith('-'));
-      lines.forEach(line => {
-        const text = line.replace(/^-\s*/, '').trim();
-        if (!text) return;
-        const existing = a.techStyleOptions.find(k => getTechLabel(k).toLowerCase() === text.toLowerCase());
-        if (existing) {
-          a.techStyleActive[existing] = true;
-        } else {
-          const key = labelToKey(text);
-          if (!a.techStyleOptions.includes(key)) {
-            a.techStyleOptions.push(key);
-            a.techStyleLabels[key] = text;
-            a.techStyleDescs[key] = '';
-          }
-          a.techStyleActive[key] = true;
-        }
+      getBulletLines(getSection(sections, 'Technical Style')).forEach((text) => {
+        activateOptionByLabel({
+          options: a.techStyleOptions,
+          active: a.techStyleActive,
+          labelFor: getTechLabel,
+          text,
+          labels: a.techStyleLabels,
+          descs: a.techStyleDescs,
+          defaultDesc: '',
+        });
       });
     }
 
@@ -1324,6 +1129,55 @@
       if (key.toLowerCase() === lower) return sections[key];
     }
     return undefined;
+  }
+
+  function activateOptionByLabel({
+    options,
+    active,
+    labelFor,
+    text,
+    labels,
+    descs,
+    defaultDesc = '',
+  }) {
+    const clean = String(text || '').trim();
+    if (!clean) return null;
+    const existing = options.find((k) => labelFor(k).toLowerCase() === clean.toLowerCase());
+    if (existing) {
+      active[existing] = true;
+      return existing;
+    }
+    const key = labelToKey(clean);
+    if (!options.includes(key)) {
+      options.push(key);
+      if (labels) labels[key] = clean;
+      if (descs) descs[key] = defaultDesc;
+    }
+    active[key] = true;
+    return key;
+  }
+
+  function getBulletLines(text) {
+    return String(text || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('-'))
+      .map((line) => line.replace(/^-\s*/, '').trim())
+      .filter(Boolean);
+  }
+
+  function parseTitledSubsections(text) {
+    return String(text || '')
+      .split(/^###\s+/m)
+      .filter(Boolean)
+      .map((part) => {
+        const lines = part.split('\n');
+        return {
+          title: (lines[0] || '').trim(),
+          body: lines.slice(1).join('\n').trim(),
+        };
+      })
+      .filter((item) => item.title);
   }
 
   function splitMarkdownSections(md) {
@@ -1369,16 +1223,13 @@
 
   function getKnownImportSections(fileType) {
     if (fileType === 'user') {
-      return ['About', 'Neurodivergence', 'Neurotype', 'Cognitive Style', 'Values', 'Interests', 'People', 'Projects'];
+      return ['About', 'Neurodivergence', 'Cognitive Style', 'Values', 'Interests', 'People', 'Projects'];
     }
     return [
       'About',
-      'Communication Preferences',
       'Tone & Format',
-      'Tone and Format',
       'Character Traits',
       'Behaviors',
-      'Disposition',
       'Autonomy',
       'Conditional Rules',
       'Rules',
@@ -1753,120 +1604,6 @@
   }
 
   // ---- Dashboard Page ----
-  function clampOnboardingStep(step) {
-    const n = parseInt(step, 10);
-    if (!Number.isFinite(n)) return 1;
-    return Math.min(5, Math.max(1, n));
-  }
-
-  function renderOnboardingWizard() {
-    const step = clampOnboardingStep(state.onboardingStep || 1);
-    const u = state.user;
-    const a = state.agent;
-    const onboardingTraitKeys = DEFAULT_TRAIT_OPTIONS.map((t) => t.key);
-    let body = '';
-
-    if (step === 1) {
-      body = `
-        <div class="wizard-step-fields">
-          <label>Name</label>
-          <input type="text" value="${esc(u.identity.name || '')}" placeholder="Your name" oninput="window.memorableApp.onboardingSetField('user.identity.name', this.value)">
-          <label>Pronouns</label>
-          <input type="text" value="${esc(u.identity.pronouns || '')}" placeholder="e.g. she/her, he/him, they/them" oninput="window.memorableApp.onboardingSetField('user.identity.pronouns', this.value)">
-        </div>
-      `;
-    } else if (step === 2) {
-      body = `
-        <div class="wizard-step-fields">
-          <label>About You</label>
-          <textarea rows="5" placeholder="Share a short background, your goals, and what context helps most." oninput="window.memorableApp.onboardingSetField('user.about', this.value)">${esc(u.about || '')}</textarea>
-        </div>
-      `;
-    } else if (step === 3) {
-      const values = Array.isArray(u.values) && u.values.length ? u.values : [{ higher: '', lower: '' }];
-      body = `
-        <div class="wizard-step-fields">
-          <label>Core Values</label>
-          <p class="wizard-step-hint">Set your preference pairs. Left side means "prefer more."</p>
-          <div class="wizard-values-list">
-            ${values.map((v, idx) => `
-              <div class="wizard-value-row">
-                <input type="text" value="${esc(v.higher || '')}" placeholder="More important" oninput="window.memorableApp.onboardingSetValue(${idx}, 'higher', this.value)">
-                <span>&gt;</span>
-                <input type="text" value="${esc(v.lower || '')}" placeholder="Less important" oninput="window.memorableApp.onboardingSetValue(${idx}, 'lower', this.value)">
-                <button class="btn btn-small btn-danger-ghost" onclick="window.memorableApp.onboardingRemoveValue(${idx})" ${values.length <= 1 ? 'disabled' : ''}>Remove</button>
-              </div>
-            `).join('')}
-          </div>
-          <button class="btn btn-small" onclick="window.memorableApp.onboardingAddValue()">Add pair</button>
-        </div>
-      `;
-    } else if (step === 4) {
-      body = `
-        <div class="wizard-step-fields">
-          <label>Agent Personality</label>
-          <p class="wizard-step-hint">Tune core traits. You can refine these later in Configure.</p>
-          <div class="wizard-traits">
-            ${onboardingTraitKeys.map((key) => {
-              const val = parseInt(a.traits[key] ?? 50, 10);
-              return `
-                <div class="wizard-trait-row">
-                  <div class="wizard-trait-head">
-                    <span>${esc(getTraitLabel(key))}</span>
-                    <span>${esc(getTraitDescription(key, val))}</span>
-                  </div>
-                  <input type="range" min="0" max="100" value="${val}" oninput="window.memorableApp.onboardingSetTrait('${key}', this.value)">
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-      `;
-    } else {
-      const valueLines = (u.values || [])
-        .filter(v => (v.higher || '').trim() || (v.lower || '').trim())
-        .map(v => `${v.higher || '...'} > ${v.lower || '...'}`);
-      body = `
-        <div class="wizard-step-fields wizard-review">
-          <h3>Review</h3>
-          <p><strong>Name:</strong> ${esc(u.identity.name || 'Not set')}</p>
-          <p><strong>Pronouns:</strong> ${esc(u.identity.pronouns || 'Not set')}</p>
-          <p><strong>About:</strong> ${esc((u.about || '').trim() || 'Not set')}</p>
-          <p><strong>Core values:</strong></p>
-          <ul>
-            ${valueLines.length ? valueLines.map(v => `<li>${esc(v)}</li>`).join('') : '<li>Not set</li>'}
-          </ul>
-          <p><strong>Agent traits:</strong> ${onboardingTraitKeys.map(k => `${getTraitLabel(k)} ${a.traits[k] ?? 50}`).join(', ')}</p>
-          <p class="wizard-step-hint">Save now to generate starter ` + "`user.md`, `agent.md`, and `now.md`." + `</p>
-        </div>
-      `;
-    }
-
-    return `
-      <div class="onboarding-card onboarding-wizard">
-        <div class="onboarding-icon"><img src="logo.png" alt="Memorable" style="width:64px;height:64px;"></div>
-        <h2>Welcome to Memorable</h2>
-        <div class="wizard-progress">
-          <span>Step ${step} of 5</span>
-          <div class="wizard-progress-track"><div class="wizard-progress-fill" style="width:${(step / 5) * 100}%"></div></div>
-        </div>
-        <div class="wizard-step-title">
-          ${step === 1 ? 'Name + Pronouns' : step === 2 ? 'About You' : step === 3 ? 'Core Values' : step === 4 ? 'Agent Personality' : 'Review + Save'}
-        </div>
-        ${body}
-        <div class="onboarding-actions wizard-actions">
-          <button class="btn" onclick="window.memorableApp.onboardingSkip()">Skip for now</button>
-          <div class="wizard-actions-right">
-            ${step > 1 ? '<button class="btn" onclick="window.memorableApp.onboardingPrev()">Back</button>' : ''}
-            ${step < 5
-              ? '<button class="btn btn-primary" onclick="window.memorableApp.onboardingNext()">Next</button>'
-              : '<button class="btn btn-primary" onclick="window.memorableApp.onboardingComplete()">Save & Open Configure</button>'}
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
   function renderDashboard(container) {
     const status = state.statusCache;
     const metrics = state.metricsCache && typeof state.metricsCache === 'object'
@@ -1902,16 +1639,24 @@
       `;
     }).join('');
 
-    // Onboarding (only if no seeds)
-    let onboardingHtml = '';
-    if (!seedsExist) {
-      onboardingHtml = renderOnboardingWizard();
-    }
-
     // Single action-required module
     let actionRequiredHtml = '';
     let actionPrimaryId = '';
-    if (seedsExist) {
+    if (!seedsExist) {
+      actionRequiredHtml = `
+        <section class="dash-action-required">
+          <div class="dash-action-required-header">
+            <span class="dash-action-required-icon">${ICON.alert}</span>
+            <h2>Action required</h2>
+          </div>
+          <p>No seed files are deployed yet. Use Configure to create and publish user and agent seeds.</p>
+          <div class="dash-action-required-actions">
+            <button class="btn btn-primary" id="dash-action-open-configure">Open configure</button>
+          </div>
+        </section>
+      `;
+      actionPrimaryId = 'dash-action-open-configure';
+    } else {
       const issues = daemonHealth && Array.isArray(daemonHealth.issues) ? daemonHealth.issues : [];
       let actionTitle = '';
       let actionText = '';
@@ -2014,7 +1759,6 @@
           <span class="dash-hero-sub">${lastNoteDate ? `Last note ${formatRelativeTime(lastNoteDate)}` : (totalNotes > 0 ? totalNotes + ' notes captured' : 'No notes yet')}</span>
         </div>
 
-        ${onboardingHtml}
         ${actionRequiredHtml}
 
         ${sessionHtml}
@@ -2072,6 +1816,9 @@
     bindById('dash-action-open-settings', 'click', () => {
       window.memorableApp.navigateTo('settings');
     });
+    bindById('dash-action-open-configure', 'click', () => {
+      window.memorableApp.navigateTo('configure');
+    });
     bindById('dash-action-edit-seeds', 'click', () => {
       window.memorableApp.navigateTo('configure');
     });
@@ -2122,6 +1869,13 @@
     ]);
     notesState.tags = Array.isArray(tagsData && tagsData.tags) ? tagsData.tags : [];
     notesState.machines = Array.isArray(machinesData && machinesData.machines) ? machinesData.machines : [];
+    if (
+      notesState.machine
+      && !notesState.machines.includes(notesState.machine)
+    ) {
+      // Clear stale machine selection so one chip is always active.
+      notesState.machine = '';
+    }
     notesState.fetchError = false;
 
     // Fetch first page of notes
@@ -2267,11 +2021,18 @@
 
     // Machine tabs
     let machineTabsHtml = '';
-    if (ns.machines.length > 1) {
+    const machineOptions = Array.from(
+      new Set(
+        (Array.isArray(ns.machines) ? ns.machines : [])
+          .map((m) => String(m || '').trim())
+          .filter(Boolean)
+      )
+    );
+    if (machineOptions.length > 0) {
       const allActive = ns.machine === '' ? ' active' : '';
       machineTabsHtml = `<div class="notes-device-tabs">
         <button type="button" class="notes-device-tab${allActive}" data-machine="">All</button>
-        ${ns.machines.map(m => {
+        ${machineOptions.map(m => {
           const short = m.split('.')[0];
           const active = ns.machine === m ? ' active' : '';
           return `<button type="button" class="notes-device-tab${active}" data-machine="${esc(m)}">${esc(short)}</button>`;
@@ -2632,6 +2393,10 @@
         label: 'Semantic',
         helper: 'Long-lived knowledge documents with configurable zoom levels.',
       },
+      deep: {
+        label: 'Deep',
+        helper: 'Large archives indexed for retrieval without startup context bloat.',
+      },
     };
     const activeMemory = memoryKinds[subTab] || memoryKinds.episodic;
 
@@ -2641,6 +2406,7 @@
         <button class="memories-sub-tab ${subTab === 'episodic' ? 'active' : ''}" data-subtab="episodic">Episodic</button>
         <button class="memories-sub-tab ${subTab === 'working' ? 'active' : ''}" data-subtab="working">Working</button>
         <button class="memories-sub-tab ${subTab === 'semantic' ? 'active' : ''}" data-subtab="semantic">Semantic</button>
+        <button class="memories-sub-tab ${subTab === 'deep' ? 'active' : ''}" data-subtab="deep">Deep</button>
       </div>
       <div class="memories-subtab-helper">
         <strong>${esc(activeMemory.label)}</strong>
@@ -2678,6 +2444,9 @@
       case 'semantic':
         renderSemanticMemory(contentEl);
         break;
+      case 'deep':
+        renderDeepMemory(contentEl);
+        break;
     }
 
     // Bind sub-tab clicks
@@ -2694,21 +2463,16 @@
 
     const data = await apiFetch('/api/seeds');
     if (!data || !data.files) {
-      container.innerHTML = `
-        <div class="notes-empty">
-          <div class="notes-empty-icon">${ICON.alert}</div>
-          <h3>Could not load working memory</h3>
-          <p>Make sure the local server is running, then retry.</p>
-          <div class="notes-empty-actions">
-            <button class="btn btn-primary" id="working-retry-btn">Retry</button>
-            <button class="btn" id="working-open-settings-btn">Open Settings</button>
-          </div>
-        </div>
-      `;
-      const retryBtn = container.querySelector('#working-retry-btn');
-      if (retryBtn) retryBtn.addEventListener('click', () => renderWorkingMemory(container));
-      const settingsBtn = container.querySelector('#working-open-settings-btn');
-      if (settingsBtn) settingsBtn.addEventListener('click', () => window.memorableApp.navigateTo('settings'));
+      renderLoadErrorState(
+        container,
+        {
+          title: 'Could not load working memory',
+          message: 'Make sure the local server is running, then retry.',
+          retryId: 'working-retry-btn',
+          settingsId: 'working-open-settings-btn',
+        },
+        () => renderWorkingMemory(container)
+      );
       return;
     }
 
@@ -2768,27 +2532,27 @@
     ]);
 
     if (!filesData || !seedsData) {
-      container.innerHTML = `
-        <div class="notes-empty" style="padding:24px;">
-          <div class="notes-empty-icon">${ICON.alert}</div>
-          <h3>Could not load semantic memory</h3>
-          <p>Check that the local server is running, then retry.</p>
-          <div class="notes-empty-actions">
-            <button class="btn btn-primary" id="semantic-retry-btn">Retry</button>
-            <button class="btn" id="semantic-open-settings-btn">Open Settings</button>
-          </div>
-        </div>
-      `;
-      const retryBtn = container.querySelector('#semantic-retry-btn');
-      if (retryBtn) retryBtn.addEventListener('click', () => renderSemanticMemory(container));
-      const settingsBtn = container.querySelector('#semantic-open-settings-btn');
-      if (settingsBtn) settingsBtn.addEventListener('click', () => window.memorableApp.navigateTo('settings'));
+      renderLoadErrorState(
+        container,
+        {
+          title: 'Could not load semantic memory',
+          message: 'Check that the local server is running, then retry.',
+          retryId: 'semantic-retry-btn',
+          settingsId: 'semantic-open-settings-btn',
+          padded: true,
+        },
+        () => renderSemanticMemory(container)
+      );
       return;
     }
 
     const files = Array.isArray(filesData && filesData.files) ? filesData.files : [];
     const seedFiles = (seedsData && typeof seedsData.files === 'object' && seedsData.files) ? seedsData.files : {};
-    const seedNames = Object.keys(seedFiles).filter(n => n !== 'now.md').sort();
+    const seedNames = Object.keys(seedFiles).sort();
+    const seedTooltips = {
+      'knowledge.md': 'Long-term semantic knowledge distilled from recurring patterns in recent notes.',
+      'now.md': 'Short-term working memory summary from recent sessions: themes, highlights, and open threads.',
+    };
 
     // Identity files section (seeds)
     let seedsHtml = '';
@@ -2798,16 +2562,31 @@
         <div class="semantic-seed-cards">
           ${seedNames.map(name => {
             const content = seedFiles[name] || '';
-            const preview = content.split('\n').slice(0, 6).join('\n');
+            const preview = content.trim()
+              ? content.split('\n').slice(0, 6).join('\n')
+              : '*No content yet. Use Regenerate to build this file.*';
             const tokens = Math.ceil(content.length / 4);
+            const canRegenerate = name === 'knowledge.md' || name === 'now.md';
+            const tooltip = seedTooltips[name] || '';
             return `
               <div class="semantic-seed-card">
                 <div class="semantic-seed-header">
-                  <span class="semantic-seed-name">${esc(name)}</span>
+                  <div class="semantic-seed-title-row">
+                    <span class="semantic-seed-name">${esc(name)}</span>
+                    ${tooltip ? `
+                      <span class="semantic-seed-help-wrap">
+                        <button type="button" class="semantic-seed-help-btn" aria-label="What is ${esc(name)}?" tabindex="0">?</button>
+                        <span class="semantic-seed-help-tooltip" role="tooltip">${esc(tooltip)}</span>
+                      </span>
+                    ` : ''}
+                  </div>
                   <span class="semantic-seed-tokens">${tokens} tokens</span>
                 </div>
                 <div class="semantic-seed-preview">${markdownToHtml(preview)}</div>
-                <button class="semantic-seed-configure-btn" onclick="window.memorableApp.navigateTo('configure')">Configure</button>
+                ${canRegenerate
+                  ? `<button class="semantic-seed-configure-btn semantic-seed-regenerate-btn" data-seed-name="${esc(name)}">${ICON.refresh} Regenerate</button>`
+                  : `<button class="semantic-seed-configure-btn" onclick="window.memorableApp.navigateTo('configure')">Configure</button>`
+                }
               </div>
             `;
           }).join('')}
@@ -2838,7 +2617,7 @@
             const levelCount = Number.isFinite(levelCountRaw) ? Math.max(0, levelCountRaw) : 0;
             const hasLevels = isProcessed && levelCount > 0;
             const statusClass = hasLevels ? 'status-processed' : 'status-raw';
-            const statusText = hasLevels ? `Levels ${levelCount}` : 'Raw';
+            const statusText = hasLevels ? `Processed (${levelCount} steps)` : 'Raw';
 
             const configuredDepthRaw = Number.parseInt(f.depth, 10);
             const configuredDepth = Number.isFinite(configuredDepthRaw)
@@ -2854,9 +2633,9 @@
             const depthOptions = depthValues.map((d) => {
               let label = 'Raw file';
               if (d >= 1) {
-                if (d === 1) label = 'Level 1 (brief)';
-                else if (d === levelCount) label = `Level ${d} (full)`;
-                else label = `Level ${d}`;
+                if (d === 1) label = 'Baseline (brief)';
+                else if (d === levelCount) label = 'Full document';
+                else label = `Detail step ${d}`;
               }
               return `<option value="${d}" ${selectedDepth === d ? 'selected' : ''}>${label}</option>`;
             }).join('');
@@ -2870,10 +2649,10 @@
               for (let level = 1; level <= levelCount; level += 1) {
                 const key = String(level);
                 const value = tokensByLevel[key];
-                if (typeof value === 'number') items.push(`${level}\u2192${value}`);
+                if (typeof value === 'number') items.push(`L${level}\u2248${value}`);
               }
               const rawTokens = Number.parseInt(f.tokens, 10);
-              if (Number.isFinite(rawTokens) && rawTokens > 0) items.push(`raw\u2192${rawTokens}`);
+              if (Number.isFinite(rawTokens) && rawTokens > 0) items.push(`raw\u2248${rawTokens}`);
               if (items.length) {
                 depthInfo = `<div class="file-depth-info">Tokens: ${items.join(' &middot; ')}</div>`;
               }
@@ -2888,7 +2667,10 @@
                     <span class="file-card-meta">${f.tokens} tokens</span>
                   </div>
                   <div class="file-card-actions">
-                    ${!hasLevels ? `<button class="btn btn-primary btn-sm file-process-btn" data-filename="${esc(f.name)}">Process</button>` : ''}
+                    ${!hasLevels
+                      ? `<button class="btn btn-primary btn-sm file-process-btn" data-filename="${esc(f.name)}" data-process-action="process">Process</button>`
+                      : `<button class="btn btn-sm file-process-btn" data-filename="${esc(f.name)}" data-process-action="reprocess">Reprocess</button>`
+                    }
                     <select class="file-depth-select" data-filename="${esc(f.name)}">${depthOptions}</select>
                     <label class="file-enabled-label">
                       <input type="checkbox" class="file-enabled-toggle" data-filename="${esc(f.name)}" ${f.enabled ? 'checked' : ''}>
@@ -2932,6 +2714,133 @@
     bindSemanticMemoryEvents(container);
   }
 
+  async function renderDeepMemory(container) {
+    container.innerHTML = '<div style="padding:20px;color:var(--text-muted);">Loading deep memory...</div>';
+
+    const filesData = await apiFetch('/api/deep/files');
+    if (!filesData) {
+      renderLoadErrorState(
+        container,
+        {
+          title: 'Could not load deep memory',
+          message: 'Check that the local server is running, then retry.',
+          retryId: 'deep-retry-btn',
+          settingsId: 'deep-open-settings-btn',
+          padded: true,
+        },
+        () => renderDeepMemory(container)
+      );
+      return;
+    }
+
+    const files = Array.isArray(filesData.files) ? filesData.files : [];
+    const deepState = state.deepSearch || { query: '', results: [], count: 0, ran: false };
+    const searchResults = Array.isArray(deepState.results) ? deepState.results : [];
+    const searchCount = Number.isFinite(deepState.count) ? deepState.count : searchResults.length;
+
+    const uploadHtml = `
+      <div class="semantic-upload-zone" id="deep-dropzone">
+        <div class="semantic-upload-icon">${ICON.upload}</div>
+        <p>Drop a large document here, or click to upload</p>
+        <p class="semantic-upload-hint">Indexed for retrieval, not auto-loaded at startup</p>
+        <input type="file" id="deep-file-input" accept=".md,.txt,.text,.markdown,.rst,.org,.json,.csv,.log" multiple style="display:none">
+        <div class="semantic-upload-progress" id="deep-upload-progress" hidden></div>
+      </div>
+    `;
+
+    const searchHtml = `
+      <div class="semantic-section-header">Search Deep Memory</div>
+      <div class="notes-search">
+        <input
+          type="text"
+          class="notes-search-input"
+          id="deep-search-input"
+          placeholder="Search threads, people, decisions..."
+          value="${esc(deepState.query || '')}"
+        >
+      </div>
+      <div class="notes-toolbar notes-toolbar-secondary">
+        <button class="btn btn-primary btn-small" id="deep-search-btn">Search</button>
+        <span class="notes-count">${searchCount} match${searchCount === 1 ? '' : 'es'}</span>
+      </div>
+      <div class="semantic-files-list">
+        ${deepState.ran && searchResults.length === 0
+          ? `
+            <div class="notes-empty" style="padding:18px;">
+              <div class="notes-empty-icon">${ICON.search}</div>
+              <h3>No matches</h3>
+              <p>Try shorter keywords or another anchor phrase.</p>
+            </div>
+          `
+          : searchResults.map((item) => `
+            <div class="file-card file-card-processed">
+              <div class="file-card-header">
+                <div class="file-card-info">
+                  <span class="file-card-name">${esc(item.filename || '')}</span>
+                  <span class="file-status status-processed">Chunk ${esc(String(item.chunk_index || ''))}</span>
+                  <span class="file-card-meta">${esc(String(item.tokens || 0))} tokens</span>
+                </div>
+              </div>
+              <div class="file-card-body expanded" style="display:block;padding-top:0;">
+                <div class="file-preview-content file-preview-raw">${esc(item.snippet || '')}</div>
+              </div>
+            </div>
+          `).join('')}
+      </div>
+    `;
+
+    let filesHtml = '';
+    if (files.length > 0) {
+      filesHtml = `
+        <div class="semantic-section-header">Deep Files</div>
+        <div class="semantic-files-list">
+          ${files.map((f) => `
+            <div class="file-card ${f.processed ? 'file-card-processed' : ''}">
+              <div class="file-card-header">
+                <div class="file-card-info">
+                  <span class="file-card-name">${esc(f.name)}</span>
+                  <span class="file-status ${f.processed ? 'status-processed' : 'status-raw'}">${f.processed ? `Indexed (${f.chunks || 0} chunks)` : 'Raw'}</span>
+                  <span class="file-card-meta">${esc(String(f.tokens || 0))} tokens</span>
+                </div>
+                <div class="file-card-actions">
+                  <button class="btn ${f.processed ? 'btn-sm' : 'btn-primary btn-sm'} deep-process-btn" data-filename="${esc(f.name)}" data-process-action="${f.processed ? 'reprocess' : 'process'}">
+                    ${f.processed ? 'Reprocess' : 'Process'}
+                  </button>
+                  <button class="btn btn-ghost btn-sm deep-delete-btn" data-filename="${esc(f.name)}">Delete</button>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    } else {
+      filesHtml = `
+        <div class="semantic-section-header">Deep Files</div>
+        <div class="notes-empty" style="padding:24px;">
+          <div class="notes-empty-icon">${ICON.book}</div>
+          <h3>No deep files yet</h3>
+          <p>Upload conversation archives and large docs to build searchable long-term memory.</p>
+          <div class="notes-empty-actions">
+            <button class="btn btn-primary" id="deep-upload-first-btn">Upload First Document</button>
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="semantic-memory-page">
+        <div class="semantic-placeholder">
+          <p>Deep memory stores large documents for retrieval. These files are indexed and searched on demand.</p>
+        </div>
+        ${uploadHtml}
+        ${searchHtml}
+        ${filesHtml}
+      </div>
+    `;
+
+    bindDeepMemoryEvents(container);
+  }
+
   function bindSemanticMemoryEvents(container) {
     const dropzone = container.querySelector('#semantic-dropzone');
     const fileInput = container.querySelector('#semantic-file-input');
@@ -2960,19 +2869,47 @@
       if (fileInput) fileInput.click();
     });
 
+    bindAll(container, '.semantic-seed-regenerate-btn', 'click', async (e, btn) => {
+      e.stopPropagation();
+      const seedName = btn.dataset.seedName;
+      const endpoint = seedName === 'knowledge.md' ? '/api/regenerate-knowledge' : '/api/regenerate-summary';
+      const pendingLabel = seedName === 'knowledge.md' ? 'Regenerating knowledge...' : 'Regenerating now...';
+
+      await withPendingButton(btn, pendingLabel, async () => {
+        const outcome = await runMutationAction(
+          () => apiFetch(endpoint, { method: 'POST' }),
+          {
+            isSuccess: (result) => !!result && result.ok === true,
+            successMessage: () => `${seedName} regenerated`,
+            failureMessage: (result) => `Could not regenerate ${seedName}: ${(result && result.error) || 'unknown'}`,
+            errorMessage: (err) => `Could not regenerate ${seedName}: ${err.message}`,
+          }
+        );
+        if (
+          outcome.ok
+          && state.activePage === 'memories'
+          && state.memoriesSubTab === 'semantic'
+          && container.isConnected
+        ) {
+          await renderSemanticMemory(container);
+        }
+      });
+    });
+
     bindAll(container, '.file-process-btn', 'click', async (e, btn) => {
       e.stopPropagation();
       const filename = btn.dataset.filename;
+      const action = btn.dataset.processAction === 'reprocess' ? 'reprocess' : 'process';
       setSemanticProcessing(filename, true);
-      await withPendingButton(btn, 'Processing...', async () => {
+      await withPendingButton(btn, action === 'reprocess' ? 'Reprocessing...' : 'Processing...', async () => {
         try {
           const outcome = await runMutationAction(
             () => apiFetch(`/api/files/${encodeURIComponent(filename)}/process`, { method: 'POST' }),
             {
               isSuccess: (result) => !!result && result.status === 'ok',
-              successMessage: () => `Processed ${filename}`,
-              failureMessage: (result) => `Processing issue: ${(result && result.error) || 'unknown'}`,
-              errorMessage: (err) => `Processing failed: ${err.message}`,
+              successMessage: () => action === 'reprocess' ? `Reprocessed ${filename}` : `Processed ${filename}`,
+              failureMessage: (result) => `${action === 'reprocess' ? 'Reprocessing' : 'Processing'} issue: ${(result && result.error) || 'unknown'}`,
+              errorMessage: (err) => `${action === 'reprocess' ? 'Reprocessing' : 'Processing'} failed: ${err.message}`,
             }
           );
           if (
@@ -3053,6 +2990,155 @@
     });
   }
 
+  function bindDeepMemoryEvents(container) {
+    const dropzone = container.querySelector('#deep-dropzone');
+    const fileInput = container.querySelector('#deep-file-input');
+
+    if (dropzone && fileInput) {
+      dropzone.addEventListener('click', () => fileInput.click());
+      dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+      dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('dragover');
+      });
+      dropzone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        await handleDeepUpload(e.dataTransfer.files, container);
+      });
+      fileInput.addEventListener('change', async () => {
+        await handleDeepUpload(fileInput.files, container);
+        fileInput.value = '';
+      });
+    }
+
+    bindById('deep-upload-first-btn', 'click', () => {
+      if (fileInput) fileInput.click();
+    });
+
+    bindAll(container, '.deep-process-btn', 'click', async (e, btn) => {
+      e.stopPropagation();
+      const filename = btn.dataset.filename;
+      const action = btn.dataset.processAction === 'reprocess' ? 'reprocess' : 'process';
+      await withPendingButton(btn, action === 'reprocess' ? 'Reprocessing...' : 'Processing...', async () => {
+        const outcome = await runMutationAction(
+          () => apiFetch(`/api/deep/files/${encodeURIComponent(filename)}/process`, { method: 'POST' }),
+          {
+            isSuccess: (result) => !!result && result.status === 'ok',
+            successMessage: () => action === 'reprocess' ? `Reprocessed ${filename}` : `Processed ${filename}`,
+            failureMessage: (result) => `${action === 'reprocess' ? 'Reprocessing' : 'Processing'} issue: ${(result && result.error) || 'unknown'}`,
+            errorMessage: (err) => `${action === 'reprocess' ? 'Reprocessing' : 'Processing'} failed: ${err.message}`,
+          }
+        );
+        if (
+          outcome.ok
+          && state.activePage === 'memories'
+          && state.memoriesSubTab === 'deep'
+          && container.isConnected
+        ) {
+          await renderDeepMemory(container);
+        }
+      });
+    });
+
+    bindAll(container, '.deep-delete-btn', 'click', async (e, btn) => {
+      e.stopPropagation();
+      const filename = btn.dataset.filename;
+      if (!confirm('Delete ' + filename + '?')) return;
+      const outcome = await runMutationAction(
+        () => apiFetch(`/api/deep/files/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
+        {
+          successMessage: `Deleted ${filename}`,
+          failureMessage: 'Delete failed',
+        }
+      );
+      if (
+        outcome.ok
+        && state.activePage === 'memories'
+        && state.memoriesSubTab === 'deep'
+        && container.isConnected
+      ) {
+        await renderDeepMemory(container);
+      }
+    });
+
+    const runSearch = async () => {
+      const input = container.querySelector('#deep-search-input');
+      const query = input ? String(input.value || '').trim() : '';
+      state.deepSearch = {
+        ...(state.deepSearch || {}),
+        query,
+      };
+      if (!query) {
+        state.deepSearch = {
+          query: '',
+          results: [],
+          count: 0,
+          ran: false,
+        };
+        await renderDeepMemory(container);
+        return;
+      }
+      const data = await apiFetch(`/api/deep/search?q=${encodeURIComponent(query)}&limit=30`);
+      if (!data) {
+        showToast('Search failed', 'error');
+        return;
+      }
+      state.deepSearch = {
+        query,
+        results: Array.isArray(data.results) ? data.results : [],
+        count: Number.isFinite(data.count) ? data.count : 0,
+        ran: true,
+      };
+      await renderDeepMemory(container);
+    };
+
+    bindById('deep-search-btn', 'click', () => {
+      runSearch();
+    });
+    bindById('deep-search-input', 'keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        runSearch();
+      }
+    });
+  }
+
+  function renderLoadErrorState(container, opts, onRetry) {
+    const settingsClass = opts && opts.padded ? ' style="padding:24px;"' : '';
+    const title = (opts && opts.title) || 'Could not load';
+    const message = (opts && opts.message) || 'Retry and check settings.';
+    const retryId = (opts && opts.retryId) || 'memories-retry-btn';
+    const settingsId = (opts && opts.settingsId) || 'memories-open-settings-btn';
+
+    container.innerHTML = `
+      <div class="notes-empty"${settingsClass}>
+        <div class="notes-empty-icon">${ICON.alert}</div>
+        <h3>${esc(title)}</h3>
+        <p>${esc(message)}</p>
+        <div class="notes-empty-actions">
+          <button class="btn btn-primary" id="${retryId}">Retry</button>
+          <button class="btn" id="${settingsId}">Open Settings</button>
+        </div>
+      </div>
+    `;
+
+    bindRetrySettingsActions(container, retryId, settingsId, onRetry);
+  }
+
+  function bindRetrySettingsActions(container, retryId, settingsId, onRetry) {
+    const retryBtn = container.querySelector(`#${retryId}`);
+    if (retryBtn && typeof onRetry === 'function') {
+      retryBtn.addEventListener('click', onRetry);
+    }
+    const settingsBtn = container.querySelector(`#${settingsId}`);
+    if (settingsBtn) {
+      settingsBtn.addEventListener('click', () => window.memorableApp.navigateTo('settings'));
+    }
+  }
+
   async function toggleSemanticFilePreview(container, card) {
     const filename = card.dataset.filename;
     const bodyId = 'file-body-' + filename.replace(/\./g, '-');
@@ -3104,7 +3190,10 @@
 
     const resolvedDepth = Number.parseInt(data.depth, 10);
     const isRaw = !Number.isFinite(resolvedDepth) || resolvedDepth < 1;
-    const depthLabel = isRaw ? 'raw' : `level ${resolvedDepth}`;
+    const maxLevels = Number.parseInt(card.querySelector('.file-depth-select')?.options?.length || 0, 10) - 1;
+    const depthLabel = isRaw
+      ? 'raw'
+      : (resolvedDepth === 1 ? 'baseline' : (maxLevels > 0 && resolvedDepth >= maxLevels ? 'full' : `detail step ${resolvedDepth}`));
     bodyEl.innerHTML = `
       <div class="file-preview-content ${isRaw ? 'file-preview-raw' : 'rendered-md'}">${isRaw ? esc(data.content) : markdownToHtml(data.content)}</div>
       <div class="file-preview-meta">${data.tokens} tokens (${depthLabel})</div>
@@ -3118,7 +3207,8 @@
     }
   }
 
-  function uploadSemanticFileWithProgress(file, onProgress) {
+  function uploadFileWithProgress(file, onProgress, endpoint = '/api/files/upload', options = {}) {
+    const useRaw = !!(options && options.raw);
     return new Promise((resolve, reject) => {
       const report = (percent, stage) => {
         const bounded = Math.max(0, Math.min(100, Number(percent) || 0));
@@ -3134,13 +3224,14 @@
         }
       };
       reader.onload = () => {
-        const content = typeof reader.result === 'string'
-          ? reader.result
-          : String(reader.result || '');
-        const payload = JSON.stringify({ filename: file.name, content });
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/files/upload', true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.open('POST', endpoint, true);
+        if (useRaw) {
+          xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+          xhr.setRequestHeader('X-Filename', file.name);
+        } else {
+          xhr.setRequestHeader('Content-Type', 'application/json');
+        }
 
         xhr.upload.onprogress = (evt) => {
           if (evt.lengthComputable && evt.total > 0) {
@@ -3161,11 +3252,23 @@
         xhr.onabort = () => reject(new Error('Upload aborted'));
 
         report(50, 'Uploading');
+        if (useRaw) {
+          xhr.send(reader.result);
+          return;
+        }
+        const content = typeof reader.result === 'string'
+          ? reader.result
+          : String(reader.result || '');
+        const payload = JSON.stringify({ filename: file.name, content });
         xhr.send(payload);
       };
 
       report(0, 'Reading');
-      reader.readAsText(file);
+      if (useRaw) {
+        reader.readAsArrayBuffer(file);
+      } else {
+        reader.readAsText(file);
+      }
     });
   }
 
@@ -3249,7 +3352,7 @@
       if (row) row.classList.remove('error', 'done');
 
       try {
-        await uploadSemanticFileWithProgress(file, (percent, stage) => {
+        await uploadFileWithProgress(file, (percent, stage) => {
           updateFileProgress(index, percent, stage || 'Uploading');
         });
         successCount += 1;
@@ -3274,6 +3377,113 @@
     if (dropzone) dropzone.classList.remove('uploading');
     if (input) input.disabled = false;
     renderSemanticMemory(container);
+  }
+
+  async function handleDeepUpload(fileList, container) {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (!files.length) return;
+
+    const dropzone = container.querySelector('#deep-dropzone');
+    const input = container.querySelector('#deep-file-input');
+    const progressRoot = container.querySelector('#deep-upload-progress');
+
+    if (dropzone) dropzone.classList.add('uploading');
+    if (input) input.disabled = true;
+
+    let rowByIndex = new Map();
+    let progressByIndex = new Map();
+
+    if (progressRoot) {
+      const rows = files.map((file, index) => {
+        const safeName = esc(file.name);
+        return `
+          <div class="semantic-upload-item" data-upload-index="${index}">
+            <div class="semantic-upload-item-top">
+              <span class="semantic-upload-item-name">${safeName}</span>
+              <span class="semantic-upload-item-status">Queued</span>
+            </div>
+            <div class="semantic-upload-item-track">
+              <div class="semantic-upload-item-fill" style="width:0%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      progressRoot.innerHTML = `
+        <div class="semantic-upload-summary">
+          <span class="semantic-upload-summary-title">Uploading ${files.length} file${files.length > 1 ? 's' : ''}</span>
+          <span class="semantic-upload-summary-percent">0%</span>
+        </div>
+        <div class="semantic-upload-summary-track">
+          <div class="semantic-upload-summary-fill" style="width:0%"></div>
+        </div>
+        <div class="semantic-upload-items">${rows}</div>
+      `;
+      progressRoot.hidden = false;
+
+      progressRoot.querySelectorAll('.semantic-upload-item').forEach((row) => {
+        const idx = parseInt(row.dataset.uploadIndex, 10);
+        if (!Number.isNaN(idx)) rowByIndex.set(idx, row);
+      });
+    }
+
+    const updateOverallProgress = () => {
+      if (!progressRoot || !files.length) return;
+      let total = 0;
+      files.forEach((_, index) => { total += progressByIndex.get(index) || 0; });
+      const pct = Math.round(total / files.length);
+      const pctEl = progressRoot.querySelector('.semantic-upload-summary-percent');
+      const fillEl = progressRoot.querySelector('.semantic-upload-summary-fill');
+      if (pctEl) pctEl.textContent = `${pct}%`;
+      if (fillEl) fillEl.style.width = `${pct}%`;
+    };
+
+    const updateFileProgress = (index, percent, label) => {
+      progressByIndex.set(index, percent);
+      const row = rowByIndex.get(index);
+      if (row) {
+        const statusEl = row.querySelector('.semantic-upload-item-status');
+        const fillEl = row.querySelector('.semantic-upload-item-fill');
+        if (statusEl) statusEl.textContent = label ? `${label} ${percent}%` : `${percent}%`;
+        if (fillEl) fillEl.style.width = `${percent}%`;
+      }
+      updateOverallProgress();
+    };
+
+    let successCount = 0;
+    let failureCount = 0;
+
+    for (const [index, file] of files.entries()) {
+      progressByIndex.set(index, 0);
+      const row = rowByIndex.get(index);
+      if (row) row.classList.remove('error', 'done');
+
+      try {
+        await uploadFileWithProgress(file, (percent, stage) => {
+          updateFileProgress(index, percent, stage || 'Uploading');
+        }, '/api/deep/files/upload', { raw: true });
+        successCount += 1;
+        updateFileProgress(index, 100, 'Done');
+        if (row) row.classList.add('done');
+      } catch (err) {
+        failureCount += 1;
+        updateFileProgress(index, 100, 'Failed');
+        if (row) row.classList.add('error');
+        showToast('Upload failed: ' + file.name, 'error');
+      }
+    }
+
+    if (successCount > 0) {
+      showToast(
+        `Uploaded ${successCount} file${successCount > 1 ? 's' : ''}` +
+        (failureCount > 0 ? ` (${failureCount} failed)` : ''),
+        failureCount > 0 ? '' : 'success'
+      );
+    }
+
+    if (dropzone) dropzone.classList.remove('uploading');
+    if (input) input.disabled = false;
+    renderDeepMemory(container);
   }
 
   // ---- Settings Page ----
@@ -4193,6 +4403,11 @@
   // ---- User Form ----
   function renderUserForm(container) {
     const u = state.user;
+    const builtinLanguages = [
+      'English', 'Spanish', 'French', 'German', 'Portuguese', 'Italian', 'Dutch', 'Japanese',
+      'Korean', 'Mandarin', 'Arabic', 'Hindi', 'Russian', 'Polish', 'Swedish', 'Turkish'
+    ];
+    const isCustomLanguage = !!(u.identity.language && !builtinLanguages.includes(u.identity.language));
     container.innerHTML = `
       ${renderPresetBar()}
 
@@ -4222,24 +4437,10 @@
             <label>${ICON.globe} Language</label>
             <select id="identity-language">
               <option value="">Not set</option>
-              <option value="English" ${u.identity.language === 'English' ? 'selected' : ''}>English</option>
-              <option value="Spanish" ${u.identity.language === 'Spanish' ? 'selected' : ''}>Spanish</option>
-              <option value="French" ${u.identity.language === 'French' ? 'selected' : ''}>French</option>
-              <option value="German" ${u.identity.language === 'German' ? 'selected' : ''}>German</option>
-              <option value="Portuguese" ${u.identity.language === 'Portuguese' ? 'selected' : ''}>Portuguese</option>
-              <option value="Italian" ${u.identity.language === 'Italian' ? 'selected' : ''}>Italian</option>
-              <option value="Dutch" ${u.identity.language === 'Dutch' ? 'selected' : ''}>Dutch</option>
-              <option value="Japanese" ${u.identity.language === 'Japanese' ? 'selected' : ''}>Japanese</option>
-              <option value="Korean" ${u.identity.language === 'Korean' ? 'selected' : ''}>Korean</option>
-              <option value="Mandarin" ${u.identity.language === 'Mandarin' ? 'selected' : ''}>Mandarin</option>
-              <option value="Arabic" ${u.identity.language === 'Arabic' ? 'selected' : ''}>Arabic</option>
-              <option value="Hindi" ${u.identity.language === 'Hindi' ? 'selected' : ''}>Hindi</option>
-              <option value="Russian" ${u.identity.language === 'Russian' ? 'selected' : ''}>Russian</option>
-              <option value="Polish" ${u.identity.language === 'Polish' ? 'selected' : ''}>Polish</option>
-              <option value="Swedish" ${u.identity.language === 'Swedish' ? 'selected' : ''}>Swedish</option>
-              <option value="Turkish" ${u.identity.language === 'Turkish' ? 'selected' : ''}>Turkish</option>
-              ${u.identity.language && !['','English','Spanish','French','German','Portuguese','Italian','Dutch','Japanese','Korean','Mandarin','Arabic','Hindi','Russian','Polish','Swedish','Turkish'].includes(u.identity.language) ? `<option value="${esc(u.identity.language)}" selected>${esc(u.identity.language)}</option>` : ''}
-              <option value="_other">Other...</option>
+              ${builtinLanguages.map((lang) => `
+                <option value="${lang}" ${u.identity.language === lang ? 'selected' : ''}>${lang}</option>
+              `).join('')}
+              <option value="_other" ${isCustomLanguage ? 'selected' : ''}>Other...</option>
             </select>
           </div>
           <div class="form-group" id="dialect-group" style="${u.identity.language === 'English' ? '' : 'display:none'}">
@@ -4281,6 +4482,10 @@
             </select>
           </div>
         </div>
+        <div class="form-group" id="identity-language-custom-group" style="${isCustomLanguage ? '' : 'display:none'}">
+          <label>Custom language</label>
+          <input type="text" id="identity-language-custom" value="${esc(isCustomLanguage ? u.identity.language : '')}" placeholder="Enter language">
+        </div>
       `)}
 
       ${renderSection('about', 'About', 'Context that helps responses fit you', 'sage', ICON.edit, `
@@ -4296,16 +4501,17 @@
             const active = u.cognitiveActive[k];
             const isCustom = !isDefaultCognitive(k);
             return `
-              <div class="toggle-item ${active ? 'active' : ''}" data-cognitive="${k}">
-                <span class="toggle-check">${active ? ICON.check : ''}</span>
-                ${getCognitiveLabel(k)}
-                ${isCustom ? `<button class="toggle-remove" data-remove-cognitive="${k}" title="Remove">${ICON.x}</button>` : ''}
+              <div class="toggle-item-wrap ${isCustom ? 'is-custom' : ''}">
+                <button type="button" class="toggle-item ${active ? 'active' : ''}" data-cognitive="${k}" aria-pressed="${active ? 'true' : 'false'}">
+                  <span class="toggle-check">${active ? ICON.check : ''}</span>
+                  ${getCognitiveLabel(k)}
+                  ${isCustom ? '<span class="custom-badge">Custom</span>' : ''}
+                </button>
+                ${isCustom ? `<button type="button" class="toggle-remove" data-remove-cognitive="${k}" title="Remove custom item">${ICON.x}</button>` : ''}
               </div>
             `;
           }).join('')}
-          <div class="toggle-item custom-toggle" id="add-cognitive-btn">
-            ${ICON.plus} Add custom...
-          </div>
+          <button type="button" class="toggle-item custom-toggle" id="add-cognitive-btn">${ICON.plus} Add custom option</button>
         </div>
       `)}
 
@@ -4327,7 +4533,7 @@
             `;
           }).join('')}
         </div>
-        <button class="add-item-btn" id="add-cogstyle-btn" style="margin-top:12px;">${ICON.plus} Add custom dimension...</button>
+        <button class="add-item-btn" id="add-cogstyle-btn" style="margin-top:12px;">${ICON.plus} Add custom dimension</button>
       `)}
 
       ${renderSection('values', 'Values', 'Ranked preferences that guide responses', 'terracotta', ICON.scale, `
@@ -4452,28 +4658,29 @@
         <div id="communication-switches">
           ${a.communicationOptions.map(k => {
             const isCustom = !isDefaultComm(k);
-            return renderSwitchRowWithRemove('agent.communicationActive.' + k, getCommLabel(k), getCommDesc(k), !!a.communicationActive[k], isCustom ? k : null, 'comm');
+            return renderPreferenceRow('agent.communicationActive.' + k, getCommLabel(k), getCommDesc(k), !!a.communicationActive[k], isCustom ? k : null, 'comm');
           }).join('')}
         </div>
-        <button class="add-item-btn" id="add-comm-btn" style="margin-top:12px;">${ICON.plus} Add custom preference...</button>
+        <button class="add-item-btn" id="add-comm-btn" style="margin-top:12px;">${ICON.plus} Add custom preference</button>
       `)}
 
-      ${renderSection('behaviors', 'Disposition', 'Rules your agent follows', 'sage', ICON.check, `
+      ${renderSection('behaviors', 'Behaviors', 'Rules your agent follows', 'sage', ICON.check, `
         <div class="toggle-group" id="behavior-toggles">
           ${a.behaviorOptions.map(k => {
             const active = a.behaviorsActive[k];
             const isCustom = !isDefaultBehavior(k);
             return `
-              <div class="toggle-item ${active ? 'active' : ''}" data-behavior="${k}">
-                <span class="toggle-check">${active ? ICON.check : ''}</span>
-                ${getBehaviorLabel(k)}
-                ${isCustom ? `<button class="toggle-remove" data-remove-behavior="${k}" title="Remove">${ICON.x}</button>` : ''}
+              <div class="toggle-item-wrap ${isCustom ? 'is-custom' : ''}">
+                <button type="button" class="toggle-item ${active ? 'active' : ''}" data-behavior="${k}" aria-pressed="${active ? 'true' : 'false'}">
+                  <span class="toggle-check">${active ? ICON.check : ''}</span>
+                  ${getBehaviorLabel(k)}
+                  ${isCustom ? '<span class="custom-badge">Custom</span>' : ''}
+                </button>
+                ${isCustom ? `<button type="button" class="toggle-remove" data-remove-behavior="${k}" title="Remove custom item">${ICON.x}</button>` : ''}
               </div>
             `;
           }).join('')}
-          <div class="toggle-item custom-toggle" id="add-behavior-btn">
-            ${ICON.plus} Add custom...
-          </div>
+          <button type="button" class="toggle-item custom-toggle" id="add-behavior-btn">${ICON.plus} Add custom behavior</button>
         </div>
       `)}
 
@@ -4481,10 +4688,10 @@
         <div id="when-low-switches">
           ${a.whenLowOptions.map(k => {
             const isCustom = !isDefaultWhenLow(k);
-            return renderSwitchRowWithRemove('agent.whenLowActive.' + k, getWhenLowLabel(k), getWhenLowDesc(k), !!a.whenLowActive[k], isCustom ? k : null, 'whenlow');
+            return renderPreferenceRow('agent.whenLowActive.' + k, getWhenLowLabel(k), getWhenLowDesc(k), !!a.whenLowActive[k], isCustom ? k : null, 'whenlow');
           }).join('')}
         </div>
-        <button class="add-item-btn" id="add-whenlow-btn" style="margin-top:12px;">${ICON.plus} Add custom behavior...</button>
+        <button class="add-item-btn" id="add-whenlow-btn" style="margin-top:12px;">${ICON.plus} Add custom preference</button>
       `)}
 
       ${renderSection('autonomy', 'Autonomy', 'How proactive the agent should be without explicit prompts', 'clay', ICON.compass, `
@@ -4519,9 +4726,9 @@
 
       ${renderSection('traits', 'Character Traits', 'How your agent\'s personality feels', 'terracotta', ICON.sliders, `
         <div id="trait-sliders">
-          ${a.traitOptions.map(key => renderSlider(key, getTraitLabel(key), a.traits[key] ?? 50, getTraitEndpoints(key), !isDefaultTrait(key))).join('')}
+          ${a.traitOptions.map(key => renderSlider(key, getTraitLabel(key), a.traits[key] ?? 50, getTraitEndpoints(key), !isDefaultTrait(key), key)).join('')}
         </div>
-        <button class="add-item-btn" id="add-trait-btn" style="margin-top:12px;">${ICON.plus} Add custom trait...</button>
+        <button class="add-item-btn" id="add-trait-btn" style="margin-top:12px;">${ICON.plus} Add custom trait</button>
       `)}
 
       ${renderSection('avoid', 'Avoid', 'Things the agent should not do', 'sand', ICON.ban, `
@@ -4543,10 +4750,10 @@
         <div id="tech-style-switches">
           ${a.techStyleOptions.map(k => {
             const isCustom = !isDefaultTech(k);
-            return renderSwitchRowWithRemove('agent.techStyleActive.' + k, getTechLabel(k), getTechDesc(k), !!a.techStyleActive[k], isCustom ? k : null, 'techstyle');
+            return renderPreferenceRow('agent.techStyleActive.' + k, getTechLabel(k), getTechDesc(k), !!a.techStyleActive[k], isCustom ? k : null, 'techstyle');
           }).join('')}
         </div>
-        <button class="add-item-btn" id="add-techstyle-btn" style="margin-top:12px;">${ICON.plus} Add custom preference...</button>
+        <button class="add-item-btn" id="add-techstyle-btn" style="margin-top:12px;">${ICON.plus} Add custom preference</button>
       `)}
 
       ${renderSection('agent-custom', 'Custom Sections', 'Add your own sections', 'sage', ICON.plus, `
@@ -4573,43 +4780,59 @@
   }
 
   // ---- Partial Renderers ----
-  function renderSwitchRowWithRemove(bind, label, desc, checked, removeKey, removeType) {
+  function renderPreferenceRow(bind, label, desc, checked, removeKey, removeType) {
     const isCustom = !!removeKey;
+    const customDesc = desc || '';
     return `
-      <div class="switch-row">
-        <div>
-          <div class="switch-label">${label}</div>
-          ${desc ? `<div class="switch-label-desc">${desc}</div>` : ''}
+      <div class="switch-row ${isCustom ? 'switch-row-custom' : ''}">
+        <div class="switch-copy">
+          <div class="switch-label-row">
+            <div class="switch-label">${label}</div>
+            ${isCustom ? '<span class="custom-badge">Custom</span>' : ''}
+          </div>
+          ${!isCustom && desc ? `<div class="switch-label-desc">${desc}</div>` : ''}
+          ${isCustom ? `
+            <input type="text" class="custom-desc-input" data-custom-desc-key="${removeKey}" data-custom-desc-type="${removeType}" value="${esc(customDesc)}" placeholder="Optional note shown only in the editor">
+          ` : ''}
         </div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          ${isCustom ? '' : `
+        <div class="switch-controls">
+          ${!isCustom ? `
             <label class="switch">
               <input type="checkbox" data-bind="${bind}" ${checked ? 'checked' : ''}>
               <span class="switch-track"></span>
             </label>
-          `}
-          ${isCustom ? `<button class="switch-remove-btn" data-remove-switchrow="${removeKey}" data-remove-type="${removeType}" title="Remove">${ICON.x}</button>` : ''}
+          ` : ''}
+          ${isCustom ? `<button type="button" class="switch-remove-btn" data-remove-switchrow="${removeKey}" data-remove-type="${removeType}" title="Remove custom item">${ICON.x}</button>` : ''}
         </div>
       </div>
     `;
   }
 
-  function renderSlider(key, label, value, endpoints, removable) {
+  function renderSlider(key, label, value, endpoints, removable, traitKey) {
     const desc = getTraitDescription(key, value);
     return `
-      <div class="slider-group">
+      <div class="slider-group ${removable ? 'slider-group-custom' : ''}">
         <div class="slider-header">
-          <span class="slider-label">${label}</span>
-          <span style="display:flex;align-items:center;gap:4px;">
+          <span class="slider-label-row">
+            <span class="slider-label">${label}</span>
+            ${removable ? '<span class="custom-badge">Custom</span>' : ''}
+          </span>
+          <span class="slider-controls">
             <span class="slider-value" id="slider-val-${key}">${desc}</span>
             ${removable ? `<button class="slider-remove-btn" data-remove-trait="${key}" title="Remove">${ICON.x}</button>` : ''}
           </span>
         </div>
         <input type="range" min="0" max="100" value="${value}" data-trait="${key}">
         <div class="slider-labels">
-          <span>${endpoints[0]}</span>
-          <span>${endpoints[1]}</span>
+          <span>${esc(endpoints[0])}</span>
+          <span>${esc(endpoints[1])}</span>
         </div>
+        ${removable ? `
+          <div class="custom-trait-endpoints">
+            <input type="text" value="${esc(endpoints[0])}" data-trait-endpoint="${traitKey}" data-trait-endpoint-side="0" placeholder="Left endpoint">
+            <input type="text" value="${esc(endpoints[1])}" data-trait-endpoint="${traitKey}" data-trait-endpoint-side="1" placeholder="Right endpoint">
+          </div>
+        ` : ''}
       </div>
     `;
   }
@@ -4712,6 +4935,7 @@
           <div class="repeatable-item-title">
             <span class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">${ICON.grip}</span>
             <strong style="font-size:0.88rem;">${s.title || 'New section'}</strong>
+            <span class="custom-badge">Custom</span>
           </div>
           <button class="btn btn-icon btn-danger-ghost btn-small" data-remove-custom="${i}" data-custom-type="${type}" title="Remove">${ICON.x}</button>
         </div>
@@ -4806,16 +5030,20 @@
     const langSelect = document.getElementById('identity-language');
     if (langSelect) {
       langSelect.addEventListener('change', () => {
+        const customGroup = document.getElementById('identity-language-custom-group');
+        const customInput = document.getElementById('identity-language-custom');
         if (langSelect.value === '_other') {
-          const custom = prompt('Enter your language:');
-          if (custom && custom.trim()) {
-            state.user.identity.language = custom.trim();
-          } else {
-            state.user.identity.language = '';
+          state.user.identity.language = '';
+          if (customGroup) customGroup.style.display = '';
+          if (customInput) {
+            customInput.value = '';
+            customInput.focus();
           }
-          render();
+          renderPreview();
+          debouncedSave();
           return;
         }
+        if (customGroup) customGroup.style.display = 'none';
         state.user.identity.language = langSelect.value;
         const dialectGroup = document.getElementById('dialect-group');
         if (dialectGroup) {
@@ -4828,14 +5056,22 @@
         debouncedSave();
       });
     }
+    const customLangInput = document.getElementById('identity-language-custom');
+    if (customLangInput) {
+      customLangInput.addEventListener('input', () => {
+        state.user.identity.language = customLangInput.value.trim();
+        renderPreview();
+        debouncedSave();
+      });
+    }
 
     // Cognitive toggles
     container.querySelectorAll('[data-cognitive]').forEach(el => {
-      el.addEventListener('click', (e) => {
-        if (e.target.closest('.toggle-remove')) return;
+      el.addEventListener('click', () => {
         const key = el.dataset.cognitive;
         state.user.cognitiveActive[key] = !state.user.cognitiveActive[key];
         el.classList.toggle('active');
+        el.setAttribute('aria-pressed', state.user.cognitiveActive[key] ? 'true' : 'false');
         el.querySelector('.toggle-check').innerHTML = state.user.cognitiveActive[key] ? ICON.check : '';
         renderPreview();
         debouncedSave();
@@ -5076,14 +5312,21 @@
         render();
       });
     });
+    container.querySelectorAll('[data-custom-desc-type="comm"]').forEach((el) => {
+      el.addEventListener('input', () => {
+        const key = el.dataset.customDescKey;
+        state.agent.communicationDescs[key] = el.value;
+        debouncedSave();
+      });
+    });
 
     // Behavior toggles
     container.querySelectorAll('[data-behavior]').forEach(el => {
-      el.addEventListener('click', (e) => {
-        if (e.target.closest('.toggle-remove')) return;
+      el.addEventListener('click', () => {
         const key = el.dataset.behavior;
         state.agent.behaviorsActive[key] = !state.agent.behaviorsActive[key];
         el.classList.toggle('active');
+        el.setAttribute('aria-pressed', state.agent.behaviorsActive[key] ? 'true' : 'false');
         el.querySelector('.toggle-check').innerHTML = state.agent.behaviorsActive[key] ? ICON.check : '';
         renderPreview();
         debouncedSave();
@@ -5172,6 +5415,16 @@
         debouncedSave();
       });
     });
+    container.querySelectorAll('[data-trait-endpoint]').forEach((el) => {
+      el.addEventListener('input', () => {
+        const key = el.dataset.traitEndpoint;
+        const side = parseInt(el.dataset.traitEndpointSide, 10);
+        if (!state.agent.traitEndpoints[key]) state.agent.traitEndpoints[key] = ['Low', 'High'];
+        state.agent.traitEndpoints[key][side] = el.value.trim() || (side === 0 ? 'Low' : 'High');
+        renderPreview();
+        debouncedSave();
+      });
+    });
 
     // Remove custom trait sliders
     container.querySelectorAll('[data-remove-trait]').forEach(btn => {
@@ -5222,6 +5475,13 @@
         render();
       });
     });
+    container.querySelectorAll('[data-custom-desc-type="whenlow"]').forEach((el) => {
+      el.addEventListener('input', () => {
+        const key = el.dataset.customDescKey;
+        state.agent.whenLowDescs[key] = el.value;
+        debouncedSave();
+      });
+    });
 
     // Add custom when-low option
     const addWhenLowBtn = document.getElementById('add-whenlow-btn');
@@ -5249,6 +5509,13 @@
         delete state.agent.techStyleLabels[key];
         delete state.agent.techStyleDescs[key];
         render();
+      });
+    });
+    container.querySelectorAll('[data-custom-desc-type="techstyle"]').forEach((el) => {
+      el.addEventListener('input', () => {
+        const key = el.dataset.customDescKey;
+        state.agent.techStyleDescs[key] = el.value;
+        debouncedSave();
       });
     });
 
@@ -5421,19 +5688,29 @@
       <input type="text" placeholder="Type a name..." autofocus>
       <button class="inline-add-confirm" title="Add">${ICON.check}</button>
       <button class="inline-add-cancel" title="Cancel">${ICON.x}</button>
+      <div class="inline-add-error" role="alert" aria-live="polite"></div>
     `;
 
     targetEl.parentNode.insertBefore(form, targetEl);
 
     const input = form.querySelector('input');
+    const error = form.querySelector('.inline-add-error');
     input.focus();
+
+    function setError(message) {
+      if (!error) return;
+      error.textContent = message || '';
+      form.classList.toggle('invalid', !!message);
+    }
 
     function confirm() {
       const val = input.value.trim();
       if (val) {
+        setError('');
         onConfirm(val);
       } else {
-        cancel();
+        setError('Enter a name before adding.');
+        input.focus();
       }
     }
 
@@ -5445,6 +5722,7 @@
       if (e.key === 'Enter') { e.preventDefault(); confirm(); }
       if (e.key === 'Escape') { cancel(); }
     });
+    input.addEventListener('input', () => setError(''));
 
     form.querySelector('.inline-add-confirm').addEventListener('click', confirm);
     form.querySelector('.inline-add-cancel').addEventListener('click', cancel);
@@ -5465,21 +5743,30 @@
       <input type="text" placeholder="Right endpoint...">
       <button class="inline-add-confirm" title="Add">${ICON.check}</button>
       <button class="inline-add-cancel" title="Cancel">${ICON.x}</button>
+      <div class="inline-add-error" role="alert" aria-live="polite"></div>
     `;
 
     targetEl.parentNode.insertBefore(form, targetEl);
 
     const inputs = form.querySelectorAll('input');
+    const error = form.querySelector('.inline-add-error');
     inputs[0].focus();
+
+    function setError(message) {
+      if (!error) return;
+      error.textContent = message || '';
+      form.classList.toggle('invalid', !!message);
+    }
 
     function confirm() {
       const label = inputs[0].value.trim();
       const left = inputs[1].value.trim();
       const right = inputs[2].value.trim();
       if (label && left && right) {
+        setError('');
         onConfirm(label, left, right);
       } else {
-        cancel();
+        setError('Fill all three fields before adding.');
       }
     }
 
@@ -5499,6 +5786,7 @@
         }
         if (e.key === 'Escape') { cancel(); }
       });
+      input.addEventListener('input', () => setError(''));
     });
 
     form.querySelector('.inline-add-confirm').addEventListener('click', confirm);
@@ -6210,7 +6498,6 @@
     if (state.settingsCache === undefined) state.settingsCache = null;
     if (state.statusCache === undefined) state.statusCache = null;
     if (state.serverConnected === undefined) state.serverConnected = false;
-    if (state.onboardingStep === undefined) state.onboardingStep = 1;
     if (!state.seedSync || typeof state.seedSync !== 'object') {
       state.seedSync = {
         deploymentKnown: false,
@@ -6257,94 +6544,6 @@
     retrySave() {
       setSaveState('saving');
       saveToLocalStorage();
-    },
-
-    onboardingSetField(path, value) {
-      const parts = String(path || '').split('.');
-      let ref = state;
-      for (let i = 0; i < parts.length - 1; i++) {
-        if (!ref[parts[i]]) return;
-        ref = ref[parts[i]];
-      }
-      const key = parts[parts.length - 1];
-      ref[key] = value;
-      render();
-    },
-
-    onboardingSetValue(index, field, value) {
-      const i = parseInt(index, 10);
-      if (!Array.isArray(state.user.values) || !state.user.values[i]) return;
-      state.user.values[i][field] = value;
-      render();
-    },
-
-    onboardingAddValue() {
-      if (!Array.isArray(state.user.values)) state.user.values = [];
-      state.user.values.push({ higher: '', lower: '' });
-      render();
-    },
-
-    onboardingRemoveValue(index) {
-      const i = parseInt(index, 10);
-      if (!Array.isArray(state.user.values) || state.user.values.length <= 1) return;
-      state.user.values.splice(i, 1);
-      render();
-    },
-
-    onboardingSetTrait(key, value) {
-      const n = parseInt(value, 10);
-      if (!state.agent.traits || !Number.isFinite(n)) return;
-      state.agent.traits[key] = Math.max(0, Math.min(100, n));
-      render();
-    },
-
-    onboardingNext() {
-      state.onboardingStep = clampOnboardingStep((state.onboardingStep || 1) + 1);
-      render();
-    },
-
-    onboardingPrev() {
-      state.onboardingStep = clampOnboardingStep((state.onboardingStep || 1) - 1);
-      render();
-    },
-
-    onboardingSkip() {
-      const step = clampOnboardingStep(state.onboardingStep || 1);
-      if (step >= 5) {
-        state.activePage = 'configure';
-        syncNavHighlight();
-      } else {
-        state.onboardingStep = step + 1;
-      }
-      render();
-    },
-
-    async onboardingComplete() {
-      const files = {
-        'user.md': generateUserMarkdown(),
-        'agent.md': generateAgentMarkdown(),
-        'now.md': '# Current Context\n\n## Focus\n\n## Active Tasks\n\n## Blockers\n'
-      };
-      const result = await apiFetch('/api/seeds', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ files })
-      });
-
-      if (result && result.ok) {
-        state.onboardingStep = 1;
-        state.seedSync.deploymentKnown = true;
-        state.seedSync.deployedHash = _seedFingerprint(files['user.md'], files['agent.md']);
-        state.seedSync.deployedAt = new Date().toISOString();
-        if (state.statusCache) state.statusCache.seeds_present = true;
-        showToast('Onboarding complete. Seed files created.', 'success');
-      } else {
-        showToast('Saved locally; seed deployment failed (server offline?)', '');
-      }
-
-      state.activePage = 'configure';
-      syncNavHighlight();
-      render();
     },
 
     async enableDaemon() {

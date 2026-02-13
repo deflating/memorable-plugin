@@ -10,6 +10,8 @@ SEEDS_DIR = DATA_DIR / "seeds"
 NOTES_DIR = DATA_DIR / "notes"
 SESSIONS_DIR = DATA_DIR / "sessions"
 FILES_DIR = DATA_DIR / "files"
+DEEP_FILES_DIR = DATA_DIR / "deep"
+DEEP_INDEX_PATH = DATA_DIR / "deep_index.sqlite3"
 CONFIG_PATH = DATA_DIR / "config.json"
 AUDIT_LOG_PATH = DATA_DIR / "audit.log"
 
@@ -47,7 +49,7 @@ DEFAULT_CONFIG = {
 
 def ensure_dirs():
     """Create all required directories if they don't exist."""
-    for d in [DATA_DIR, SEEDS_DIR, NOTES_DIR, SESSIONS_DIR, FILES_DIR]:
+    for d in [DATA_DIR, SEEDS_DIR, NOTES_DIR, SESSIONS_DIR, FILES_DIR, DEEP_FILES_DIR]:
         d.mkdir(parents=True, exist_ok=True)
 
 

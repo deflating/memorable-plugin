@@ -13,6 +13,7 @@ import io
 import json
 import os
 import re
+import sqlite3
 import shutil
 import time
 import uuid
@@ -27,7 +28,13 @@ from urllib.parse import parse_qs, urlparse, unquote
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "daemon"))
+_sys.path.insert(0, str(Path(__file__).resolve().parent / "hooks" / "scripts"))
 from processor.levels import (
+    DELTA_FILE_PREFIX as _DELTA_FILE_PREFIX,
+    DELTA_FILE_SUFFIX as _DELTA_FILE_SUFFIX,
+    FLOOR_FILE_SUFFIX as _FLOOR_FILE_SUFFIX,
+    LEVEL_FILE_PREFIX as _LEVEL_FILE_PREFIX,
+    LEVEL_FILE_SUFFIX as _LEVEL_FILE_SUFFIX,
     LEVELS_SUFFIX as _LEVELS_SUFFIX,
     process_file as _process_file,
 )
@@ -35,6 +42,8 @@ from server_storage import (
     CHARS_PER_TOKEN,
     CONFIG_PATH,
     DATA_DIR,
+    DEEP_FILES_DIR,
+    DEEP_INDEX_PATH,
     DEFAULT_PORT,
     FILES_DIR,
     MAX_UPLOAD_SIZE,
@@ -65,6 +74,7 @@ SEMANTIC_DEPTH_VALUES = tuple([-1] + list(range(1, 51)))
 DEFAULT_SEMANTIC_DEPTH = 1
 DEFAULT_PROVENANCE_CONTEXT_LINES = 1
 MAX_PROVENANCE_CONTEXT_LINES = 20
+DEEP_MAX_UPLOAD_SIZE = 200 * 1024 * 1024
 
 
 def default_reliability_metrics() -> dict:
@@ -178,8 +188,17 @@ def record_lag_incident(last_activity_dt: datetime, lag_seconds: int | None):
 
 def is_internal_context_artifact(filename: str) -> bool:
     """Return True for internal helper files in the context directory."""
+    is_level_sidecar = bool(
+        re.search(rf"{re.escape(_LEVEL_FILE_PREFIX)}\d+{re.escape(_LEVEL_FILE_SUFFIX)}$", filename)
+    )
+    is_delta_sidecar = bool(
+        re.search(rf"{re.escape(_DELTA_FILE_PREFIX)}\d+{re.escape(_DELTA_FILE_SUFFIX)}$", filename)
+    )
     return (
         filename.endswith(_LEVELS_SUFFIX)
+        or is_level_sidecar
+        or is_delta_sidecar
+        or filename.endswith(_FLOOR_FILE_SUFFIX)
         or filename.endswith(".anchored")
         or filename.endswith(".anchored.meta.json")
         or filename.startswith(".cache-")
@@ -244,16 +263,132 @@ def read_file_levels(filename: str) -> dict | None:
     return loaded if isinstance(loaded, dict) else None
 
 
-def read_file_at_level(filename: str, level: int) -> str | None:
-    levels_doc = read_file_levels(filename)
-    if isinstance(levels_doc, dict) and level >= 1:
-        content = levels_doc.get("content", {})
-        if isinstance(content, dict):
-            selected = content.get(str(level))
-            if isinstance(selected, str):
-                return selected
+def _delta_index_from_name(filename: str, base_name: str) -> int | None:
+    match = re.match(
+        rf"^{re.escape(filename)}{re.escape(_DELTA_FILE_PREFIX)}(\d+){re.escape(_DELTA_FILE_SUFFIX)}$",
+        base_name,
+    )
+    if not match:
+        return None
+    try:
+        idx = int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+    return idx if idx >= 1 else None
 
+
+def _strip_sidecar_meta(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    lines = text.splitlines()
+    idx = 0
+    while idx < len(lines) and lines[idx].strip().startswith("<!-- MEMORABLE_"):
+        idx += 1
+    while idx < len(lines) and not lines[idx].strip():
+        idx += 1
+    return "\n".join(lines[idx:]).strip()
+
+
+def semantic_artifact_metadata(filename: str) -> tuple[int, dict[str, int], bool]:
     raw_path = FILES_DIR / filename
+    floor_path = FILES_DIR / f"{filename}{_FLOOR_FILE_SUFFIX}"
+    levels_doc = read_file_levels(filename)
+
+    tokens_by_level: dict[str, int] = {}
+    raw_tokens = 0
+    if raw_path.is_file():
+        try:
+            raw_text = raw_path.read_text(encoding="utf-8")
+            raw_tokens = max(1, estimate_tokens(raw_text)) if raw_text else 0
+        except Exception:
+            raw_tokens = 0
+    if raw_tokens > 0:
+        tokens_by_level["raw"] = raw_tokens
+
+    if floor_path.is_file():
+        try:
+            floor_text = _strip_sidecar_meta(floor_path.read_text(encoding="utf-8"))
+        except Exception:
+            floor_text = ""
+        cumulative = estimate_tokens(floor_text)
+        tokens_by_level["1"] = cumulative
+
+        deltas: list[tuple[int, Path]] = []
+        for candidate in FILES_DIR.glob(f"{filename}{_DELTA_FILE_PREFIX}*{_DELTA_FILE_SUFFIX}"):
+            if not candidate.is_file():
+                continue
+            idx = _delta_index_from_name(filename, candidate.name)
+            if idx is None:
+                continue
+            deltas.append((idx, candidate))
+        deltas.sort(key=lambda item: item[0])
+
+        level = 2
+        for _idx, path in deltas:
+            try:
+                delta_text = _strip_sidecar_meta(path.read_text(encoding="utf-8"))
+            except Exception:
+                delta_text = ""
+            cumulative += estimate_tokens(delta_text)
+            tokens_by_level[str(level)] = cumulative
+            level += 1
+
+        if raw_tokens > 0:
+            tokens_by_level[str(level)] = raw_tokens
+            return level, tokens_by_level, True
+        return max(1, level - 1), tokens_by_level, True
+
+    if isinstance(levels_doc, dict):
+        level_count = int(levels_doc.get("levels", 0) or 0)
+        tokens_map = levels_doc.get("tokens", {})
+        if isinstance(tokens_map, dict):
+            for key, value in tokens_map.items():
+                if isinstance(key, str) and isinstance(value, int):
+                    tokens_by_level[key] = value
+        return level_count, tokens_by_level, level_count > 0
+
+    return 0, tokens_by_level, False
+
+
+def read_file_at_level(filename: str, level: int) -> str | None:
+    raw_path = FILES_DIR / filename
+    if level >= 1:
+        floor_path = FILES_DIR / f"{filename}{_FLOOR_FILE_SUFFIX}"
+        if floor_path.is_file():
+            max_level, _tokens_map, _processed = semantic_artifact_metadata(filename)
+            if max_level > 0 and level >= max_level and raw_path.is_file():
+                try:
+                    return raw_path.read_text(encoding="utf-8")
+                except Exception:
+                    return None
+
+            parts = []
+            try:
+                floor_text = _strip_sidecar_meta(floor_path.read_text(encoding="utf-8"))
+                if floor_text:
+                    parts.append(floor_text)
+            except Exception:
+                pass
+            for idx in range(1, max(1, int(level))):
+                delta_path = FILES_DIR / f"{filename}{_DELTA_FILE_PREFIX}{idx}{_DELTA_FILE_SUFFIX}"
+                if not delta_path.is_file():
+                    continue
+                try:
+                    delta_text = _strip_sidecar_meta(delta_path.read_text(encoding="utf-8"))
+                except Exception:
+                    delta_text = ""
+                if delta_text:
+                    parts.append(delta_text)
+            if parts:
+                return "\n\n".join(parts).strip() + "\n"
+
+        sidecar_path = FILES_DIR / f"{filename}{_LEVEL_FILE_PREFIX}{int(level)}{_LEVEL_FILE_SUFFIX}"
+        if sidecar_path.is_file():
+            try:
+                return sidecar_path.read_text(encoding="utf-8")
+            except Exception:
+                pass
+
     if not raw_path.is_file():
         return None
     try:
@@ -339,6 +474,7 @@ def utc_now_iso() -> str:
 def clean_note_object(obj: dict) -> dict:
     return {
         "ts": str(obj.get("ts", "")),
+        "first_ts": str(obj.get("first_ts", "")),
         "session": str(obj.get("session", "")),
         "machine": str(obj.get("machine", "")),
         "note": str(obj.get("note", "")),
@@ -348,6 +484,10 @@ def clean_note_object(obj: dict) -> dict:
         "salience": note_salience_value(obj.get("salience", 0.0)),
         "pinned": note_flag_value(obj.get("pinned", False)),
         "archived": note_flag_value(obj.get("archived", False)),
+        "synthesis_level": str(obj.get("synthesis_level", "")),
+        "period_start": str(obj.get("period_start", "")),
+        "period_end": str(obj.get("period_end", "")),
+        "source_count": obj.get("source_count", 0),
         "review_updated_at": str(obj.get("review_updated_at", "")),
     }
 
@@ -398,7 +538,7 @@ def normalize_note(obj: dict, note_id: str = "") -> dict:
 
     return {
         "id": note_id,
-        "date": obj.get("ts", ""),
+        "date": obj.get("first_ts") or obj.get("ts", ""),
         "summary": summary,
         "content": note_text,
         "tags": tags,
@@ -1456,6 +1596,505 @@ def handle_get_health():
     }
 
 
+
+# -- Deep memory -----------------------------------------------------------
+
+DEEP_CHUNK_TARGET_CHARS = 900
+DEEP_CHUNK_MAX_CHARS = 1400
+DEEP_SEARCH_DEFAULT_LIMIT = 20
+DEEP_SEARCH_MAX_LIMIT = 50
+
+
+def _sanitize_filename(filename: str) -> str:
+    return "".join(c for c in str(filename or "") if c.isalnum() or c in "-_.").strip()
+
+
+def _deep_db_connect() -> sqlite3.Connection:
+    ensure_dirs()
+    conn = sqlite3.connect(DEEP_INDEX_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS deep_files (
+            filename TEXT PRIMARY KEY,
+            size_bytes INTEGER NOT NULL,
+            uploaded_at TEXT NOT NULL,
+            modified_at TEXT NOT NULL,
+            processed_at TEXT,
+            chunk_count INTEGER NOT NULL DEFAULT 0,
+            token_count INTEGER NOT NULL DEFAULT 0,
+            source_sha256 TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS deep_chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            token_estimate INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(filename, chunk_index)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_deep_chunks_filename ON deep_chunks(filename)")
+    return conn
+
+
+def _deep_file_metadata_map() -> dict[str, dict]:
+    try:
+        with _deep_db_connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT filename, processed_at, chunk_count, token_count, source_sha256
+                FROM deep_files
+                """
+            ).fetchall()
+    except Exception:
+        return {}
+
+    out = {}
+    for row in rows:
+        out[str(row["filename"])] = {
+            "processed_at": row["processed_at"],
+            "chunk_count": int(row["chunk_count"] or 0),
+            "token_count": int(row["token_count"] or 0),
+            "source_sha256": row["source_sha256"],
+        }
+    return out
+
+
+def _deep_split_long_block(block: str, max_chars: int) -> list[str]:
+    block = block.strip()
+    if not block:
+        return []
+    if len(block) <= max_chars:
+        return [block]
+
+    chunks: list[str] = []
+    sentences = re.split(r"(?<=[.!?])\s+", block)
+    buf = ""
+    for sentence in sentences:
+        s = sentence.strip()
+        if not s:
+            continue
+        candidate = f"{buf} {s}".strip()
+        if buf and len(candidate) > max_chars:
+            chunks.append(buf)
+            buf = s
+        else:
+            buf = candidate
+    if buf:
+        chunks.append(buf)
+
+    out: list[str] = []
+    for chunk in chunks:
+        if len(chunk) <= max_chars:
+            out.append(chunk)
+            continue
+        for idx in range(0, len(chunk), max_chars):
+            out.append(chunk[idx : idx + max_chars].strip())
+    return [item for item in out if item]
+
+
+def _deep_chunk_text(text: str) -> list[str]:
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return []
+
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", cleaned) if p.strip()]
+    if not paragraphs:
+        return _deep_split_long_block(cleaned, DEEP_CHUNK_MAX_CHARS)
+
+    chunks: list[str] = []
+    buf = ""
+    for para in paragraphs:
+        expanded = _deep_split_long_block(para, DEEP_CHUNK_MAX_CHARS)
+        for piece in expanded:
+            candidate = f"{buf}\n\n{piece}".strip() if buf else piece
+            if buf and len(candidate) > DEEP_CHUNK_TARGET_CHARS:
+                chunks.append(buf)
+                buf = piece
+            else:
+                buf = candidate
+    if buf:
+        chunks.append(buf)
+    return [chunk for chunk in chunks if chunk]
+
+
+def _deep_process_file(safe_filename: str) -> dict:
+    source_path = DEEP_FILES_DIR / safe_filename
+    if not source_path.is_file():
+        return {
+            "status": "error",
+            "error": "file_not_found",
+            "message": "File not found",
+        }
+
+    try:
+        raw_bytes = source_path.read_bytes()
+    except OSError:
+        return {
+            "status": "error",
+            "error": "read_failed",
+            "message": "Failed to read file",
+        }
+
+    text = raw_bytes.decode("utf-8", errors="replace")
+    chunks = _deep_chunk_text(text)
+    tokens = estimate_tokens(text)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    source_hash = hashlib.sha256(raw_bytes).hexdigest()
+
+    try:
+        stat = source_path.stat()
+        modified_iso = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+        size_bytes = int(stat.st_size)
+    except OSError:
+        modified_iso = now_iso
+        size_bytes = len(raw_bytes)
+
+    with _deep_db_connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO deep_files (
+                filename, size_bytes, uploaded_at, modified_at, processed_at,
+                chunk_count, token_count, source_sha256
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(filename) DO UPDATE SET
+                size_bytes=excluded.size_bytes,
+                modified_at=excluded.modified_at,
+                processed_at=excluded.processed_at,
+                chunk_count=excluded.chunk_count,
+                token_count=excluded.token_count,
+                source_sha256=excluded.source_sha256
+            """,
+            (
+                safe_filename,
+                size_bytes,
+                now_iso,
+                modified_iso,
+                now_iso,
+                len(chunks),
+                tokens,
+                source_hash,
+            ),
+        )
+        conn.execute("DELETE FROM deep_chunks WHERE filename = ?", (safe_filename,))
+        conn.executemany(
+            """
+            INSERT INTO deep_chunks (filename, chunk_index, content, token_estimate, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    safe_filename,
+                    idx + 1,
+                    chunk,
+                    estimate_tokens(chunk),
+                    now_iso,
+                )
+                for idx, chunk in enumerate(chunks)
+            ],
+        )
+
+    return {
+        "status": "ok",
+        "filename": safe_filename,
+        "chunks": len(chunks),
+        "tokens": tokens,
+        "source_sha256": source_hash,
+        "processed_at": now_iso,
+    }
+
+
+def _deep_extract_snippet(content: str, query: str, max_len: int = 220) -> str:
+    text = str(content or "").replace("\n", " ").strip()
+    if len(text) <= max_len:
+        return text
+    q = str(query or "").strip().lower()
+    if not q:
+        return text[:max_len].strip() + "..."
+    pos = text.lower().find(q)
+    if pos < 0:
+        terms = [t for t in re.findall(r"[a-zA-Z0-9]{2,}", q) if t]
+        for term in terms:
+            pos = text.lower().find(term)
+            if pos >= 0:
+                break
+    if pos < 0:
+        return text[:max_len].strip() + "..."
+    start = max(0, pos - (max_len // 3))
+    end = min(len(text), start + max_len)
+    snippet = text[start:end].strip()
+    if start > 0:
+        snippet = "..." + snippet
+    if end < len(text):
+        snippet = snippet + "..."
+    return snippet
+
+
+def handle_get_deep_files():
+    """GET /api/deep/files — list files uploaded to Deep memory."""
+    ensure_dirs()
+    files = []
+    meta = _deep_file_metadata_map()
+
+    if not DEEP_FILES_DIR.is_dir():
+        return 200, {"files": files}
+
+    for f in sorted(DEEP_FILES_DIR.iterdir()):
+        if not f.is_file() or f.name.startswith("."):
+            continue
+        safe = f.name
+        try:
+            stat = f.stat()
+            m = meta.get(safe, {})
+            processed_at = m.get("processed_at")
+            chunk_count = int(m.get("chunk_count") or 0)
+            token_count = int(m.get("token_count") or 0)
+            files.append(
+                {
+                    "name": safe,
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                    "processed": bool(processed_at),
+                    "processed_at": processed_at,
+                    "chunks": chunk_count,
+                    "tokens": token_count,
+                }
+            )
+        except Exception:
+            continue
+
+    return 200, {"files": files}
+
+
+def handle_post_deep_upload(handler):
+    """POST /api/deep/files/upload — upload a source file for Deep memory."""
+    ensure_dirs()
+    content_type = handler.headers.get("Content-Type", "")
+
+    raw_length = handler.headers.get("Content-Length", "0")
+    try:
+        length = int(raw_length)
+    except (TypeError, ValueError):
+        return 400, error_response(
+            "INVALID_CONTENT_LENGTH",
+            "Invalid Content-Length header",
+            "Send a valid numeric Content-Length header.",
+        )
+    if length < 0:
+        return 400, error_response(
+            "INVALID_CONTENT_LENGTH",
+            "Invalid Content-Length header",
+            "Send a non-negative Content-Length header.",
+        )
+    if length == 0:
+        return 400, error_response(
+            "EMPTY_BODY",
+            "Empty body",
+            "Provide file content in the request body.",
+        )
+    if length > DEEP_MAX_UPLOAD_SIZE:
+        return 413, error_response(
+            "UPLOAD_TOO_LARGE",
+            "Upload too large",
+            f"Reduce payload to <= {DEEP_MAX_UPLOAD_SIZE} bytes.",
+        )
+
+    if "application/json" in content_type:
+        raw = handler.rfile.read(length)
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError:
+            return 400, error_response(
+                "INVALID_JSON",
+                "Invalid JSON",
+                "Send a valid JSON object.",
+            )
+        if not isinstance(body, dict):
+            return 400, error_response(
+                "INVALID_JSON_OBJECT",
+                "JSON body must be an object",
+                "Send a JSON object payload.",
+            )
+
+        filename = body.get("filename", "")
+        content = body.get("content", "")
+        if not isinstance(filename, str) or not isinstance(content, str):
+            return 400, error_response(
+                "INVALID_UPLOAD_FIELDS_TYPE",
+                "'filename' and 'content' must be strings",
+                "Send JSON with string values for both filename and content.",
+            )
+
+        safe = _sanitize_filename(filename)
+        if not safe:
+            safe = f"deep-{uuid.uuid4().hex[:8]}.txt"
+
+        path = DEEP_FILES_DIR / safe
+        atomic_write(path, content)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with _deep_db_connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO deep_files (filename, size_bytes, uploaded_at, modified_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(filename) DO UPDATE SET
+                    size_bytes=excluded.size_bytes,
+                    modified_at=excluded.modified_at
+                """,
+                (safe, len(content.encode("utf-8")), now_iso, now_iso),
+            )
+
+        append_audit("deep.upload", {"filename": safe, "size_bytes": len(content), "mode": "json"})
+        return 200, {"ok": True, "filename": safe, "size": len(content), "tokens": estimate_tokens(content)}
+
+    # Raw upload fallback
+    filename = handler.headers.get("X-Filename", "")
+    raw = handler.rfile.read(length)
+    safe = _sanitize_filename(filename)
+    if not safe:
+        safe = f"deep-{uuid.uuid4().hex[:8]}.bin"
+
+    path = DEEP_FILES_DIR / safe
+    atomic_write_bytes(path, raw)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with _deep_db_connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO deep_files (filename, size_bytes, uploaded_at, modified_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(filename) DO UPDATE SET
+                size_bytes=excluded.size_bytes,
+                modified_at=excluded.modified_at
+            """,
+            (safe, len(raw), now_iso, now_iso),
+        )
+
+    tokens = 0
+    try:
+        tokens = estimate_tokens(raw.decode("utf-8"))
+    except (UnicodeDecodeError, Exception):
+        pass
+
+    append_audit("deep.upload", {"filename": safe, "size_bytes": len(raw), "mode": "raw"})
+    return 200, {"ok": True, "filename": safe, "size": len(raw), "tokens": tokens}
+
+
+def handle_process_deep_file(filename: str):
+    """POST /api/deep/files/<filename>/process — process file into retrievable chunks."""
+    safe = _sanitize_filename(filename)
+    if not safe:
+        return 400, error_response(
+            "INVALID_FILENAME",
+            "Invalid filename",
+            "Use only alphanumeric characters, dash, underscore, and dot.",
+        )
+
+    result = _deep_process_file(safe)
+    append_audit(
+        "deep.process",
+        {"filename": safe, "status": result.get("status")},
+    )
+    if result.get("status") != "ok":
+        return 404, error_response(
+            "FILE_NOT_FOUND",
+            "File not found",
+            "Check the filename and upload the file if needed.",
+        )
+    return 200, result
+
+
+def handle_delete_deep_file(filename: str):
+    """DELETE /api/deep/files/<filename> — delete source file and indexed chunks."""
+    safe = _sanitize_filename(filename)
+    if not safe:
+        return 400, error_response(
+            "INVALID_FILENAME",
+            "Invalid filename",
+            "Use only alphanumeric characters, dash, underscore, and dot.",
+        )
+
+    source_path = DEEP_FILES_DIR / safe
+    deleted = False
+    if source_path.is_file():
+        source_path.unlink()
+        deleted = True
+
+    with _deep_db_connect() as conn:
+        conn.execute("DELETE FROM deep_chunks WHERE filename = ?", (safe,))
+        conn.execute("DELETE FROM deep_files WHERE filename = ?", (safe,))
+
+    if not deleted:
+        return 404, error_response(
+            "FILE_NOT_FOUND",
+            "File not found",
+            "Check the filename and try again.",
+        )
+
+    append_audit("deep.delete", {"filename": safe})
+    return 200, {"ok": True, "deleted": safe}
+
+
+def handle_get_deep_search(query_params: dict):
+    """GET /api/deep/search?q=... — keyword retrieval over indexed Deep chunks."""
+    raw_q = (query_params.get("q", [""])[0] or "").strip()
+    if not raw_q:
+        return 400, error_response(
+            "MISSING_QUERY",
+            "Missing query",
+            "Provide a `q` query parameter.",
+        )
+
+    try:
+        limit = int(query_params.get("limit", [str(DEEP_SEARCH_DEFAULT_LIMIT)])[0])
+    except (TypeError, ValueError):
+        limit = DEEP_SEARCH_DEFAULT_LIMIT
+    limit = max(1, min(DEEP_SEARCH_MAX_LIMIT, limit))
+
+    terms = [t.lower() for t in re.findall(r"[a-zA-Z0-9]{2,}", raw_q)]
+    if not terms:
+        terms = [raw_q.lower()]
+
+    where = " AND ".join(["LOWER(content) LIKE ?" for _ in terms])
+    params = [f"%{term}%" for term in terms]
+    params.append(limit)
+
+    with _deep_db_connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT filename, chunk_index, content, token_estimate
+            FROM deep_chunks
+            WHERE {where}
+            ORDER BY token_estimate ASC, filename ASC, chunk_index ASC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+    results = []
+    for row in rows:
+        content = str(row["content"])
+        results.append(
+            {
+                "filename": row["filename"],
+                "chunk_index": int(row["chunk_index"]),
+                "tokens": int(row["token_estimate"]),
+                "snippet": _deep_extract_snippet(content, raw_q),
+            }
+        )
+
+    return 200, {
+        "query": raw_q,
+        "terms": terms,
+        "results": results,
+        "count": len(results),
+    }
 # -- Files -----------------------------------------------------------------
 
 
@@ -1490,16 +2129,7 @@ def handle_get_files():
             except (UnicodeDecodeError, Exception):
                 pass
 
-            levels_doc = read_file_levels(f.name)
-            level_count = 0
-            tokens_by_level = {}
-            if isinstance(levels_doc, dict):
-                level_count = int(levels_doc.get("levels", 0) or 0)
-                tokens_map = levels_doc.get("tokens", {})
-                if isinstance(tokens_map, dict):
-                    for key, value in tokens_map.items():
-                        if isinstance(key, str) and isinstance(value, int):
-                            tokens_by_level[key] = value
+            level_count, tokens_by_level, processed = semantic_artifact_metadata(f.name)
 
             # Config for this file
             cf = context_files.get(f.name, {})
@@ -1517,12 +2147,11 @@ def handle_get_files():
                 "modified": datetime.fromtimestamp(
                     stat.st_mtime, tz=timezone.utc
                 ).isoformat(),
-                "processed": bool(levels_doc),
+                "processed": bool(processed),
                 "levels": level_count,
                 "tokens_by_level": tokens_by_level or None,
                 "depth": configured_depth,
                 "enabled": bool(cf.get("enabled", False)),
-                "levels_file": bool(levels_doc),
             })
         except Exception:
             continue
@@ -1752,25 +2381,22 @@ def handle_get_file_levels(filename: str):
     source_hash = hashlib.sha256(raw_bytes).hexdigest()
     levels_doc = read_file_levels(safe)
     levels = {}
-    level_count = 0
+    level_count, tokens_by_level, processed = semantic_artifact_metadata(safe)
     model = None
     generated_at = None
     if isinstance(levels_doc, dict):
-        level_count = int(levels_doc.get("levels", 0) or 0)
         model = levels_doc.get("model")
         generated_at = levels_doc.get("generated_at")
-        tokens_map = levels_doc.get("tokens", {})
-        if isinstance(tokens_map, dict):
-            for key, value in tokens_map.items():
-                if not isinstance(key, str) or not isinstance(value, int):
-                    continue
-                if key == "full":
-                    continue
-                denom = max(1, full_tokens)
-                levels[key] = {
-                    "tokens": value,
-                    "compression_ratio": round(value / float(denom), 4),
-                }
+    for key, value in tokens_by_level.items():
+        if key == "raw":
+            continue
+        if not isinstance(value, int):
+            continue
+        denom = max(1, full_tokens)
+        levels[key] = {
+            "tokens": value,
+            "compression_ratio": round(value / float(denom), 4),
+        }
     levels["full"] = {"tokens": full_tokens, "compression_ratio": 1.0}
 
     config = load_config()
@@ -1789,7 +2415,7 @@ def handle_get_file_levels(filename: str):
 
     return 200, {
         "filename": safe,
-        "processed": bool(levels_doc),
+        "processed": bool(processed),
         "levels_count": level_count,
         "levels": levels,
         "default_depth": configured_depth,
@@ -2080,22 +2706,19 @@ def handle_get_budget():
 
         # Check FILES_DIR first (semantic file), then fall back to seeds
         raw_path = FILES_DIR / filename
-        levels_doc = read_file_levels(filename)
         seed_path = SEEDS_DIR / filename
 
         try:
             if raw_path.is_file():
-                if depth is not None and int(depth) >= 1 and isinstance(levels_doc, dict):
-                    level_content = levels_doc.get("content", {})
-                    if isinstance(level_content, dict):
-                        selected = level_content.get(str(int(depth)))
-                    else:
-                        selected = None
-                    if isinstance(selected, str):
-                        tokens = estimate_tokens(selected)
-                    else:
-                        content = raw_path.read_text(encoding="utf-8")
-                        tokens = estimate_tokens(content)
+                selected_content = None
+                try:
+                    selected_depth = int(depth)
+                except (TypeError, ValueError):
+                    selected_depth = -1
+                if selected_depth >= 1:
+                    selected_content = read_file_at_level(filename, selected_depth)
+                if isinstance(selected_content, str) and selected_content:
+                    tokens = estimate_tokens(selected_content)
                 else:
                     content = raw_path.read_text(encoding="utf-8")
                     tokens = estimate_tokens(content)
@@ -2325,6 +2948,25 @@ def handle_post_regenerate_summary():
         return 500, error_response(
             "REGENERATE_FAILED",
             "Failed to regenerate summary",
+            str(e),
+        )
+
+
+def handle_post_regenerate_knowledge():
+    """POST /api/regenerate-knowledge — force regenerate knowledge.md from notes."""
+    try:
+        from knowledge_builder import update_knowledge_seed
+        entries = [row["obj"] for row in iter_note_rows() or []]
+        fact_count = update_knowledge_seed(entries, datetime.now(timezone.utc))
+        return 200, {
+            "ok": True,
+            "message": "Semantic knowledge regenerated.",
+            "facts": fact_count,
+        }
+    except Exception as e:
+        return 500, error_response(
+            "REGENERATE_KNOWLEDGE_FAILED",
+            "Failed to regenerate knowledge",
             str(e),
         )
 

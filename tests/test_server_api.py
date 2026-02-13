@@ -23,6 +23,8 @@ class ServerApiTests(unittest.TestCase):
         self.orig_data_dir = server_api.DATA_DIR
         self.orig_notes_dir = server_api.NOTES_DIR
         self.orig_files_dir = server_api.FILES_DIR
+        self.orig_deep_files_dir = server_api.DEEP_FILES_DIR
+        self.orig_deep_index_path = server_api.DEEP_INDEX_PATH
         self.orig_sessions_dir = server_api.SESSIONS_DIR
         self.orig_seeds_dir = server_api.SEEDS_DIR
         self.orig_reliability_metrics_path = server_api.RELIABILITY_METRICS_PATH
@@ -33,6 +35,8 @@ class ServerApiTests(unittest.TestCase):
         server_api.DATA_DIR = self.orig_data_dir
         server_api.NOTES_DIR = self.orig_notes_dir
         server_api.FILES_DIR = self.orig_files_dir
+        server_api.DEEP_FILES_DIR = self.orig_deep_files_dir
+        server_api.DEEP_INDEX_PATH = self.orig_deep_index_path
         server_api.SESSIONS_DIR = self.orig_sessions_dir
         server_api.SEEDS_DIR = self.orig_seeds_dir
         server_api.RELIABILITY_METRICS_PATH = self.orig_reliability_metrics_path
@@ -58,6 +62,23 @@ class ServerApiTests(unittest.TestCase):
             self.assertEqual(3, len(notes))
             self.assertEqual(["ok1", "123", "ok2"], [n["summary"] for n in notes])
 
+    def test_clean_note_object_preserves_synthesis_fields(self):
+        raw = {
+            "ts": "2026-02-12T00:00:00Z",
+            "first_ts": "2026-02-10T00:00:00Z",
+            "session": "weekly-2026-02-10",
+            "note": "weekly synthesis",
+            "synthesis_level": "weekly",
+            "period_start": "2026-02-10",
+            "period_end": "2026-02-16",
+            "source_count": 3,
+        }
+        cleaned = server_api.clean_note_object(raw)
+        self.assertEqual("weekly", cleaned["synthesis_level"])
+        self.assertEqual("2026-02-10T00:00:00Z", cleaned["first_ts"])
+        self.assertEqual("2026-02-10", cleaned["period_start"])
+        self.assertEqual("2026-02-16", cleaned["period_end"])
+
     def test_handle_get_files_hides_internal_cache_files(self):
         with tempfile.TemporaryDirectory() as td:
             files_dir = Path(td)
@@ -75,6 +96,9 @@ class ServerApiTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (files_dir / "doc.md.level1.md").write_text("level one", encoding="utf-8")
+            (files_dir / "doc.md.floor.md").write_text("floor", encoding="utf-8")
+            (files_dir / "doc.md.delta1.md").write_text("delta", encoding="utf-8")
 
             server_api.FILES_DIR = files_dir
             server_api.load_config = lambda: {
@@ -85,7 +109,28 @@ class ServerApiTests(unittest.TestCase):
             self.assertEqual(200, status)
             self.assertEqual(["doc.md"], [f["name"] for f in data["files"]])
             self.assertTrue(data["files"][0]["processed"])
-            self.assertTrue(data["files"][0]["levels_file"])
+
+    def test_read_file_at_level_prefers_floor_delta_stack(self):
+        with tempfile.TemporaryDirectory() as td:
+            files_dir = Path(td)
+            (files_dir / "doc.md").write_text("RAW", encoding="utf-8")
+            (files_dir / "doc.md.levels.json").write_text(
+                json.dumps({"levels": 5, "tokens": {"1": 1, "5": 1}, "content": {"1": "x", "5": "RAW"}}),
+                encoding="utf-8",
+            )
+            (files_dir / "doc.md.floor.md").write_text("FLOOR", encoding="utf-8")
+            (files_dir / "doc.md.delta1.md").write_text("D1", encoding="utf-8")
+            (files_dir / "doc.md.delta2.md").write_text("D2", encoding="utf-8")
+            server_api.FILES_DIR = files_dir
+
+            depth3 = server_api.read_file_at_level("doc.md", 3)
+            self.assertIsInstance(depth3, str)
+            self.assertIn("FLOOR", depth3)
+            self.assertIn("D1", depth3)
+            self.assertIn("D2", depth3)
+
+            depth5 = server_api.read_file_at_level("doc.md", 5)
+            self.assertEqual("RAW", depth5)
 
     def test_handle_process_file_auto_configures_context_entry_with_default_depth(self):
         original_process_file = server_api._process_file
@@ -204,6 +249,56 @@ class ServerApiTests(unittest.TestCase):
         status, data = server_api.handle_post_file_upload(handler)
         self.assertEqual(400, status)
         self.assertEqual("INVALID_UPLOAD_FIELDS_TYPE", data["error"]["code"])
+
+    def test_deep_file_lifecycle_upload_process_search_delete(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            deep_dir = root / "deep"
+            deep_dir.mkdir(parents=True, exist_ok=True)
+
+            server_api.DEEP_FILES_DIR = deep_dir
+            server_api.DEEP_INDEX_PATH = root / "deep_index.sqlite3"
+
+            payload = {
+                "filename": "archive.md",
+                "content": "Chris bonus thread is unresolved.\n\nJordan follow-up next week.",
+            }
+            raw = json.dumps(payload).encode("utf-8")
+            handler = SimpleNamespace(
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Length": str(len(raw)),
+                },
+                rfile=io.BytesIO(raw),
+            )
+
+            status, data = server_api.handle_post_deep_upload(handler)
+            self.assertEqual(200, status)
+            self.assertTrue(data["ok"])
+            self.assertEqual("archive.md", data["filename"])
+
+            status, data = server_api.handle_get_deep_files()
+            self.assertEqual(200, status)
+            self.assertEqual(1, len(data["files"]))
+            self.assertFalse(data["files"][0]["processed"])
+
+            status, data = server_api.handle_process_deep_file("archive.md")
+            self.assertEqual(200, status)
+            self.assertEqual("ok", data["status"])
+            self.assertGreaterEqual(data["chunks"], 1)
+
+            status, data = server_api.handle_get_deep_search({"q": ["bonus"]})
+            self.assertEqual(200, status)
+            self.assertGreaterEqual(data["count"], 1)
+            self.assertEqual("archive.md", data["results"][0]["filename"])
+
+            status, data = server_api.handle_delete_deep_file("archive.md")
+            self.assertEqual(200, status)
+            self.assertTrue(data["ok"])
+
+            status, data = server_api.handle_get_deep_files()
+            self.assertEqual(200, status)
+            self.assertEqual(0, len(data["files"]))
 
     def test_handle_post_seeds_rejects_non_string_content(self):
         status, data = server_api.handle_post_seeds({"files": {"user.md": 123}})

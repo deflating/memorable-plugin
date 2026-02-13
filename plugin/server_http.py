@@ -7,6 +7,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from server_api import (
     handle_get_budget,
+    handle_get_deep_files,
+    handle_get_deep_search,
     handle_get_export,
     handle_get_files,
     handle_get_file_levels,
@@ -21,8 +23,10 @@ from server_api import (
     handle_get_settings,
     handle_get_status,
     handle_post_deploy,
+    handle_post_deep_upload,
     handle_post_import,
     handle_post_file_upload,
+    handle_post_regenerate_knowledge,
     handle_post_note_review,
     handle_post_process,
     handle_post_regenerate_summary,
@@ -30,6 +34,8 @@ from server_api import (
     handle_post_seeds,
     handle_post_settings,
     handle_preview_file,
+    handle_process_deep_file,
+    handle_delete_deep_file,
     handle_process_file,
     handle_put_file_depth,
 )
@@ -63,6 +69,11 @@ CONTENT_TYPES = {
     ".map": "application/json",
 }
 LEVELS_FILE_SUFFIX = ".levels.json"
+LEVEL_FILE_PREFIX = ".level"
+LEVEL_FILE_SUFFIX = ".md"
+FLOOR_FILE_SUFFIX = ".floor.md"
+DELTA_FILE_PREFIX = ".delta"
+DELTA_FILE_SUFFIX = ".md"
 
 
 class MemorableHandler(SimpleHTTPRequestHandler):
@@ -210,6 +221,14 @@ class MemorableHandler(SimpleHTTPRequestHandler):
             status, data = handle_get_health()
             return self.send_json(status, data)
 
+        if path == "/api/deep/files":
+            status, data = handle_get_deep_files()
+            return self.send_json(status, data)
+
+        if path == "/api/deep/search":
+            status, data = handle_get_deep_search(query_params)
+            return self.send_json(status, data)
+
         if path == "/api/files":
             status, data = handle_get_files()
             return self.send_json(status, data)
@@ -249,8 +268,16 @@ class MemorableHandler(SimpleHTTPRequestHandler):
             status, data = handle_post_regenerate_summary()
             return self.send_json(status, data)
 
+        if path == "/api/regenerate-knowledge":
+            status, data = handle_post_regenerate_knowledge()
+            return self.send_json(status, data)
+
         if path == "/api/files/upload":
             status, data = handle_post_file_upload(self)
+            return self.send_json(status, data)
+
+        if path == "/api/deep/files/upload":
+            status, data = handle_post_deep_upload(self)
             return self.send_json(status, data)
 
         if path == "/api/import":
@@ -260,6 +287,11 @@ class MemorableHandler(SimpleHTTPRequestHandler):
         if path.startswith("/api/files/") and path.endswith("/process"):
             filename = unquote(path[len("/api/files/"):-len("/process")])
             status, data = handle_process_file(filename)
+            return self.send_json(status, data)
+
+        if path.startswith("/api/deep/files/") and path.endswith("/process"):
+            filename = unquote(path[len("/api/deep/files/"):-len("/process")])
+            status, data = handle_process_deep_file(filename)
             return self.send_json(status, data)
 
         body_routes = {
@@ -332,6 +364,11 @@ class MemorableHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
 
+        if path.startswith("/api/deep/files/"):
+            filename = unquote(path[len("/api/deep/files/"):])
+            status, data = handle_delete_deep_file(filename)
+            return self.send_json(status, data)
+
         if path.startswith("/api/files/"):
             filename = unquote(path[len("/api/files/"):])
             if filename:
@@ -345,6 +382,30 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                         if levels_file.is_file():
                             levels_file.unlink()
                             levels_deleted = True
+                        sidecar_deleted = 0
+                        for sidecar in FILES_DIR.glob(f"{safe}{LEVEL_FILE_PREFIX}*{LEVEL_FILE_SUFFIX}"):
+                            if not sidecar.is_file():
+                                continue
+                            try:
+                                sidecar.unlink()
+                                sidecar_deleted += 1
+                            except OSError:
+                                pass
+                        floor_path = FILES_DIR / f"{safe}{FLOOR_FILE_SUFFIX}"
+                        if floor_path.is_file():
+                            try:
+                                floor_path.unlink()
+                                sidecar_deleted += 1
+                            except OSError:
+                                pass
+                        for sidecar in FILES_DIR.glob(f"{safe}{DELTA_FILE_PREFIX}*{DELTA_FILE_SUFFIX}"):
+                            if not sidecar.is_file():
+                                continue
+                            try:
+                                sidecar.unlink()
+                                sidecar_deleted += 1
+                            except OSError:
+                                pass
                         config = load_config()
                         cf = config.get("context_files", [])
                         config["context_files"] = [
@@ -356,6 +417,7 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                             {
                                 "filename": safe,
                                 "levels_deleted": levels_deleted,
+                                "level_sidecars_deleted": sidecar_deleted,
                             },
                         )
                         return self.send_json(
@@ -364,6 +426,7 @@ class MemorableHandler(SimpleHTTPRequestHandler):
                                 "ok": True,
                                 "deleted": safe,
                                 "levels_deleted": levels_deleted,
+                                "level_sidecars_deleted": sidecar_deleted,
                             },
                         )
             return self.send_json(
