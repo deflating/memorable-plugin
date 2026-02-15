@@ -4927,9 +4927,6 @@
             ${isCustom ? '<span class="custom-badge">Custom</span>' : ''}
           </div>
           ${!isCustom && desc ? `<div class="switch-label-desc">${desc}</div>` : ''}
-          ${isCustom ? `
-            <input type="text" class="custom-desc-input" data-custom-desc-key="${removeKey}" data-custom-desc-type="${removeType}" value="${esc(customDesc)}" placeholder="Optional note shown only in the editor">
-          ` : ''}
         </div>
         <div class="switch-controls">
           ${!isCustom ? `
