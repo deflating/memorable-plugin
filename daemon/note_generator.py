@@ -593,9 +593,11 @@ def update_salience_on_new_note(notes_dir: Path, new_tags: list[str], new_sessio
 
 # -- Rolling summary -------------------------------------------------------
 
-ROLLING_SUMMARY_PROMPT = """You are writing a "now" document for an AI coding assistant (Claude Code). This document is read at the start of every new session so Claude can quickly orient: where things are right now, and how they got here.
+ROLLING_SUMMARY_PROMPT = """You are writing a "now" document for an AI assistant (Claude Code). This document is read at the start of every new session so Claude can quickly orient: what's happening right now, and how things got here.
 
-You will receive session notes from the last 5 days. Synthesise them into a single concise document.
+This document should capture the FULL context of recent sessions — not just technical work. If the user discussed personal matters (job changes, stress, major life decisions, health, relationships), those are equally important to any code or project work. Reflect whatever actually matters in the conversations.
+
+You will receive session notes from the last 5 days. Synthesise them into a comprehensive document.
 
 Output this exact markdown structure:
 
@@ -603,32 +605,33 @@ Output this exact markdown structure:
 
 *Last updated: {date}*
 
-## Active Focus
-One sentence: what is Matt primarily working on right now?
+## What Matters Right Now
+The most important things happening right now — lead with whatever is most significant across recent sessions, whether that's a life event, a project milestone, an emotional state, or a decision being made. Write 2-3 short paragraphs.
 
 ## Current State
-Bullet list of what exists, what's running, what's built. Be specific — file names, model names, port numbers, statuses. Max 8 bullets.
+What's the user's current situation? Cover both personal context (if discussed) and technical/project context. Be specific — names, statuses, details. Bullet list, max 12 items.
 
 ## Last 5 Days
-2-3 sentences covering the main arc of recent work. What changed, what was built, what shifted.
-
-## Recent Decisions
-The most important choices made (max 5). Format: "Chose X over Y — reason."
-
-## Open Threads
-Things left unresolved or explicitly marked for later (max 5).
+A day-by-day summary (most recent first). For each day, cover whatever was discussed — personal, technical, or both. Include emotional context where it appeared in the sessions. 2-3 lines per day.
 
 ## People Mentioned Recently
-Anyone mentioned in the last few days and why (max 5, one line each). Skip Claude and Matt.
+Anyone mentioned and their context (max 8, one line each). Include enough detail to be useful (role, relationship, what's happening with them).
+
+## Recent Decisions
+Important choices made — personal AND technical. Format: "Chose X over Y — reason." Max 8.
+
+## Open Threads
+Things left unresolved or explicitly marked for later — life decisions, project work, anything pending. Max 10.
 
 ## Mood
-One sentence on how things have been feeling.
+How the user has been feeling across recent sessions. Quote their actual words where possible. Be honest and specific, not sanitised. If they're struggling, say so clearly.
 
 Rules:
-- Keep the whole document under 1500 words.
+- Keep the whole document under 3000 words.
+- Personal context (mood, life events, decisions, relationships, health) is EQUALLY important to technical context. If the user is going through something significant in their life, that should be prominent — not buried or omitted.
 - Be concrete and specific, not vague.
 - Prioritise the most recent session heavily — that's the freshest context.
-- Use Matt's actual words where possible.
+- Use the user's actual words where possible, especially about how they're feeling.
 - Don't include session timestamps or machine names.
 """
 
@@ -672,14 +675,31 @@ def generate_rolling_summary(cfg: dict, notes_dir: Path):
     # Sort newest first
     entries.sort(key=lambda e: e.get("ts", ""), reverse=True)
 
-    # Build input: concat notes, cap at 30K chars
+    # Deduplicate: keep only the latest note per session.
+    # Session notes are regenerated as transcripts grow, so a single long
+    # session may produce many near-identical notes.  Only the final
+    # (most recent) snapshot matters.
+    seen_sessions: set[str] = set()
+    deduped: list[dict] = []
+    for entry in entries:
+        sid = entry.get("session", "")
+        if sid and sid in seen_sessions:
+            continue
+        if sid:
+            seen_sessions.add(sid)
+        deduped.append(entry)
+    entries = deduped
+
+    log_error(f"Rolling summary: {len(entries)} unique session notes after dedup")
+
+    # Build input: concat notes, cap at 60K chars
     parts = []
     total = 0
     for entry in entries:
         note = entry.get("note", "")
         if not note:
             continue
-        if total + len(note) > 30_000:
+        if total + len(note) > 60_000:
             break
         parts.append(note)
         total += len(note)
@@ -738,9 +758,14 @@ def generate_note(session_id: str, transcript_path: str, machine_id: str = None)
 
     now_iso = datetime.now(timezone.utc).isoformat()
 
+    # Use the session's own start time, not the processing time.
+    # This ensures notes are dated when the conversation happened,
+    # not when the daemon got around to summarising it.
+    session_ts = parsed.get("first_ts") or now_iso
+
     # Build the full entry with salience metadata
     entry = {
-        "ts": now_iso,
+        "ts": session_ts,
         "session": session_id,
         "machine": machine_id,
         "message_count": parsed["message_count"],

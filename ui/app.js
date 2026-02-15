@@ -5,20 +5,137 @@
 (function () {
   'use strict';
 
-  // ---- Static UI config/options ----
-  const UI_CONFIG = window.MemorableUIConfig || {};
-  const DEFAULT_COGNITIVE_OPTIONS = UI_CONFIG.DEFAULT_COGNITIVE_OPTIONS || [];
-  const DEFAULT_COGNITIVE_STYLE_DIMS = UI_CONFIG.DEFAULT_COGNITIVE_STYLE_DIMS || [];
-  const DEFAULT_COMMUNICATION_OPTIONS = UI_CONFIG.DEFAULT_COMMUNICATION_OPTIONS || [];
-  const DEFAULT_BEHAVIOR_OPTIONS = UI_CONFIG.DEFAULT_BEHAVIOR_OPTIONS || [];
-  const DEFAULT_WHEN_LOW_OPTIONS = UI_CONFIG.DEFAULT_WHEN_LOW_OPTIONS || [];
-  const DEFAULT_TECH_STYLE_OPTIONS = UI_CONFIG.DEFAULT_TECH_STYLE_OPTIONS || [];
-  const DEFAULT_TRAIT_OPTIONS = UI_CONFIG.DEFAULT_TRAIT_OPTIONS || [];
-  const PRESETS = UI_CONFIG.PRESETS || {};
-  const USER_SECTION_IDS = UI_CONFIG.USER_SECTION_IDS || [];
-  const AGENT_SECTION_IDS = UI_CONFIG.AGENT_SECTION_IDS || [];
-  const DEFAULT_COLLAPSED_SECTIONS = UI_CONFIG.DEFAULT_COLLAPSED_SECTIONS || {};
-  const ICON = UI_CONFIG.ICON || {};
+  // ---- Default options for toggle/switch sections ----
+  // These are the built-in options. Users can add custom ones.
+  const DEFAULT_COGNITIVE_OPTIONS = [
+    { key: 'adhd', label: 'ADHD' },
+    { key: 'autism', label: 'Autism' },
+    { key: 'dyslexia', label: 'Dyslexia' },
+    { key: 'dyscalculia', label: 'Dyscalculia' },
+    { key: 'dyspraxia', label: 'Dyspraxia' }
+  ];
+
+  const DEFAULT_COGNITIVE_STYLE_DIMS = [
+    { key: 'thinking', label: 'Guidance Style', left: 'Give me structured outlines', right: 'Let ideas wander' },
+    { key: 'abstraction', label: 'Starting Point', left: 'Start with specifics', right: 'Start with the big picture' },
+    { key: 'focus', label: 'Zoom Level', left: 'Detail-first', right: 'Big picture first' },
+    { key: 'processing', label: 'Threading', left: 'Explain step by step', right: 'I can juggle multiple threads' }
+  ];
+
+  const DEFAULT_COMMUNICATION_OPTIONS = [
+    { key: 'beDirect', label: 'Be direct', desc: 'Don\'t soften or hedge unnecessarily' },
+    { key: 'noSycophancy', label: 'No sycophancy', desc: 'Skip the "great question!" and "absolutely!"' },
+    { key: 'skipPreamble', label: 'Skip preamble', desc: 'Get to the point, skip disclaimers' },
+    { key: 'noEmojis', label: 'No emojis', desc: 'Keep responses text-only' }
+  ];
+
+  const DEFAULT_BEHAVIOR_OPTIONS = [
+    { key: 'holdOwnViews', label: 'Hold your own views' },
+    { key: 'challengeWhenWrong', label: 'Challenge me when I\'m wrong' },
+    { key: 'admitUncertainty', label: 'Admit uncertainty clearly' },
+    { key: 'askClarifyingQuestions', label: 'Ask clarifying questions when ambiguity blocks progress' },
+    { key: 'calibrateTone', label: 'Calibrate emotional tone to context' }
+  ];
+
+  const DEFAULT_WHEN_LOW_OPTIONS = [
+    { key: 'shorterReplies', label: 'Keep replies shorter', desc: 'Reduce output length' },
+    { key: 'dontProbe', label: 'Don\'t probe — let me lead', desc: 'Avoid digging unless invited' },
+    { key: 'silenceProcessing', label: 'Silence often means processing', desc: 'Don\'t assume disengagement' },
+    { key: 'noReframing', label: 'Don\'t reframe or silver-lining', desc: 'Avoid turning negatives into positives' },
+    { key: 'noForcedPositivity', label: 'No forced positivity', desc: 'Skip cheerfulness that isn\'t warranted' },
+    { key: 'justAcknowledge', label: 'Just acknowledge, don\'t fix', desc: 'Sometimes people need to be heard' },
+    { key: 'nameConstraints', label: 'Name constraints honestly', desc: 'Say what you can\'t do instead of deflecting' },
+    { key: 'offerSpace', label: 'Offer space when needed', desc: 'Recognize when to step back' }
+  ];
+
+  const DEFAULT_TECH_STYLE_OPTIONS = [
+    { key: 'avoidOverEngineering', label: 'Avoid over-engineering', desc: 'Keep solutions proportional to the problem' },
+    { key: 'preferSimpleSolutions', label: 'Prefer simple solutions', desc: 'Simplicity over cleverness' },
+    { key: 'explainTradeoffs', label: 'Explain tradeoffs', desc: 'Show what you\'re giving up with each choice' },
+    { key: 'codeCommentsMinimal', label: 'Minimal code comments', desc: 'Code should be self-documenting' },
+    { key: 'suggestTests', label: 'Suggest tests', desc: 'Recommend testing strategies' },
+    { key: 'functionalStyle', label: 'Prefer functional style', desc: 'Favor immutability and pure functions' },
+    { key: 'typeAnnotations', label: 'Include type annotations', desc: 'Add types to code examples' }
+  ];
+
+  const DEFAULT_TRAIT_OPTIONS = [
+    { key: 'warmth', label: 'Warmth', endpoints: ['Clinical', 'Very warm'] },
+    { key: 'directness', label: 'Directness', endpoints: ['Gentle', 'Blunt'] },
+    { key: 'humor', label: 'Humor', endpoints: ['Serious', 'Playful'] },
+    { key: 'formality', label: 'Formality', endpoints: ['Casual', 'Formal'] },
+    { key: 'verbosity', label: 'Verbosity', endpoints: ['Terse', 'Detailed'] },
+    { key: 'curiosity', label: 'Curiosity', endpoints: ['Focused', 'Highly curious'] },
+    { key: 'independence', label: 'Independence', endpoints: ['Deferential', 'Independent'] }
+  ];
+
+  // ---- Presets ----
+  const PRESETS = {
+    technical: {
+      label: 'Technical / Coding',
+      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'projects', 'user-custom'],
+      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'tech-style', 'agent-custom']
+    },
+    research: {
+      label: 'Research / Academic',
+      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'projects', 'user-custom'],
+      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'agent-custom']
+    },
+    personal: {
+      label: 'Personal / Companion',
+      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'user-custom'],
+      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'agent-custom']
+    },
+    custom: {
+      label: 'Custom',
+      userSections: ['identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'],
+      agentSections: ['agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'tech-style', 'agent-custom']
+    }
+  };
+
+  const USER_SECTION_IDS = [
+    'identity', 'about', 'cognitive', 'cogStyle', 'values', 'interests', 'people', 'projects', 'user-custom'
+  ];
+  const AGENT_SECTION_IDS = [
+    'agent-name', 'agent-about', 'communication', 'behaviors', 'when-low', 'autonomy', 'rules', 'traits', 'avoid', 'tech-style', 'agent-custom'
+  ];
+  const DEFAULT_COLLAPSED_SECTIONS = {};
+
+  // ---- Icons (inline SVG, feather style) ----
+  const _i = (d) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  const ICON = {
+    star:     _i('<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>'),
+    edit:     _i('<path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>'),
+    sparkle:  _i('<path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5z"/>'),
+    settings: _i('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>'),
+    scale:    _i('<path d="M16 3l5 5-5 5"/><path d="M21 8H9"/><path d="M8 21l-5-5 5-5"/><path d="M3 16h12"/>'),
+    heart:    _i('<path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>'),
+    users:    _i('<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>'),
+    folder:   _i('<path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>'),
+    code:     _i('<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>'),
+    chat:     _i('<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>'),
+    sliders:  _i('<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>'),
+    check:    _i('<polyline points="20 6 9 17 4 12"/>'),
+    x:        _i('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
+    plus:     _i('<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>'),
+    ban:      _i('<circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>'),
+    circle:   _i('<circle cx="12" cy="12" r="10"/>'),
+    penTool:  _i('<path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/>'),
+    fileText: _i('<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>'),
+    file:     _i('<path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/>'),
+    search:   _i('<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>'),
+    alert:    _i('<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>'),
+    moon:     _i('<path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>'),
+    sun:      _i('<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'),
+    book:     _i('<path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>'),
+    user:     _i('<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>'),
+    link:     _i('<path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>'),
+    plug:     _i('<path d="M12 2v6"/><path d="M6 8h12"/><path d="M8 8v4a4 4 0 008 0V8"/><path d="M12 16v6"/>'),
+    compass:  _i('<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>'),
+    chevDown: _i('<polyline points="6 9 12 15 18 9"/>'),
+    grip:     _i('<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>'),
+    upload:   _i('<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
+    clipboard:_i('<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>'),
+  };
 
   // ---- Materiality: Content Density ----
   function getSectionDensity(sectionId) {
@@ -2367,6 +2484,16 @@
       ns.expandedIdx = idx;
       card.classList.add('expanded');
     });
+    if (!container.dataset.notesOutsideCloseBound) {
+      container.addEventListener('click', (event) => {
+        if (ns.expandedIdx === null) return;
+        if (event.target.closest('.note-card')) return;
+        ns.expandedIdx = null;
+        const expanded = container.querySelector('.note-card.expanded');
+        if (expanded) expanded.classList.remove('expanded');
+      });
+      container.dataset.notesOutsideCloseBound = 'true';
+    }
 
     bindAll(container, '.notes-load-more-btn', 'click', async (_event, loadMoreBtn) => {
       loadMoreBtn.textContent = 'Loading\u2026';
@@ -2988,6 +3115,15 @@
       if (e.target.closest('.file-card-actions') || e.target.closest('.file-depth-info')) return;
       await toggleSemanticFilePreview(container, card);
     });
+    if (!container.dataset.semanticOutsideCloseBound) {
+      container.addEventListener('click', (event) => {
+        const openCard = container.querySelector('.file-card.expanded');
+        if (!openCard) return;
+        if (event.target.closest('.file-card')) return;
+        openCard.classList.remove('expanded');
+      });
+      container.dataset.semanticOutsideCloseBound = 'true';
+    }
   }
 
   function bindDeepMemoryEvents(container) {
