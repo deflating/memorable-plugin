@@ -13,7 +13,6 @@ from server_api import (
     handle_get_files,
     handle_get_file_levels,
     handle_get_health,
-    handle_get_observations,
     handle_get_metrics,
     handle_get_machines,
     handle_get_notes,
@@ -220,10 +219,6 @@ class MemorableHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/health":
             status, data = handle_get_health()
-            return self.send_json(status, data)
-
-        if path == "/api/observations":
-            status, data = handle_get_observations()
             return self.send_json(status, data)
 
         if path == "/api/deep/files":

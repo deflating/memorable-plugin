@@ -1576,23 +1576,6 @@ def handle_get_metrics():
 
 
 
-def handle_get_observations():
-    """GET /api/observations — return live extraction observations."""
-    obs_file = DATA_DIR / "stream" / "observations.jsonl"
-    observations = []
-    if obs_file.exists():
-        for line in obs_file.read_text().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                observations.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    # Sort newest first
-    observations.sort(key=lambda o: o.get("ts", ""), reverse=True)
-    return 200, {"observations": observations, "count": len(observations)}
-
 
 def handle_get_health():
     """GET /api/health — basic runtime and storage health information."""

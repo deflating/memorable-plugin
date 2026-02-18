@@ -2617,149 +2617,40 @@
       return;
     }
 
-    const workingView = state.workingView || 'now';
-
     container.innerHTML = `
-      <div class="memories-sub-tabs" style="margin-bottom:16px;">
-        <button class="memories-sub-tab working-toggle-btn ${workingView === 'now' ? 'active' : ''}" data-view="now">now.md</button>
-        <button class="memories-sub-tab working-toggle-btn ${workingView === 'observations' ? 'active' : ''}" data-view="observations">Observations</button>
+      <div class="working-memory-card">
+        <div class="working-memory-header">
+          <span class="working-memory-label">now.md</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="working-memory-hint">Auto-generated from session notes</span>
+            <button class="btn btn-small" id="regenerate-summary-btn" title="Regenerate from last 5 days of notes">${ICON.refresh} Regenerate</button>
+          </div>
+        </div>
+        <div class="working-memory-content">${markdownToHtml(nowContent)}</div>
       </div>
-      <div id="working-view-content"></div>
     `;
 
-    // Bind toggle
-    container.querySelectorAll('.working-toggle-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        state.workingView = btn.dataset.view;
-        renderWorkingMemory(container);
-      });
-    });
-
-    const viewContent = container.querySelector('#working-view-content');
-
-    if (workingView === 'now') {
-      viewContent.innerHTML = `
-        <div class="working-memory-card">
-          <div class="working-memory-header">
-            <span class="working-memory-label">now.md</span>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span class="working-memory-hint">Auto-generated from session notes</span>
-              <button class="btn btn-small" id="regenerate-summary-btn" title="Regenerate from last 5 days of notes">${ICON.refresh} Regenerate</button>
-            </div>
-          </div>
-          <div class="working-memory-content">${markdownToHtml(nowContent)}</div>
-        </div>
-      `;
-
-      const regenBtn = viewContent.querySelector('#regenerate-summary-btn');
-      if (regenBtn) {
-        regenBtn.addEventListener('click', async () => {
-          regenBtn.disabled = true;
-          regenBtn.textContent = 'Regenerating...';
-          try {
-            const resp = await fetch('/api/regenerate-summary', { method: 'POST' });
-            if (resp.ok) {
-              renderWorkingMemory(container);
-            } else {
-              regenBtn.textContent = 'Failed — retry?';
-              regenBtn.disabled = false;
-            }
-          } catch (e) {
+    const regenBtn = container.querySelector('#regenerate-summary-btn');
+    if (regenBtn) {
+      regenBtn.addEventListener('click', async () => {
+        regenBtn.disabled = true;
+        regenBtn.textContent = 'Regenerating...';
+        try {
+          const resp = await fetch('/api/regenerate-summary', { method: 'POST' });
+          if (resp.ok) {
+            renderWorkingMemory(container);
+          } else {
             regenBtn.textContent = 'Failed — retry?';
             regenBtn.disabled = false;
           }
-        });
-      }
-    } else {
-      renderObservationsInline(viewContent);
+        } catch (e) {
+          regenBtn.textContent = 'Failed — retry?';
+          regenBtn.disabled = false;
+        }
+      });
     }
   }
 
-  async function renderObservationsInline(container) {
-    container.innerHTML = '<div style="padding:12px 0;color:var(--text-muted);font-size:0.9em;">Loading observations...</div>';
-
-    const data = await apiFetch('/api/observations');
-    if (!data || !data.observations || data.observations.length === 0) {
-      container.innerHTML = `
-        <div style="padding:16px 0;color:var(--text-muted);font-size:0.9em;">
-          No observations yet. Facts are extracted every 15 messages during active sessions.
-        </div>
-      `;
-      return;
-    }
-
-    const typeColors = {
-      fact: '#5a8a5a',
-      decision: '#7a6a3a',
-      mood: '#8a5a5a',
-      preference: '#5a6a8a',
-      rejection: '#8a5a7a',
-      open_thread: '#6a5a8a',
-    };
-
-    const typeIcons = {
-      fact: '📌',
-      decision: '⚖️',
-      mood: '🌡️',
-      preference: '⭐',
-      rejection: '🚫',
-      open_thread: '🧵',
-    };
-
-    // Group by day
-    const byDay = {};
-    for (const obs of data.observations) {
-      const ts = obs.ts || '';
-      const dayKey = ts ? new Date(ts).toLocaleDateString('en-AU', { weekday: 'long', month: 'short', day: 'numeric' }) : 'Unknown';
-      if (!byDay[dayKey]) byDay[dayKey] = [];
-      byDay[dayKey].push(obs);
-    }
-
-    const dayKeys = Object.keys(byDay);
-
-    let html = `
-      <div style="color:var(--text-muted);font-size:0.85em;padding-bottom:12px;">${data.count} observations across ${dayKeys.length} day(s)</div>
-    `;
-
-    dayKeys.forEach((day, idx) => {
-      const observations = byDay[day];
-      const isFirst = idx === 0;
-
-      html += `
-        <details class="obs-day-group" style="margin-bottom:8px;border:1px solid var(--border-light, #e8e2d8);border-radius:8px;overflow:hidden;" ${isFirst ? 'open' : ''}>
-          <summary style="padding:10px 14px;cursor:pointer;font-weight:600;font-size:0.9em;color:var(--text-primary);background:var(--surface-elevated, #faf8f5);user-select:none;display:flex;justify-content:space-between;align-items:center;">
-            <span>${esc(day)}</span>
-            <span style="font-weight:400;font-size:0.85em;color:var(--text-muted);">${observations.length} observation${observations.length !== 1 ? 's' : ''}</span>
-          </summary>
-          <div style="padding:8px;">
-      `;
-
-      for (const obs of observations) {
-        const type = obs.type || 'fact';
-        const icon = typeIcons[type] || '📝';
-        const color = typeColors[type] || '#666';
-        const importance = obs.importance || 3;
-        const dots = '●'.repeat(Math.min(importance, 5)) + '○'.repeat(Math.max(0, 5 - importance));
-
-        html += `
-          <div style="display:flex;gap:12px;padding:8px 10px;margin-bottom:4px;border-radius:6px;">
-            <div style="font-size:1.1em;flex-shrink:0;">${icon}</div>
-            <div style="flex:1;min-width:0;">
-              <div style="font-size:0.92em;line-height:1.5;color:var(--text-primary);">${esc(obs.content || '')}</div>
-              <div style="display:flex;gap:12px;margin-top:4px;font-size:0.78em;color:var(--text-muted);">
-                <span style="background:${color}22;color:${color};padding:1px 7px;border-radius:4px;font-weight:500;">${esc(type)}</span>
-                <span title="Importance: ${importance}/5" style="letter-spacing:1px;font-size:0.85em;">${dots}</span>
-              </div>
-            </div>
-          </div>
-        `;
-      }
-
-      html += `</div></details>`;
-    });
-
-    container.innerHTML = html;
-  }
 
   async function renderSemanticMemory(container) {
     container.innerHTML = '<div style="padding:20px;color:var(--text-muted);">Loading files...</div>';
