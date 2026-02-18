@@ -2620,9 +2620,9 @@
     const workingView = state.workingView || 'now';
 
     container.innerHTML = `
-      <div class="working-toggle" style="display:flex;gap:0;margin-bottom:16px;border:1px solid var(--border-light, #e8e2d8);border-radius:8px;overflow:hidden;width:fit-content;">
-        <button class="working-toggle-btn" data-view="now" style="padding:6px 16px;font-size:0.9em;border:none;cursor:pointer;background:${workingView === 'now' ? 'var(--accent, #6b5b3e)' : 'transparent'};color:${workingView === 'now' ? '#fff' : 'var(--text-secondary)'};">now.md</button>
-        <button class="working-toggle-btn" data-view="observations" style="padding:6px 16px;font-size:0.9em;border:none;border-left:1px solid var(--border-light, #e8e2d8);cursor:pointer;background:${workingView === 'observations' ? 'var(--accent, #6b5b3e)' : 'transparent'};color:${workingView === 'observations' ? '#fff' : 'var(--text-secondary)'};">Observations</button>
+      <div class="memories-sub-tabs" style="margin-bottom:16px;">
+        <button class="memories-sub-tab working-toggle-btn ${workingView === 'now' ? 'active' : ''}" data-view="now">now.md</button>
+        <button class="memories-sub-tab working-toggle-btn ${workingView === 'observations' ? 'active' : ''}" data-view="observations">Observations</button>
       </div>
       <div id="working-view-content"></div>
     `;
