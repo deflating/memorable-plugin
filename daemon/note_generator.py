@@ -903,11 +903,13 @@ def generate_note(session_id: str, transcript_path: str, machine_id: str = None)
                         lines.append(line)
                         continue
                     if existing.get("session") == session_id:
-                        # Replace with updated entry, preserve original salience boosts
-                        entry["salience"] = max(entry["salience"], existing.get("salience", 1.0))
-                        entry["reference_count"] = existing.get("reference_count", 0)
-                        lines.append(json.dumps(entry))
-                        replaced = True
+                        if not replaced:
+                            # Replace first occurrence, preserve original salience boosts
+                            entry["salience"] = max(entry["salience"], existing.get("salience", 1.0))
+                            entry["reference_count"] = existing.get("reference_count", 0)
+                            lines.append(json.dumps(entry))
+                            replaced = True
+                        # Skip any additional entries for the same session (dedup)
                     else:
                         lines.append(line)
             if replaced:

@@ -2516,10 +2516,6 @@
         label: 'Working',
         helper: 'Your current rolling context — what\'s on your mind right now.',
       },
-      observations: {
-        label: 'Observations',
-        helper: 'Live facts extracted every 15 messages by background Haiku agent.',
-      },
       semantic: {
         label: 'Semantic',
         helper: 'Long-lived knowledge documents with configurable zoom levels.',
@@ -2536,7 +2532,6 @@
       <div class="memories-sub-tabs">
         <button class="memories-sub-tab ${subTab === 'episodic' ? 'active' : ''}" data-subtab="episodic">Episodic</button>
         <button class="memories-sub-tab ${subTab === 'working' ? 'active' : ''}" data-subtab="working">Working</button>
-        <button class="memories-sub-tab ${subTab === 'observations' ? 'active' : ''}" data-subtab="observations">Observations</button>
         <button class="memories-sub-tab ${subTab === 'semantic' ? 'active' : ''}" data-subtab="semantic">Semantic</button>
         <button class="memories-sub-tab ${subTab === 'deep' ? 'active' : ''}" data-subtab="deep">Deep</button>
       </div>
@@ -2572,9 +2567,6 @@
         break;
       case 'working':
         renderWorkingMemory(contentEl);
-        break;
-      case 'observations':
-        renderObservations(contentEl);
         break;
       case 'semantic':
         renderSemanticMemory(contentEl);
@@ -2634,6 +2626,9 @@
         </div>
         <div class="working-memory-content">${markdownToHtml(nowContent)}</div>
       </div>
+      <div id="observations-section" style="margin-top:24px;">
+        <div style="padding:12px 0;color:var(--text-muted);font-size:0.9em;">Loading observations...</div>
+      </div>
     `;
 
     const regenBtn = container.querySelector('#regenerate-summary-btn');
@@ -2655,29 +2650,18 @@
         }
       });
     }
+
+    // Load observations into the section below now.md
+    const obsSection = container.querySelector('#observations-section');
+    renderObservationsInline(obsSection);
   }
 
-  async function renderObservations(container) {
-    container.innerHTML = '<div style="padding:20px;color:var(--text-muted);">Loading observations...</div>';
-
+  async function renderObservationsInline(container) {
     const data = await apiFetch('/api/observations');
-    if (!data || !data.observations) {
+    if (!data || !data.observations || data.observations.length === 0) {
       container.innerHTML = `
-        <div class="notes-empty">
-          <div class="notes-empty-icon">${ICON.clipboard}</div>
-          <h3>Could not load observations</h3>
-          <p>Make sure the local server is running.</p>
-        </div>
-      `;
-      return;
-    }
-
-    if (data.observations.length === 0) {
-      container.innerHTML = `
-        <div class="notes-empty">
-          <div class="notes-empty-icon">${ICON.clipboard}</div>
-          <h3>No observations yet</h3>
-          <p>Observations are extracted every 15 messages during active sessions.</p>
+        <div style="padding:16px 0;color:var(--text-muted);font-size:0.9em;">
+          <strong>Observations</strong> — None yet. Facts are extracted every 15 messages during active sessions.
         </div>
       `;
       return;
@@ -2709,7 +2693,12 @@
       bySession[sid].push(obs);
     }
 
-    let html = `<div class="observations-summary" style="padding:8px 0 16px;color:var(--text-muted);font-size:0.9em;">${data.count} observations across ${Object.keys(bySession).length} session(s)</div>`;
+    let html = `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0 12px;">
+        <strong style="font-size:1em;color:var(--text-primary);">Observations</strong>
+        <span style="color:var(--text-muted);font-size:0.85em;">${data.count} across ${Object.keys(bySession).length} session(s)</span>
+      </div>
+    `;
 
     for (const [sid, observations] of Object.entries(bySession)) {
       const firstTs = observations[observations.length - 1]?.ts;
