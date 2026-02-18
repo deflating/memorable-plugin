@@ -712,21 +712,26 @@ A day-by-day summary (most recent first). For each day, cover whatever was discu
 Anyone mentioned and their context (max 8, one line each). Include enough detail to be useful (role, relationship, what's happening with them).
 
 ## Recent Decisions
-Important choices made — personal AND technical. Format: "Chose X over Y — reason." Max 8.
+Important choices made — personal AND technical. Format: "Chose X over Y — reason." Include ALL decisions from the session notes, not just the ones that seem most important. If someone decided something, it goes here. No maximum.
+
+## Rejections
+Things that were tried, considered, or proposed and then abandoned or rejected. Format: "Tried/Considered X — rejected because Y." These are as important as decisions — they prevent future sessions from re-exploring dead ends. No maximum.
 
 ## Open Threads
-Things left unresolved or explicitly marked for later — life decisions, project work, anything pending. Max 10.
+Things left unresolved or explicitly marked for later — life decisions, project work, anything pending. Be EXHAUSTIVE. If a session note mentions something unfinished, blocked, or "we'll come back to this," it MUST appear here. This is the most important section — nothing gets dropped. No maximum.
 
 ## Mood
 How the user has been feeling across recent sessions. Quote their actual words where possible. Be honest and specific, not sanitised. If they're struggling, say so clearly.
 
 Rules:
-- Keep the whole document under 3000 words.
+- Keep the whole document under 4000 words. Err on the side of including too much rather than too little.
 - Personal context (mood, life events, decisions, relationships, health) is EQUALLY important to technical context. If the user is going through something significant in their life, that should be prominent — not buried or omitted.
 - Be concrete and specific, not vague.
+- COMPLETENESS IS CRITICAL: Every open thread, every decision, every rejection from the session notes MUST be represented. If you're unsure whether to include something, INCLUDE IT. The cost of forgetting something far exceeds the cost of being slightly too long.
 - Prioritise the most recent session heavily — that's the freshest context.
 - Use the user's actual words where possible, especially about how they're feeling.
 - Don't include session timestamps or machine names.
+- Include technical details: file paths, tool names, version numbers, config values. These matter for future sessions.
 """
 
 
