@@ -517,12 +517,22 @@ def parse_meta(raw_response: str) -> tuple[str, list[str], float]:
 DECAY_FACTOR = 0.97  # per-day decay (~0.4 after 30 days, ~0.16 after 60)
 MIN_SALIENCE = 0.05
 REINFORCEMENT_BOOST = 0.3  # added to salience when a topic recurs
+SPACING_EFFECT_FACTOR = 0.004  # each access slows decay by this much (capped)
+SPACING_EFFECT_CAP = 0.03  # max decay slowdown from repeated access
 
 
 def effective_salience(entry: dict) -> float:
-    """Calculate effective salience for a note entry."""
+    """Calculate effective salience for a note entry.
+
+    Uses an enhanced forgetting curve with:
+    - Emotional weight as decay resistance
+    - Spacing effect: frequently accessed notes decay slower
+    - Novelty score bonus (if present)
+    """
     salience = entry.get("salience", 1.0)
     emotional_weight = entry.get("emotional_weight", 0.3)
+    reference_count = entry.get("reference_count", 0)
+    novelty_score = entry.get("novelty_score", 0.0)
 
     last_ref = entry.get("last_referenced", entry.get("ts", ""))
     try:
@@ -536,8 +546,90 @@ def effective_salience(entry: dict) -> float:
 
     # Emotional weight acts as decay resistance: higher weight = slower decay
     adjusted_days = days * (1.0 - emotional_weight * 0.5)
-    decayed = salience * (DECAY_FACTOR ** adjusted_days)
+
+    # Spacing effect: frequently accessed memories decay slower
+    spacing_bonus = min(SPACING_EFFECT_CAP, reference_count * SPACING_EFFECT_FACTOR)
+    decay_rate = DECAY_FACTOR + spacing_bonus  # e.g. 0.97 -> 0.99 max
+
+    decayed = salience * (decay_rate ** adjusted_days)
+
+    # Novelty bonus: novel information gets a small persistent boost
+    if novelty_score > 0:
+        decayed += novelty_score * 0.15
+
     return max(MIN_SALIENCE, decayed)
+
+
+def compute_novelty_score(notes_dir: Path, new_tags: list[str], note_text: str) -> float:
+    """Score how novel a new note is compared to the existing corpus.
+
+    Returns 0.0 (completely redundant) to 1.0 (entirely new information).
+    Based on:
+    - Tag overlap with existing recent notes (fewer shared tags = more novel)
+    - Simple content similarity check via word overlap
+    """
+    if not new_tags and not note_text:
+        return 0.5  # neutral if we can't assess
+
+    existing_tags: dict[str, int] = {}
+    existing_words: set[str] = set()
+    note_count = 0
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
+    for jsonl_file in notes_dir.glob("*.jsonl"):
+        if "sync-conflict" in jsonl_file.name:
+            continue
+        try:
+            with open(jsonl_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    # Only compare against recent notes
+                    ts = entry.get("ts", "")
+                    try:
+                        ts_clean = str(ts).replace("Z", "+00:00")
+                        dt = datetime.fromisoformat(ts_clean)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        if dt < cutoff:
+                            continue
+                    except (ValueError, TypeError):
+                        continue
+                    note_count += 1
+                    for tag in entry.get("topic_tags", []):
+                        existing_tags[tag] = existing_tags.get(tag, 0) + 1
+                    # Sample words from existing notes for content overlap
+                    existing_note = entry.get("note", "")
+                    if existing_note:
+                        words = set(re.findall(r'[a-z]{3,}', existing_note.lower()))
+                        existing_words.update(words)
+        except OSError:
+            continue
+
+    if note_count == 0:
+        return 1.0  # first note is maximally novel
+
+    # Tag novelty: what fraction of new tags are unseen or rare?
+    tag_novelty = 0.0
+    if new_tags:
+        novel_tags = sum(1 for t in new_tags if existing_tags.get(t, 0) <= 1)
+        tag_novelty = novel_tags / len(new_tags)
+
+    # Content novelty: what fraction of significant words are new?
+    content_novelty = 0.5  # default
+    if note_text and existing_words:
+        new_words = set(re.findall(r'[a-z]{3,}', note_text.lower()))
+        if new_words:
+            novel_words = new_words - existing_words
+            content_novelty = len(novel_words) / len(new_words)
+
+    # Weighted combination: tags matter more for topic-level novelty
+    return min(1.0, (tag_novelty * 0.6) + (content_novelty * 0.4))
 
 
 def update_salience_on_new_note(notes_dir: Path, new_tags: list[str], new_session: str):
@@ -549,6 +641,8 @@ def update_salience_on_new_note(notes_dir: Path, new_tags: list[str], new_sessio
     now_iso = datetime.now(timezone.utc).isoformat()
 
     for jsonl_file in notes_dir.glob("*.jsonl"):
+        if "sync-conflict" in jsonl_file.name:
+            continue
         lines = []
         modified = False
         try:
@@ -642,6 +736,8 @@ def generate_rolling_summary(cfg: dict, notes_dir: Path):
     entries = []
 
     for jsonl_file in notes_dir.glob("*.jsonl"):
+        if "sync-conflict" in jsonl_file.name:
+            continue
         try:
             with open(jsonl_file) as f:
                 for line in f:
@@ -763,6 +859,13 @@ def generate_note(session_id: str, transcript_path: str, machine_id: str = None)
     # not when the daemon got around to summarising it.
     session_ts = parsed.get("first_ts") or now_iso
 
+    # Compute novelty score against existing corpus
+    novelty_score = 0.5  # default
+    try:
+        novelty_score = compute_novelty_score(notes_dir, topic_tags, note_text)
+    except Exception as e:
+        log_error(f"Novelty scoring failed (non-fatal): {e}")
+
     # Build the full entry with salience metadata
     entry = {
         "ts": session_ts,
@@ -774,6 +877,7 @@ def generate_note(session_id: str, transcript_path: str, machine_id: str = None)
         "note": note_text,
         "salience": 1.0,
         "emotional_weight": emotional_weight,
+        "novelty_score": novelty_score,
         "topic_tags": topic_tags,
         "last_referenced": now_iso,
         "reference_count": 0,
@@ -814,13 +918,42 @@ def generate_note(session_id: str, transcript_path: str, machine_id: str = None)
             replaced = False
 
     if not replaced:
-        with open(notes_file, "a") as f:
-            f.write(json.dumps(entry) + "\n")
+        # Check for duplicate note text before appending
+        note_text = entry.get("note", "")
+        dupe_text = False
+        if notes_file.exists() and note_text:
+            try:
+                with open(notes_file) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            existing = json.loads(line)
+                            if existing.get("note", "") == note_text:
+                                dupe_text = True
+                                logger.info("Skipping duplicate note text for session %s", session_id)
+                                break
+                        except json.JSONDecodeError:
+                            continue
+            except OSError:
+                pass
+        if not dupe_text:
+            with open(notes_file, "a") as f:
+                f.write(json.dumps(entry) + "\n")
 
     logger.info("Note written for session %s (%d msgs, tags=%s, ew=%.1f)",
                 session_id, parsed["message_count"], topic_tags, emotional_weight)
     log_error(f"SUCCESS: Note written for session {session_id} "
               f"({parsed['message_count']} msgs, tags={topic_tags}, ew={emotional_weight})")
+
+    # Clean up any sync-conflict files in notes directory
+    try:
+        for conflict_file in notes_dir.glob("*.sync-conflict-*.jsonl"):
+            conflict_file.unlink()
+            logger.info("Removed sync-conflict file: %s", conflict_file.name)
+    except Exception as e:
+        logger.warning("Sync-conflict cleanup failed (non-fatal): %s", e)
 
     # Boost salience of related existing notes
     try:

@@ -48,11 +48,12 @@ def sanitize_filename(filename: str) -> str:
 
 
 def core_seed_paths() -> list[str]:
-    paths = []
-    for name in ("user.md", "agent.md", "now.md", "knowledge.md"):
-        path = SEEDS_DIR / name
-        if path.is_file():
-            paths.append(str(path))
+    if not SEEDS_DIR.is_dir():
+        return []
+    paths = sorted(
+        str(p) for p in SEEDS_DIR.glob("*.md")
+        if p.is_file() and not p.name.startswith(".") and ".sync-conflict" not in p.name
+    )
     return paths
 
 
@@ -392,6 +393,62 @@ def print_selected_notes_section():
     print(f"To read a note: grep {notes_dir}/ for its session ID. To search by topic: grep by keyword.")
 
 
+def print_observation_stream():
+    """Load recent observations from live extraction stream."""
+    obs_file = DATA_DIR / "stream" / "observations.jsonl"
+    if not obs_file.exists():
+        return
+
+    # Prune entries older than 5 days
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+
+    observations = []
+    kept_lines = []
+    try:
+        with open(obs_file) as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                    if entry.get("ts", "") >= cutoff:
+                        kept_lines.append(line)
+                        observations.append(entry)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+        # Write back pruned file
+        obs_file.write_text("".join(kept_lines))
+    except Exception:
+        return
+
+    if not observations:
+        return
+
+    # Group by type and show
+    by_type = {}
+    for obs in observations:
+        t = obs.get("type", "fact")
+        by_type.setdefault(t, []).append(obs)
+
+    type_labels = {
+        "fact": "Facts", "decision": "Decisions", "rejection": "Rejections",
+        "preference": "Preferences", "open_thread": "Open Threads",
+        "person": "People", "mood": "Mood",
+    }
+
+    lines = [f"\n[Memorable] Live observations (last 5 days, {len(observations)} total):"]
+    for t in ["decision", "fact", "open_thread", "preference", "person", "rejection", "mood"]:
+        items = by_type.get(t, [])
+        if items:
+            # Show most recent, highest importance first
+            items.sort(key=lambda x: (-x.get("importance", 3), x.get("ts", "")))
+            lines.append(f"  {type_labels.get(t, t)}:")
+            for item in items[:5]:
+                ts_short = item.get("ts", "")[:10]
+                lines.append(f"    - [{ts_short}] {item['content']}")
+
+    print("\n".join(lines))
+
+
 def print_memorable_search_hint():
     print("\n[Memorable] To search past sessions and observations, use the `memorable_search` MCP tool or the /memorable-search skill.")
     print("Use this when the user references past conversations, asks \"do you remember...\", or when you need historical context.")
@@ -417,6 +474,7 @@ def main():
             return
         print_context_instructions(plan, is_compact)
         print_selected_notes_section()
+        print_observation_stream()
         print_memorable_search_hint()
     except Exception as error:
         log_session_start_error(error)

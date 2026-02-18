@@ -31,8 +31,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/user_prompt.py",
-            "timeout": 5
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/live_extraction.py",
+            "timeout": 3
           }
         ]
       }

@@ -15,6 +15,8 @@ MIN_SALIENCE = 0.05
 MAX_SALIENT_NOTES = 8
 RECENCY_CEILING = 3
 PINNED_SALIENCE_BOOST = 0.8
+SPACING_EFFECT_FACTOR = 0.004  # each access slows decay
+SPACING_EFFECT_CAP = 0.03  # max decay slowdown from access
 CURRENT_MACHINE = platform.node().split(".")[0].strip().lower()
 TAG_GRAPH_PATH = DATA_DIR / "tag_graph.json"
 MAX_ACTIVATION_HOPS = 2
@@ -331,9 +333,21 @@ def effective_salience(entry: dict, usage_notes: dict | None = None) -> float:
         return MIN_SALIENCE
     salience = parse_float(entry.get("salience", 1.0), 1.0)
     emotional_weight = entry_emotional_weight(entry)
+    reference_count = int(entry.get("reference_count", 0))
+    novelty_score = parse_float(entry.get("novelty_score", 0.0), 0.0)
     days = entry_age_days(entry)
     adjusted_days = days * (1.0 - emotional_weight * 0.5)
-    decayed = salience * (DECAY_FACTOR ** adjusted_days)
+
+    # Spacing effect: frequently accessed memories decay slower
+    spacing_bonus = min(SPACING_EFFECT_CAP, reference_count * SPACING_EFFECT_FACTOR)
+    decay_rate = DECAY_FACTOR + spacing_bonus
+
+    decayed = salience * (decay_rate ** adjusted_days)
+
+    # Novelty bonus: novel information gets a persistent boost
+    if novelty_score > 0:
+        decayed += novelty_score * 0.15
+
     if bool(entry.get("pinned", False)):
         decayed += PINNED_SALIENCE_BOOST
     base = max(MIN_SALIENCE, decayed)

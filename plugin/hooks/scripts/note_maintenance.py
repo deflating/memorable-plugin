@@ -6,6 +6,7 @@ from pathlib import Path
 
 from knowledge_builder import update_knowledge_seed
 from note_archive import archive_low_salience_notes
+from note_consolidation import run_consolidation
 from note_constants import ARCHIVE_AFTER_DAYS, ARCHIVE_DIRNAME, MAINTENANCE_INTERVAL_HOURS
 from note_store import load_all_notes, load_note_maintenance_state, save_note_maintenance_state
 from note_synthesis import create_missing_monthly_syntheses, create_missing_weekly_syntheses
@@ -21,15 +22,42 @@ __all__ = [
 ]
 
 
+def _get_config() -> dict:
+    """Load Memorable config for LLM access during consolidation."""
+    import json
+    config_path = Path.home() / ".memorable" / "data" / "config.json"
+    try:
+        if config_path.exists():
+            return json.loads(config_path.read_text())
+    except Exception:
+        pass
+    return {}
+
+
 def run_maintenance_cycle(notes_dir: Path, entries: list[dict], now: datetime):
+    # Step 1: LLM-based consolidation of fading notes (before archival)
+    consolidated = 0
+    try:
+        cfg = _get_config()
+        consolidated = run_consolidation(notes_dir, cfg)
+        if consolidated:
+            entries = load_all_notes(notes_dir)
+    except Exception:
+        pass  # non-fatal — consolidation is best-effort
+
+    # Step 2: Archive notes that have decayed below threshold
     archived = archive_low_salience_notes(notes_dir, now)
     entries = load_all_notes(notes_dir)
+
+    # Step 3: Template-based weekly/monthly synthesis
     weekly_created = create_missing_weekly_syntheses(entries, now)
     if weekly_created:
         entries = load_all_notes(notes_dir)
     monthly_created = create_missing_monthly_syntheses(entries, now)
     if monthly_created:
         entries = load_all_notes(notes_dir)
+
+    # Step 4: Update knowledge seed
     knowledge_facts = update_knowledge_seed(entries, now)
     return entries, archived, weekly_created, monthly_created, knowledge_facts
 
@@ -59,7 +87,7 @@ def run_hierarchical_consolidation(notes_dir: Path, entries: list[dict]) -> list
 
     if archived or weekly_created or monthly_created or knowledge_facts:
         print(
-            f"\n[Memorable] Note consolidation: archived={archived}, "
+            f"\n[Memorable] Maintenance: archived={archived}, "
             f"weekly={weekly_created}, monthly={monthly_created}, "
             f"knowledge_facts={knowledge_facts}."
         )
