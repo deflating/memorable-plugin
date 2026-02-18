@@ -135,6 +135,8 @@
     grip:     _i('<circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>'),
     upload:   _i('<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>'),
     clipboard:_i('<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>'),
+    refresh:  _i('<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>'),
+    globe:    _i('<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>'),
   };
 
   // ---- Materiality: Content Density ----
@@ -683,9 +685,9 @@
         if (u.identity.age) details.push(`**Age:** ${u.identity.age}`);
         if (u.identity.location) details.push(`**Location:** ${u.identity.location}`);
         if (u.identity.pronouns) details.push(`**Pronouns:** ${u.identity.pronouns}`);
-        if (u.identity.language) {
+        if (u.identity.language && u.identity.language !== 'undefined') {
           let lang = u.identity.language;
-          if (u.identity.dialect) lang += ` (${u.identity.dialect})`;
+          if (u.identity.dialect && u.identity.dialect !== 'undefined') lang += ` (${u.identity.dialect})`;
           details.push(`**Language:** ${lang}`);
         }
         if (u.identity.timezone) {
@@ -944,7 +946,7 @@
           u.identity.language = dialectMatch[1].trim();
           u.identity.dialect = dialectMatch[2].trim();
         } else {
-          u.identity.language = langStr;
+          u.identity.language = langStr === 'undefined' ? '' : langStr;
         }
       }
       const tzMatch = intro.match(/\*\*Timezone:\*\*\s*([^|*\n]+)/);

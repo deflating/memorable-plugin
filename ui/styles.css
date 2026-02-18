@@ -1684,9 +1684,10 @@ p { color: var(--text-secondary); }
 }
 
 .notes-device-tab.active {
-  background: var(--dark);
-  color: var(--cream);
-  border-color: var(--dark);
+  border-color: var(--terracotta);
+  color: var(--terracotta-dark);
+  background: var(--terracotta-muted);
+  font-weight: 600;
 }
 
 /* Filter dropdowns */
