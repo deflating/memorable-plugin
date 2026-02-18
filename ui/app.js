@@ -2516,6 +2516,10 @@
         label: 'Working',
         helper: 'Your current rolling context — what\'s on your mind right now.',
       },
+      observations: {
+        label: 'Observations',
+        helper: 'Live facts extracted every 15 messages by background Haiku agent.',
+      },
       semantic: {
         label: 'Semantic',
         helper: 'Long-lived knowledge documents with configurable zoom levels.',
@@ -2532,6 +2536,7 @@
       <div class="memories-sub-tabs">
         <button class="memories-sub-tab ${subTab === 'episodic' ? 'active' : ''}" data-subtab="episodic">Episodic</button>
         <button class="memories-sub-tab ${subTab === 'working' ? 'active' : ''}" data-subtab="working">Working</button>
+        <button class="memories-sub-tab ${subTab === 'observations' ? 'active' : ''}" data-subtab="observations">Observations</button>
         <button class="memories-sub-tab ${subTab === 'semantic' ? 'active' : ''}" data-subtab="semantic">Semantic</button>
         <button class="memories-sub-tab ${subTab === 'deep' ? 'active' : ''}" data-subtab="deep">Deep</button>
       </div>
@@ -2567,6 +2572,9 @@
         break;
       case 'working':
         renderWorkingMemory(contentEl);
+        break;
+      case 'observations':
+        renderObservations(contentEl);
         break;
       case 'semantic':
         renderSemanticMemory(contentEl);
@@ -2647,6 +2655,94 @@
         }
       });
     }
+  }
+
+  async function renderObservations(container) {
+    container.innerHTML = '<div style="padding:20px;color:var(--text-muted);">Loading observations...</div>';
+
+    const data = await apiFetch('/api/observations');
+    if (!data || !data.observations) {
+      container.innerHTML = `
+        <div class="notes-empty">
+          <div class="notes-empty-icon">${ICON.clipboard}</div>
+          <h3>Could not load observations</h3>
+          <p>Make sure the local server is running.</p>
+        </div>
+      `;
+      return;
+    }
+
+    if (data.observations.length === 0) {
+      container.innerHTML = `
+        <div class="notes-empty">
+          <div class="notes-empty-icon">${ICON.clipboard}</div>
+          <h3>No observations yet</h3>
+          <p>Observations are extracted every 15 messages during active sessions.</p>
+        </div>
+      `;
+      return;
+    }
+
+    const typeColors = {
+      fact: '#5a8a5a',
+      decision: '#7a6a3a',
+      mood: '#8a5a5a',
+      preference: '#5a6a8a',
+      rejection: '#8a5a7a',
+      open_thread: '#6a5a8a',
+    };
+
+    const typeIcons = {
+      fact: '📌',
+      decision: '⚖️',
+      mood: '🌡️',
+      preference: '⭐',
+      rejection: '🚫',
+      open_thread: '🧵',
+    };
+
+    // Group by session
+    const bySession = {};
+    for (const obs of data.observations) {
+      const sid = (obs.session || 'unknown').slice(0, 8);
+      if (!bySession[sid]) bySession[sid] = [];
+      bySession[sid].push(obs);
+    }
+
+    let html = `<div class="observations-summary" style="padding:8px 0 16px;color:var(--text-muted);font-size:0.9em;">${data.count} observations across ${Object.keys(bySession).length} session(s)</div>`;
+
+    for (const [sid, observations] of Object.entries(bySession)) {
+      const firstTs = observations[observations.length - 1]?.ts;
+      const dateStr = firstTs ? new Date(firstTs).toLocaleDateString('en-AU', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : sid;
+
+      html += `<div class="observations-session-group" style="margin-bottom:24px;">`;
+      html += `<div style="font-weight:600;margin-bottom:8px;color:var(--text-secondary);font-size:0.85em;text-transform:uppercase;letter-spacing:0.5px;">Session ${esc(sid)} · ${esc(dateStr)}</div>`;
+
+      for (const obs of observations) {
+        const type = obs.type || 'fact';
+        const icon = typeIcons[type] || '📝';
+        const color = typeColors[type] || '#666';
+        const importance = obs.importance || 3;
+        const dots = '●'.repeat(Math.min(importance, 5)) + '○'.repeat(Math.max(0, 5 - importance));
+
+        html += `
+          <div class="observation-card" style="display:flex;gap:12px;padding:10px 14px;margin-bottom:6px;border-radius:8px;background:var(--surface-elevated, #faf8f5);border:1px solid var(--border-light, #e8e2d8);">
+            <div style="font-size:1.1em;flex-shrink:0;">${icon}</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:0.92em;line-height:1.5;color:var(--text-primary);">${esc(obs.content || '')}</div>
+              <div style="display:flex;gap:12px;margin-top:4px;font-size:0.78em;color:var(--text-muted);">
+                <span style="background:${color}22;color:${color};padding:1px 7px;border-radius:4px;font-weight:500;">${esc(type)}</span>
+                <span title="Importance: ${importance}/5" style="letter-spacing:1px;font-size:0.85em;">${dots}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      html += `</div>`;
+    }
+
+    container.innerHTML = html;
   }
 
   async function renderSemanticMemory(container) {

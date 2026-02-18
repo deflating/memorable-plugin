@@ -9,7 +9,6 @@ from note_archive import archive_low_salience_notes
 from note_consolidation import run_consolidation
 from note_constants import ARCHIVE_AFTER_DAYS, ARCHIVE_DIRNAME, MAINTENANCE_INTERVAL_HOURS
 from note_store import load_all_notes, load_note_maintenance_state, save_note_maintenance_state
-from note_synthesis import create_missing_monthly_syntheses, create_missing_weekly_syntheses
 from note_utils import parse_iso_datetime, utc_now_iso
 
 __all__ = [
@@ -49,17 +48,9 @@ def run_maintenance_cycle(notes_dir: Path, entries: list[dict], now: datetime):
     archived = archive_low_salience_notes(notes_dir, now)
     entries = load_all_notes(notes_dir)
 
-    # Step 3: Template-based weekly/monthly synthesis
-    weekly_created = create_missing_weekly_syntheses(entries, now)
-    if weekly_created:
-        entries = load_all_notes(notes_dir)
-    monthly_created = create_missing_monthly_syntheses(entries, now)
-    if monthly_created:
-        entries = load_all_notes(notes_dir)
-
-    # Step 4: Update knowledge seed
+    # Step 3: Update knowledge seed
     knowledge_facts = update_knowledge_seed(entries, now)
-    return entries, archived, weekly_created, monthly_created, knowledge_facts
+    return entries, archived, knowledge_facts
 
 
 def run_hierarchical_consolidation(notes_dir: Path, entries: list[dict]) -> list[dict]:
@@ -69,9 +60,9 @@ def run_hierarchical_consolidation(notes_dir: Path, entries: list[dict]) -> list
     if last_run and (now - last_run) < timedelta(hours=MAINTENANCE_INTERVAL_HOURS):
         return entries
 
-    archived = weekly_created = monthly_created = knowledge_facts = 0
+    archived = knowledge_facts = 0
     try:
-        entries, archived, weekly_created, monthly_created, knowledge_facts = run_maintenance_cycle(
+        entries, archived, knowledge_facts = run_maintenance_cycle(
             notes_dir, entries, now
         )
     finally:
@@ -79,16 +70,13 @@ def run_hierarchical_consolidation(notes_dir: Path, entries: list[dict]) -> list
             {
                 "last_run": utc_now_iso(),
                 "archived": archived,
-                "weekly_created": weekly_created,
-                "monthly_created": monthly_created,
                 "knowledge_facts": knowledge_facts,
             }
         )
 
-    if archived or weekly_created or monthly_created or knowledge_facts:
+    if archived or knowledge_facts:
         print(
             f"\n[Memorable] Maintenance: archived={archived}, "
-            f"weekly={weekly_created}, monthly={monthly_created}, "
             f"knowledge_facts={knowledge_facts}."
         )
     return entries
