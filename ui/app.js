@@ -2615,53 +2615,72 @@
       return;
     }
 
+    const workingView = state.workingView || 'now';
+
     container.innerHTML = `
-      <div class="working-memory-card">
-        <div class="working-memory-header">
-          <span class="working-memory-label">now.md</span>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span class="working-memory-hint">Auto-generated from session notes</span>
-            <button class="btn btn-small" id="regenerate-summary-btn" title="Regenerate from last 5 days of notes">${ICON.refresh} Regenerate</button>
-          </div>
-        </div>
-        <div class="working-memory-content">${markdownToHtml(nowContent)}</div>
+      <div class="working-toggle" style="display:flex;gap:0;margin-bottom:16px;border:1px solid var(--border-light, #e8e2d8);border-radius:8px;overflow:hidden;width:fit-content;">
+        <button class="working-toggle-btn" data-view="now" style="padding:6px 16px;font-size:0.9em;border:none;cursor:pointer;background:${workingView === 'now' ? 'var(--accent, #6b5b3e)' : 'transparent'};color:${workingView === 'now' ? '#fff' : 'var(--text-secondary)'};">now.md</button>
+        <button class="working-toggle-btn" data-view="observations" style="padding:6px 16px;font-size:0.9em;border:none;border-left:1px solid var(--border-light, #e8e2d8);cursor:pointer;background:${workingView === 'observations' ? 'var(--accent, #6b5b3e)' : 'transparent'};color:${workingView === 'observations' ? '#fff' : 'var(--text-secondary)'};">Observations</button>
       </div>
-      <div id="observations-section" style="margin-top:24px;">
-        <div style="padding:12px 0;color:var(--text-muted);font-size:0.9em;">Loading observations...</div>
-      </div>
+      <div id="working-view-content"></div>
     `;
 
-    const regenBtn = container.querySelector('#regenerate-summary-btn');
-    if (regenBtn) {
-      regenBtn.addEventListener('click', async () => {
-        regenBtn.disabled = true;
-        regenBtn.textContent = 'Regenerating...';
-        try {
-          const resp = await fetch('/api/regenerate-summary', { method: 'POST' });
-          if (resp.ok) {
-            renderWorkingMemory(container);
-          } else {
+    // Bind toggle
+    container.querySelectorAll('.working-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.workingView = btn.dataset.view;
+        renderWorkingMemory(container);
+      });
+    });
+
+    const viewContent = container.querySelector('#working-view-content');
+
+    if (workingView === 'now') {
+      viewContent.innerHTML = `
+        <div class="working-memory-card">
+          <div class="working-memory-header">
+            <span class="working-memory-label">now.md</span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="working-memory-hint">Auto-generated from session notes</span>
+              <button class="btn btn-small" id="regenerate-summary-btn" title="Regenerate from last 5 days of notes">${ICON.refresh} Regenerate</button>
+            </div>
+          </div>
+          <div class="working-memory-content">${markdownToHtml(nowContent)}</div>
+        </div>
+      `;
+
+      const regenBtn = viewContent.querySelector('#regenerate-summary-btn');
+      if (regenBtn) {
+        regenBtn.addEventListener('click', async () => {
+          regenBtn.disabled = true;
+          regenBtn.textContent = 'Regenerating...';
+          try {
+            const resp = await fetch('/api/regenerate-summary', { method: 'POST' });
+            if (resp.ok) {
+              renderWorkingMemory(container);
+            } else {
+              regenBtn.textContent = 'Failed — retry?';
+              regenBtn.disabled = false;
+            }
+          } catch (e) {
             regenBtn.textContent = 'Failed — retry?';
             regenBtn.disabled = false;
           }
-        } catch (e) {
-          regenBtn.textContent = 'Failed — retry?';
-          regenBtn.disabled = false;
-        }
-      });
+        });
+      }
+    } else {
+      renderObservationsInline(viewContent);
     }
-
-    // Load observations into the section below now.md
-    const obsSection = container.querySelector('#observations-section');
-    renderObservationsInline(obsSection);
   }
 
   async function renderObservationsInline(container) {
+    container.innerHTML = '<div style="padding:12px 0;color:var(--text-muted);font-size:0.9em;">Loading observations...</div>';
+
     const data = await apiFetch('/api/observations');
     if (!data || !data.observations || data.observations.length === 0) {
       container.innerHTML = `
         <div style="padding:16px 0;color:var(--text-muted);font-size:0.9em;">
-          <strong>Observations</strong> — None yet. Facts are extracted every 15 messages during active sessions.
+          No observations yet. Facts are extracted every 15 messages during active sessions.
         </div>
       `;
       return;
@@ -2685,27 +2704,33 @@
       open_thread: '🧵',
     };
 
-    // Group by session
-    const bySession = {};
+    // Group by day
+    const byDay = {};
     for (const obs of data.observations) {
-      const sid = (obs.session || 'unknown').slice(0, 8);
-      if (!bySession[sid]) bySession[sid] = [];
-      bySession[sid].push(obs);
+      const ts = obs.ts || '';
+      const dayKey = ts ? new Date(ts).toLocaleDateString('en-AU', { weekday: 'long', month: 'short', day: 'numeric' }) : 'Unknown';
+      if (!byDay[dayKey]) byDay[dayKey] = [];
+      byDay[dayKey].push(obs);
     }
 
+    const dayKeys = Object.keys(byDay);
+
     let html = `
-      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0 12px;">
-        <strong style="font-size:1em;color:var(--text-primary);">Observations</strong>
-        <span style="color:var(--text-muted);font-size:0.85em;">${data.count} across ${Object.keys(bySession).length} session(s)</span>
-      </div>
+      <div style="color:var(--text-muted);font-size:0.85em;padding-bottom:12px;">${data.count} observations across ${dayKeys.length} day(s)</div>
     `;
 
-    for (const [sid, observations] of Object.entries(bySession)) {
-      const firstTs = observations[observations.length - 1]?.ts;
-      const dateStr = firstTs ? new Date(firstTs).toLocaleDateString('en-AU', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : sid;
+    dayKeys.forEach((day, idx) => {
+      const observations = byDay[day];
+      const isFirst = idx === 0;
 
-      html += `<div class="observations-session-group" style="margin-bottom:24px;">`;
-      html += `<div style="font-weight:600;margin-bottom:8px;color:var(--text-secondary);font-size:0.85em;text-transform:uppercase;letter-spacing:0.5px;">Session ${esc(sid)} · ${esc(dateStr)}</div>`;
+      html += `
+        <details class="obs-day-group" style="margin-bottom:8px;border:1px solid var(--border-light, #e8e2d8);border-radius:8px;overflow:hidden;" ${isFirst ? 'open' : ''}>
+          <summary style="padding:10px 14px;cursor:pointer;font-weight:600;font-size:0.9em;color:var(--text-primary);background:var(--surface-elevated, #faf8f5);user-select:none;display:flex;justify-content:space-between;align-items:center;">
+            <span>${esc(day)}</span>
+            <span style="font-weight:400;font-size:0.85em;color:var(--text-muted);">${observations.length} observation${observations.length !== 1 ? 's' : ''}</span>
+          </summary>
+          <div style="padding:8px;">
+      `;
 
       for (const obs of observations) {
         const type = obs.type || 'fact';
@@ -2715,7 +2740,7 @@
         const dots = '●'.repeat(Math.min(importance, 5)) + '○'.repeat(Math.max(0, 5 - importance));
 
         html += `
-          <div class="observation-card" style="display:flex;gap:12px;padding:10px 14px;margin-bottom:6px;border-radius:8px;background:var(--surface-elevated, #faf8f5);border:1px solid var(--border-light, #e8e2d8);">
+          <div style="display:flex;gap:12px;padding:8px 10px;margin-bottom:4px;border-radius:6px;">
             <div style="font-size:1.1em;flex-shrink:0;">${icon}</div>
             <div style="flex:1;min-width:0;">
               <div style="font-size:0.92em;line-height:1.5;color:var(--text-primary);">${esc(obs.content || '')}</div>
@@ -2728,8 +2753,8 @@
         `;
       }
 
-      html += `</div>`;
-    }
+      html += `</div></details>`;
+    });
 
     container.innerHTML = html;
   }
