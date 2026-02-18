@@ -2118,12 +2118,22 @@ def handle_post_import(handler):
 
 
 def handle_post_regenerate_summary():
-    """POST /api/regenerate-summary — force regenerate the rolling now.md summary."""
+    """POST /api/regenerate-summary — deep regenerate now.md from raw transcripts."""
     try:
-        from note_generator import generate_rolling_summary, get_config
-        cfg = get_config()
-        generate_rolling_summary(cfg, NOTES_DIR)
-        return 200, {"ok": True, "message": "Rolling summary regenerated."}
+        import sys
+        daemon_dir = str(Path(__file__).resolve().parent.parent / "daemon")
+        if daemon_dir not in sys.path:
+            sys.path.insert(0, daemon_dir)
+        from nowmd_daily_audit import audit
+        success = audit()
+        if success:
+            return 200, {"ok": True, "message": "Deep regeneration complete (read raw transcripts)."}
+        else:
+            return 500, error_response(
+                "REGENERATE_FAILED",
+                "Deep regeneration returned no result",
+                "Audit function returned False — check logs at ~/.memorable/logs/nowmd-daily-audit.log",
+            )
     except Exception as e:
         return 500, error_response(
             "REGENERATE_FAILED",

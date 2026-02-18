@@ -699,11 +699,11 @@ Output this exact markdown structure:
 
 *Last updated: {date}*
 
-## What Matters Right Now
-The most important things happening right now — lead with whatever is most significant across recent sessions, whether that's a life event, a project milestone, an emotional state, or a decision being made. Write 2-3 short paragraphs.
+## Active Focus
+What the user is primarily working on or dealing with RIGHT NOW. 1-2 sentences.
 
 ## Current State
-What's the user's current situation? Cover both personal context (if discussed) and technical/project context. Be specific — names, statuses, details. Bullet list, max 12 items.
+What's the user's current situation? Cover both personal context (if discussed) and technical/project context. Be specific — names, statuses, details. Bullet list, no max.
 
 ## Last 5 Days
 A day-by-day summary (most recent first). For each day, cover whatever was discussed — personal, technical, or both. Include emotional context where it appeared in the sessions. 2-3 lines per day.
