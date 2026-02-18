@@ -833,6 +833,88 @@ def generate_rolling_summary(cfg: dict, notes_dir: Path):
     log_error(f"SUCCESS: now.md written ({len(summary)} chars, {len(entries)} notes)")
 
 
+# -- Wax vector store ingestion --------------------------------------------
+
+WAX_CLI = Path.home() / "wax-memory" / ".build" / "debug" / "wax-memory"
+
+
+def _ingest_to_wax(session_id: str, note_text: str, parsed: dict, transcript_path: str):
+    """Ingest session note + transcript chunks into Wax vector store.
+
+    Runs entirely on-device (MiniLM embeddings on Apple Silicon).
+    Non-fatal — if Wax CLI isn't available, we just skip.
+    """
+    if not WAX_CLI.exists():
+        return
+
+    # 1. Ingest the session note
+    if note_text:
+        try:
+            proc = subprocess.run(
+                [str(WAX_CLI), "ingest-stdin", "--meta", f"source=note", "--meta", f"session={session_id}"],
+                input=note_text, capture_output=True, text=True, timeout=120,
+            )
+            if proc.returncode == 0:
+                log_error(f"Wax: note ingested for session {session_id}")
+            else:
+                log_error(f"Wax: note ingest failed: {proc.stderr[:200]}")
+        except Exception as e:
+            log_error(f"Wax: note ingest error: {e}")
+
+    # 2. Ingest transcript chunks
+    messages = parsed.get("messages", [])
+    if not messages:
+        return
+
+    # Build conversation text from parsed messages
+    conv_parts = []
+    for msg in messages:
+        role = msg.get("role", "?").upper()
+        text = msg.get("text", "").strip()
+        if text:
+            conv_parts.append(f"{role}: {text}")
+    full_text = "\n\n".join(conv_parts)
+
+    if not full_text:
+        return
+
+    # Chunk into ~2000 char segments with 200 char overlap
+    chunk_size = 2000
+    overlap = 200
+    chunks = []
+    start = 0
+    while start < len(full_text):
+        end = start + chunk_size
+        chunks.append(full_text[start:end])
+        start = end - overlap
+
+    # Ingest chunks via JSONL (single CLI call, one store open)
+    jsonl_lines = []
+    for i, chunk in enumerate(chunks):
+        entry = {
+            "text": chunk,
+            "meta": {
+                "source": "transcript",
+                "session": session_id,
+                "chunk": str(i),
+            }
+        }
+        jsonl_lines.append(json.dumps(entry))
+
+    jsonl_input = "\n".join(jsonl_lines)
+    try:
+        proc = subprocess.run(
+            [str(WAX_CLI), "ingest-jsonl"],
+            input=jsonl_input, capture_output=True, text=True, timeout=300,
+        )
+        if proc.returncode == 0:
+            log_error(f"Wax: {len(chunks)} transcript chunks ingested for session {session_id}")
+        else:
+            log_error(f"Wax: transcript ingest failed: {proc.stderr[:200]}")
+    except Exception as e:
+        log_error(f"Wax: transcript ingest error: {e}")
+
+
 # -- High-level entry point ------------------------------------------------
 
 
@@ -981,5 +1063,11 @@ def generate_note(session_id: str, transcript_path: str, machine_id: str = None)
         generate_rolling_summary(cfg, notes_dir)
     except Exception as e:
         log_error(f"Rolling summary failed (non-fatal): {e}")
+
+    # Ingest into Wax vector store (note + transcript chunks)
+    try:
+        _ingest_to_wax(session_id, note_text, parsed, transcript_path)
+    except Exception as e:
+        log_error(f"Wax ingestion failed (non-fatal): {e}")
 
     return True
