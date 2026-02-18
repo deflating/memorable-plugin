@@ -24,18 +24,6 @@
           }
         ]
       }
-    ],
-    "UserPromptSubmit": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/live_extraction.py",
-            "timeout": 3
-          }
-        ]
-      }
     ]
   }
 }
