@@ -330,6 +330,55 @@ def call_claude(prompt: str, api_key: str, model: str = "claude-haiku-4-5-202510
     return data["content"][0]["text"]
 
 
+def call_claude_sdk(prompt: str, cfg: dict) -> str:
+    """Call Claude via the Agent SDK with Haiku."""
+    import asyncio
+
+    # Must unset CLAUDECODE to allow SDK to spawn claude CLI subprocesses
+    os.environ.pop("CLAUDECODE", None)
+
+    from claude_code_sdk import query as sdk_query, ClaudeCodeOptions
+
+    sdk_cfg = cfg.get("claude_sdk", {})
+    model = sdk_cfg.get("model", "claude-haiku-4-5-20251001")
+    max_turns = sdk_cfg.get("max_turns", 1)
+
+    async def _run():
+        result_parts = []
+        async for message in sdk_query(
+            prompt=prompt,
+            options=ClaudeCodeOptions(
+                model=model,
+                permission_mode="bypassPermissions",
+                max_turns=max_turns,
+                cwd=str(Path.home()),
+            ),
+        ):
+            if hasattr(message, "content"):
+                for block in message.content:
+                    if hasattr(block, "text"):
+                        result_parts.append(block.text)
+        return "\n".join(result_parts)
+
+    # Run async in a new event loop (daemon is sync)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # Already in an async context — create a task
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            result = pool.submit(lambda: asyncio.run(_run())).result(timeout=300)
+    else:
+        result = asyncio.run(_run())
+
+    if not result or not result.strip():
+        raise RuntimeError("Claude SDK returned empty output.")
+    return result.strip()
+
+
 def call_claude_cli(prompt: str, cfg: dict) -> str:
     """Call Claude CLI via `claude -p <prompt>`."""
     command = DEFAULT_CLAUDE_CLI_COMMAND
@@ -393,15 +442,19 @@ def _normalize_provider_name(provider: str) -> str:
         return "claude_api"
     if value in {"claude-cli", "claude_cli"}:
         return "claude_cli"
+    if value in {"claude-sdk", "claude_sdk", "sdk"}:
+        return "claude_sdk"
     return value
 
 
 def _normalize_route_name(route: str) -> str:
     value = (route or "").strip().lower().replace(" ", "_")
-    if value in {"claude", "claude-cli", "claude_cli"}:
+    if value in {"claude-cli", "claude_cli"}:
         return "claude_cli"
     if value in {"claude-api", "claude_api"}:
         return "claude_api"
+    if value in {"claude-sdk", "claude_sdk", "sdk"}:
+        return "claude_sdk"
     return value
 
 
@@ -411,7 +464,7 @@ def _resolve_task_route(cfg: dict, task: str, provider_fallback: str) -> str:
         route_raw = routing.get(task)
         if isinstance(route_raw, str):
             route = _normalize_route_name(route_raw)
-            if route in {"deepseek", "gemini", "claude_api", "claude_cli"}:
+            if route in {"deepseek", "gemini", "claude_api", "claude_cli", "claude_sdk"}:
                 return route
 
     if provider_fallback in {"claude", "claude_api"}:
@@ -461,6 +514,9 @@ def call_llm(prompt: str, cfg: dict, task: str = "session_notes") -> str:
 
     if route == "claude_cli":
         return call_claude_cli(prompt, cfg)
+
+    if route == "claude_sdk":
+        return call_claude_sdk(prompt, cfg)
 
     # Fall back to env vars if no key in config
     if not api_key:
