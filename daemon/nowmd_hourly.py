@@ -122,7 +122,7 @@ Rules:
 - COMPLETENESS IS CRITICAL: Every open thread, every decision, every rejection from the session notes MUST be represented. If you're unsure whether to include something, INCLUDE IT. The cost of forgetting something far exceeds the cost of being slightly too long.
 - Prioritise the most recent session heavily — that's the freshest context.
 - Use the user's actual words where possible, especially about how they're feeling.
-- Don't include session timestamps or machine names.
+- Each session note below is prefixed with its DATE. Use ONLY those dates for the Last 5 Days section. Do NOT invent or guess dates. If no notes exist for a particular day, skip that day entirely.
 - Include technical details: file paths, tool names, version numbers, config values. These matter for future sessions.
 
 Here are the session notes:
@@ -136,17 +136,25 @@ def generate():
         log("No recent notes found, skipping")
         return
 
-    # Build notes text, cap at 60K chars
+    # Build notes text with dates, cap at 60K chars
     parts = []
     total = 0
     for entry in entries:
         note = entry.get("note", "")
         if not note:
             continue
-        if total + len(note) > 60_000:
+        # Prefix each note with its date
+        ts = entry.get("ts", "")
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            date_str = dt.strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            date_str = "unknown-date"
+        dated_note = f"[DATE: {date_str}]\n{note}"
+        if total + len(dated_note) > 60_000:
             break
-        parts.append(note)
-        total += len(note)
+        parts.append(dated_note)
+        total += len(dated_note)
 
     notes_text = "\n\n---\n\n".join(parts)
     today = datetime.now().strftime("%Y-%m-%d")
