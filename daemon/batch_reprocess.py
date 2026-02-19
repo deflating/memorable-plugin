@@ -121,7 +121,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--min-messages", type=int, default=3)
+    parser.add_argument("--min-messages", type=int, default=5)
     parser.add_argument("--skip-delete", action="store_true")
     args = parser.parse_args()
 
