@@ -9,6 +9,9 @@ NOTES_DIR = DATA_DIR / "notes"
 
 NOTE_MAINTENANCE_PATH = DATA_DIR / "note_maintenance.json"
 
+WEEKLY_SYNTHESIS_PATH = NOTES_DIR / "synthesis_weekly.jsonl"
+MONTHLY_SYNTHESIS_PATH = NOTES_DIR / "synthesis_monthly.jsonl"
+
 ARCHIVE_DIRNAME = "archive"
 ARCHIVE_MIN_SALIENCE = 0.1
 ARCHIVE_AFTER_DAYS = 90
