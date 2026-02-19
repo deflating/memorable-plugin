@@ -126,13 +126,16 @@ def main():
     args = parser.parse_args()
 
     cfg = get_config()
-    # Override to use CLI with Haiku for batch speed
+    # Ensure CLI config uses Haiku, but respect existing command path from config
+    existing_cli = cfg.get("claude_cli", {})
     cfg["claude_cli"] = {
-        "command": "claude",
+        "command": existing_cli.get("command", "claude"),
         "prompt_flag": "-p",
         "model_flag": "--model",
         "model": "claude-haiku-4-5-20251001",
     }
+    cfg["llm_routing"] = cfg.get("llm_routing", {})
+    cfg["llm_routing"]["session_notes"] = "claude_cli"
     machine_id = get_machine_id(cfg)
 
     all_transcripts = find_all_transcripts()
